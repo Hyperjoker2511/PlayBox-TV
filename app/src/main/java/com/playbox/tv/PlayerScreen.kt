@@ -41,6 +41,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,12 +57,38 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+
+/** Subtitle lookup for one video: File-based for folder-browsed videos,
+ * content-URI lookup for MediaStore / SAF videos. Runs on Dispatchers.IO
+ * (Batch 1.3, B7) — never on the main thread. */
+private fun lookupSubtitleForItem(context: Context, item: VideoItem, subsOn: Boolean): Pair<Uri, String>? {
+    if (!subsOn) return null
+    return try {
+        if (item.path.startsWith("content://")) MediaLibrary.findSubtitleForUri(context, item.path)
+        else {
+            val f = File(item.path)
+            if (f.exists()) SubtitleFinder.findForVideo(f)?.let { Uri.fromFile(it) to it.name } else null
+        }
+    } catch (_: Exception) { null }
+}
+
+/** Persist the current position (Batch 1.3, B9): called on pause, on
+ * stop, on exit and every ~10s while playing, so a low-RAM TV killing
+ * the process does not lose the position. */
+private fun persistResumePosition(context: Context, player: ExoPlayer, item: VideoItem) {
+    try {
+        saveResumePosition(context, item.path, player.currentPosition, player.duration)
+    } catch (_: Exception) { }
+}
 
 @OptIn(UnstableApi::class)
 @Composable
-internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit) {
+internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
     val skipSec = settings.getInt("skip_seconds", 10)
@@ -75,6 +102,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () ->
     var panel by remember { mutableStateOf<String?>(null) }
     var ended by remember { mutableStateOf(false) }
     var subsOn by remember { mutableStateOf(settings.getBoolean("subtitles_on", true)) }
+    // B6: any remote interaction restarts the controls auto-hide countdown.
+    var interactionTick by remember { mutableStateOf(0) }
+    // B2: resume position held for videos whose duration is unknown at
+    // load time (folder/USB) — applied once the player reports its duration.
+    var pendingResumeMs by remember(item) { mutableStateOf(0L) }
+    // B7: subtitle found off the main thread; the player is only set up
+    // once the lookup has finished (bounded by a 2s timeout).
+    var subtitle by remember(item) { mutableStateOf<Pair<Uri, String>?>(null) }
+    var subtitleReady by remember(item) { mutableStateOf(false) }
+    var lastSavedMs by remember { mutableStateOf(0L) }
 
     val rootFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
@@ -90,6 +127,13 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () ->
             }
         }
     }
+
+    // B5: keep the screen on while playing. setWakeMode(WAKE_MODE_LOCAL)
+    // is a CPU/Wi-Fi lock for when the screen is off — it does NOT stop
+    // the screen dimming mid-movie.
+    val view = LocalView.current
+    LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying }
+    DisposableEffect(Unit) { onDispose { view.keepScreenOn = false } }
 
     val player = remember(item) {
         ExoPlayer.Builder(context).build().apply {
@@ -113,73 +157,129 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () ->
             })
         }
     }
+    // B9d: the player is created in remember(item) — release it in its own
+    // effect, so a discarded composition can never leak it.
+    DisposableEffect(player) { onDispose { runCatching { player.release() } } }
 
-    DisposableEffect(item) {
-        ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null
-        val prefs = context.getSharedPreferences("playbox_resume", Context.MODE_PRIVATE)
-        val saved = prefs.getLong(item.path.hashCode().toString(), 0L)
-        // Subtitles: File-based for folder-browsed videos, content-URI lookup
-        // for MediaStore / SAF videos (File(path) finds nothing there).
-        val subtitle: Pair<Uri, String>? = try {
-            if (!subsOn) null
-            else if (item.path.startsWith("content://")) MediaLibrary.findSubtitleForUri(context, item.path)
-            else {
-                val f = File(item.path)
-                if (f.exists()) SubtitleFinder.findForVideo(f)?.let { Uri.fromFile(it) to it.name } else null
-            }
-        } catch (_: Exception) { null }
-        val subtitleConfigs = if (subtitle != null) {
-            listOf(
-                MediaItem.SubtitleConfiguration.Builder(subtitle.first)
-                    .setMimeType(SubtitleFinder.subtitleMimeTypeForName(subtitle.second))
-                    .setLanguage("en").setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
-            )
-        } else emptyList()
-        player.setMediaItem(MediaItem.Builder().setUri(Uri.parse(item.path)).setSubtitleConfigurations(subtitleConfigs).build())
-        player.prepare()
-        val resumeAt = if (ResumeStore.shouldResume(saved, item.durationMs)) saved else 0L
-        if (resumeAt > 0) { player.seekTo(resumeAt); status = "Resumed at ${TimeFormatter.format(resumeAt)}" }
-        player.setPlaybackSpeed(speed)
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
-        player.play()
-        onDispose {
-            try {
-                val pos = player.currentPosition
-                val dur = player.duration
-                if (pos > 5_000L && dur > 0L && pos < dur - 10_000L) prefs.edit().putLong(item.path.hashCode().toString(), pos).apply()
-                else prefs.edit().remove(item.path.hashCode().toString()).apply()
-            } catch (_: Exception) { }
-            player.release()
+    // B7: subtitle lookup on Dispatchers.IO, bounded so a huge folder
+    // listing cannot stall playback start for more than ~2s.
+    LaunchedEffect(item) {
+        subtitleReady = false
+        subtitle = withContext(Dispatchers.IO) {
+            withTimeoutOrNull(2_000L) { lookupSubtitleForItem(context, item, subsOn) }
         }
+        subtitleReady = true
+    }
+
+    // Player setup — runs once the subtitle lookup has finished. The no-op
+    // branch exists because DisposableEffect must always end in onDispose.
+    DisposableEffect(item, subtitleReady, fromStart) {
+        if (!subtitleReady) {
+            onDispose { }
+        } else {
+            ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null; pendingResumeMs = 0L
+            val sub = subtitle
+            val subtitleConfigs = if (sub != null) {
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(sub.first)
+                        .setMimeType(SubtitleFinder.subtitleMimeTypeForName(sub.second))
+                        .setLanguage("en").setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
+                )
+            } else emptyList()
+            player.setMediaItem(MediaItem.Builder().setUri(Uri.parse(item.path)).setSubtitleConfigurations(subtitleConfigs).build())
+            player.prepare()
+            if (fromStart) {
+                // B1: "Play from start" really starts over — and clears the
+                // saved position so the next open does not offer Resume.
+                clearResumePosition(context, item.path)
+            } else {
+                val saved = savedResumePosition(context, item.path)
+                if (item.durationMs > 0L) {
+                    val resumeAt = if (ResumeStore.shouldResume(saved, item.durationMs)) saved else 0L
+                    if (resumeAt > 0) { player.seekTo(resumeAt); status = "Resumed at ${TimeFormatter.format(resumeAt)}" }
+                } else if (ResumeStore.hasSavedPosition(saved)) {
+                    // B2: duration unknown for folder/USB videos — hold the
+                    // position until the player reports its real duration.
+                    pendingResumeMs = saved
+                }
+            }
+            player.setPlaybackSpeed(speed)
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
+            player.play()
+            onDispose { }
+        }
+    }
+
+    // B2 (unknown duration): once the player reports its real duration,
+    // apply the held resume position — or drop it if it is too near the end.
+    LaunchedEffect(durationMs) {
+        val pr = pendingResumeMs
+        if (pr > 0L && durationMs > 0L) {
+            if (ResumeStore.shouldResume(pr, durationMs)) {
+                player.seekTo(pr)
+                positionMs = pr
+                status = "Resumed at ${TimeFormatter.format(pr)}"
+            }
+            pendingResumeMs = 0L
+        }
+    }
+
+    // B9b: save on exit (best effort — the throttled poll save below and
+    // the ON_STOP save are the reliable ones).
+    DisposableEffect(item) {
+        onDispose { persistResumePosition(context, player, item) }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, player) {
-        val observer = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) runCatching { player.pause() } }
+        val observer = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) {
+                runCatching { player.pause() }
+                persistResumePosition(context, player, item)
+            }
+        }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // B9b: save whenever playback pauses, not only on exit.
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying && positionMs > 5_000L) persistResumePosition(context, player, item)
+    }
+
     LaunchedEffect(isPlaying, player) {
         while (true) {
-            try { positionMs = player.currentPosition; durationMs = player.duration } catch (_: Exception) { }
+            try {
+                positionMs = player.currentPosition; durationMs = player.duration
+                // B9b: throttled save while playing — a process kill on a
+                // low-RAM TV loses at most ~10s of progress.
+                if (isPlaying && positionMs > 5_000L && positionMs - lastSavedMs >= 10_000L) {
+                    persistResumePosition(context, player, item)
+                    lastSavedMs = positionMs
+                }
+            } catch (_: Exception) { }
             delay(500)
         }
     }
-    LaunchedEffect(showControls, isPlaying) {
+    // B6: the hide countdown restarts on any interaction, and an open
+    // panel or the ended screen keeps the controls up.
+    LaunchedEffect(showControls, isPlaying, panel, ended, interactionTick) {
         if (showControls && isPlaying && panel == null && !ended) { delay(5000); showControls = false }
     }
 
+    fun pokeControls() { showControls = true; interactionTick++ }
     fun seekBy(delta: Long) {
         val target = SeekHelper.clampSeek(positionMs, delta, durationMs)
-        player.seekTo(target); positionMs = target; showControls = true
+        player.seekTo(target); positionMs = target; pokeControls()
     }
     fun cycleSpeed() {
         val next = when (speed) { 1f -> 1.5f; 1.5f -> 2f; 2f -> 0.5f; else -> 1f }
         speed = next; player.setPlaybackSpeed(next); settings.edit().putFloat("default_speed", next).apply()
+        pokeControls()
     }
     fun cycleAudioTrack() {
+        pokeControls()
         try {
             val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
             if (groups.isEmpty()) { status = "No audio tracks found"; return }
@@ -193,7 +293,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () ->
         } catch (e: Exception) { status = "Audio switch failed" }
     }
 
-    val nextItem = queue.getOrNull(queue.indexOf(item) + 1)
+    // B3: guard the queue lookup — an item that is not in the queue must
+    // not fall through to getOrNull(0), the first unrelated video.
+    val queueIndex = queue.indexOf(item)
+    val nextItem = if (queueIndex >= 0) queue.getOrNull(queueIndex + 1) else null
 
     BackHandler {
         when {
@@ -209,23 +312,25 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () ->
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                // B6: every remote press restarts the auto-hide countdown.
+                interactionTick++
                 val uiVisible = showControls || panel != null || ended
                 when (event.key) {
                     Key.MediaFastForward -> { seekBy(30_000L); true }
                     Key.MediaRewind -> { seekBy(-30_000L); true }
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
-                        if (player.isPlaying) player.pause() else player.play(); showControls = true; true
+                        if (player.isPlaying) player.pause() else player.play(); pokeControls(); true
                     }
                     Key.DirectionLeft, Key.DirectionRight ->
                         if (uiVisible) false
                         else { seekBy(if (event.key == Key.DirectionLeft) -skipMs else skipMs); true }
                     Key.DirectionUp, Key.DirectionDown, Key.DirectionCenter, Key.Enter ->
                         if (uiVisible) false
-                        else { showControls = true; true }
+                        else { pokeControls(); true }
                     else -> false
                 }
             }
-            .clickable { showControls = !showControls }
+            .clickable { showControls = !showControls; interactionTick++ }
     ) {
         AndroidView(factory = { ctx -> SurfaceView(ctx).also { player.setVideoSurfaceView(it) } }, modifier = Modifier.fillMaxSize())
 
