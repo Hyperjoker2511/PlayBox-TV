@@ -51,6 +51,11 @@ internal fun NetworkScreen(
     onServer: (SmbServer?) -> Unit,
     path: String?,
     onPath: (String?) -> Unit,
+    // Patch 7: FTP/SFTP, same pattern as SMB — files play through LibVLC.
+    ftpServer: FtpServer?,
+    onFtpServer: (FtpServer?) -> Unit,
+    ftpPath: String?,
+    onFtpPath: (String?) -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit
 ) {
     val context = LocalContext.current
@@ -85,6 +90,43 @@ internal fun NetworkScreen(
                 else -> entries = result.getOrThrow()
             }
         }
+    }
+
+    // Patch 7: FTP/SFTP state, mirroring the SMB state above.
+    var ftpServers by remember { mutableStateOf(FtpNetwork.servers(context)) }
+    var showFtpForm by remember { mutableStateOf(false) }
+    var ftpProtocol by remember { mutableStateOf("ftp") }
+    var ftpHost by remember { mutableStateOf("") }
+    var ftpPort by remember { mutableStateOf("21") }
+    var ftpUser by remember { mutableStateOf("") }
+    var ftpPass by remember { mutableStateOf("") }
+    var ftpFormError by remember { mutableStateOf<String?>(null) }
+    var ftpEntries by remember { mutableStateOf<List<FtpEntry>>(emptyList()) }
+    var ftpBrowseError by remember { mutableStateOf<String?>(null) }
+    var ftpLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(ftpServer, ftpPath) {
+        ftpEntries = emptyList()
+        ftpBrowseError = null
+        val s = ftpServer
+        val p = ftpPath
+        if (s != null && p != null) {
+            ftpLoading = true
+            val result = withContext(Dispatchers.IO) {
+                withTimeoutOrNull(15_000L) { runCatching { FtpNetwork.listFolder(s, p) } }
+            }
+            ftpLoading = false
+            when {
+                result == null -> ftpBrowseError = "Timed out — check the server is on and on the same Wi-Fi."
+                result.isFailure -> ftpBrowseError = "Couldn't reach this server — check the address, port, and password."
+                else -> ftpEntries = result.getOrThrow()
+            }
+        }
+    }
+
+    fun ftpParentPath(path: String): String? {
+        val trimmed = path.trimEnd('/')
+        if (trimmed.isEmpty() || trimmed == "/") return null
+        return trimmed.substringBeforeLast('/', "/") + "/"
     }
 
     fun parentPath(url: String, srv: SmbServer): String? {
@@ -229,6 +271,120 @@ internal fun NetworkScreen(
                     TvButton("Add a server") { showAddForm = true }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Share a folder on your PC or NAS, then add it here once — PlayBox remembers it.", fontSize = 18.sp, color = Muted)
+                }
+            }
+        }
+
+        // Patch 7: FTP / SFTP servers. Files play through LibVLC.
+        if (ftpServer != null && ftpPath != null) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TvButton("Back") {
+                        val parent = ftpParentPath(ftpPath)
+                        if (parent == null) { onFtpServer(null); onFtpPath(null) } else onFtpPath(parent)
+                    }
+                    TvButton("Close server") { onFtpServer(null); onFtpPath(null) }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("${ftpServer.label()}  —  $ftpPath", fontSize = 20.sp, color = Muted)
+                Spacer(modifier = Modifier.height(16.dp))
+                if (ftpLoading) Text("Loading…", fontSize = 20.sp, color = Muted)
+                ftpBrowseError?.let { Text(it, fontSize = 20.sp, color = Muted) }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            val ftpMedia = ftpEntries.filter { !it.isDir && VideoFilter.isMediaFile(it.name) }
+                .map {
+                    VideoItem(
+                        path = ftpPlayUrl(ftpServer, it.path),
+                        name = it.name, sizeBytes = it.size,
+                        dateAddedSec = it.lastModified / 1000
+                    )
+                }
+            items(ftpEntries.filter { it.isDir }, key = { it.path }) { entry ->
+                Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onFtpPath(entry.path) }.padding(20.dp)) {
+                    Text("Folder: ${entry.name}", fontSize = 20.sp, color = White)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            items(ftpMedia, key = { it.path }) { item ->
+                Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onOpen(item, ftpMedia) }.padding(20.dp)) {
+                    Text(if (item.likelyUnsupported) "${item.name}  ·  May not play" else item.name, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (!ftpLoading && ftpBrowseError == null && ftpEntries.isEmpty()) {
+                item { Text("This folder is empty.", fontSize = 20.sp, color = Muted) }
+            }
+        } else {
+            item {
+                Text("FTP / SFTP servers", fontSize = 24.sp, color = White)
+                Spacer(modifier = Modifier.height(12.dp))
+                if (ftpServers.isEmpty()) Text("No servers yet — add your PC, NAS or seedbox below.", fontSize = 20.sp, color = Muted)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            items(ftpServers, key = { it.label() }) { srv ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(modifier = Modifier.weight(1f).background(Surface, RoundedCornerShape(16.dp)).clickable { onFtpServer(srv); onFtpPath(srv.rootPath()) }.padding(20.dp)) {
+                        Text(srv.label(), fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    TvButton("Remove") {
+                        FtpNetwork.removeServer(context, srv)
+                        ftpServers = FtpNetwork.servers(context)
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            item {
+                if (showFtpForm) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        GlassButton("FTP", active = ftpProtocol == "ftp") { ftpProtocol = "ftp"; ftpPort = "21" }
+                        GlassButton("SFTP", active = ftpProtocol == "sftp") { ftpProtocol = "sftp"; ftpPort = "22" }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextField(value = ftpHost, onValueChange = { ftpHost = it }, placeholder = { Text("Address — e.g. 192.168.1.10", color = Muted) }, singleLine = true,
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Surface, unfocusedContainerColor = Surface, focusedTextColor = White, unfocusedTextColor = White, cursorColor = Primary, focusedIndicatorColor = Primary, unfocusedIndicatorColor = Color.Transparent),
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextField(value = ftpPort, onValueChange = { ftpPort = it }, placeholder = { Text("Port — 21 for FTP, 22 for SFTP", color = Muted) }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Surface, unfocusedContainerColor = Surface, focusedTextColor = White, unfocusedTextColor = White, cursorColor = Primary, focusedIndicatorColor = Primary, unfocusedIndicatorColor = Color.Transparent),
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextField(value = ftpUser, onValueChange = { ftpUser = it }, placeholder = { Text("Username (leave empty for anonymous FTP)", color = Muted) }, singleLine = true,
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Surface, unfocusedContainerColor = Surface, focusedTextColor = White, unfocusedTextColor = White, cursorColor = Primary, focusedIndicatorColor = Primary, unfocusedIndicatorColor = Color.Transparent),
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextField(value = ftpPass, onValueChange = { ftpPass = it }, placeholder = { Text("Password", color = Muted) }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        colors = TextFieldDefaults.colors(focusedContainerColor = Surface, unfocusedContainerColor = Surface, focusedTextColor = White, unfocusedTextColor = White, cursorColor = Primary, focusedIndicatorColor = Primary, unfocusedIndicatorColor = Color.Transparent),
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ftpFormError?.let { Text(it, fontSize = 18.sp, color = Muted); Spacer(modifier = Modifier.height(8.dp)) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TvButton("Save server") {
+                            val h = ftpHost.trim()
+                            val port = ftpPort.trim().toIntOrNull()
+                            if (h.isEmpty()) {
+                                ftpFormError = "Address is needed."
+                            } else if (port == null || port !in 1..65535) {
+                                ftpFormError = "Port must be a number from 1 to 65535."
+                            } else {
+                                val srv = FtpServer(ftpProtocol, h, port, ftpUser.trim(), ftpPass)
+                                FtpNetwork.saveServer(context, srv)
+                                ftpServers = FtpNetwork.servers(context)
+                                showFtpForm = false
+                                ftpHost = ""; ftpPort = "21"; ftpUser = ""; ftpPass = ""
+                                ftpFormError = null
+                                onFtpServer(srv); onFtpPath(srv.rootPath())
+                            }
+                        }
+                        TvButton("Cancel") { showFtpForm = false; ftpFormError = null }
+                    }
+                } else {
+                    TvButton("Add a server") { showFtpForm = true }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("FTP and SFTP files play through LibVLC. SFTP is the secure one — use it when your server offers it.", fontSize = 18.sp, color = Muted)
                 }
             }
         }
