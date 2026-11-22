@@ -8,13 +8,13 @@ import android.os.Build
 import android.os.Bundle
 import android.view.SurfaceView
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,14 +61,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Calendar
 
@@ -113,7 +120,7 @@ private fun resumePositions(context: Context): Map<String, Long> {
 class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
+    ) { permissionTick.value++ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -129,6 +136,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val permissionTick = mutableStateOf(0)
+
+private fun mediaPermissionDenied(context: Context): Boolean {
+    val perms = if (Build.VERSION.SDK_INT >= 33) {
+        arrayOf(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_AUDIO)
+    } else {
+        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+    return perms.any { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+}
+
 @Composable
 private fun PlayBoxApp() {
     val context = LocalContext.current
@@ -138,8 +156,17 @@ private fun PlayBoxApp() {
     var playList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var search by remember { mutableStateOf("") }
 
-    val videos = remember { MediaLibrary.listVideosFromMediaStore(context) }
-    val audio = remember { MediaLibrary.listAudioFromMediaStore(context) }
+    val tick by permissionTick
+    var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var audio by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var libraryLoaded by remember { mutableStateOf(false) }
+    var permissionDenied by remember { mutableStateOf(false) }
+    LaunchedEffect(tick) {
+        permissionDenied = mediaPermissionDenied(context)
+        videos = withContext(Dispatchers.IO) { MediaLibrary.listVideosFromMediaStore(context) }
+        audio = withContext(Dispatchers.IO) { MediaLibrary.listAudioFromMediaStore(context) }
+        libraryLoaded = true
+    }
     val all = remember(videos, audio) { videos + audio }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Primary, surface = Bg, background = Bg)) {
@@ -164,6 +191,7 @@ private fun PlayBoxApp() {
                         when (tab) {
                             Tab.Home -> HomeScreen(
                                 videos = videos, audio = audio,
+                                loading = !libraryLoaded, permissionDenied = permissionDenied,
                                 onOpen = { details = it },
                                 onFolders = { tab = Tab.Library }
                             )
@@ -172,7 +200,7 @@ private fun PlayBoxApp() {
                                 onOpen = { details = it }
                             )
                             Tab.Library -> LibraryScreen(
-                                videos = videos, audio = audio,
+                                videos = videos, audio = audio, loading = !libraryLoaded,
                                 onOpen = { details = it }
                             )
                             Tab.Settings -> SettingsScreen()
@@ -195,7 +223,7 @@ private fun TvTile(text: String, sub: String? = null, onClick: () -> Unit) {
             .width(220.dp)
             .background(if (focused) PrimaryContainer else Surface, RoundedCornerShape(24.dp))
             .border(if (focused) 4.dp else 0.dp, if (focused) Primary else Color.Transparent, RoundedCornerShape(24.dp))
-            .focusRequester(req).onFocusChanged { focused = it.isFocused }.focusable()
+            .focusRequester(req).onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
             .padding(20.dp)
     ) {
@@ -208,14 +236,14 @@ private fun TvTile(text: String, sub: String? = null, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TvButton(text: String, onClick: () -> Unit) {
+private fun TvButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val req = remember { FocusRequester() }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .background(if (focused) White else Surface, RoundedCornerShape(28.dp))
             .border(if (focused) 4.dp else 0.dp, if (focused) Primary else Color.Transparent, RoundedCornerShape(28.dp))
-            .focusRequester(req).onFocusChanged { focused = it.isFocused }.focusable()
+            .focusRequester(req).onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
             .padding(horizontal = 28.dp, vertical = 16.dp)
     ) {
@@ -245,7 +273,7 @@ private fun Rail(tab: Tab, onTab: (Tab) -> Unit) {
                     .width(116.dp)
                     .background(if (active) SecondaryContainer else Color.Transparent, RoundedCornerShape(28.dp))
                     .border(if (focused) 4.dp else 0.dp, if (focused) Primary else Color.Transparent, RoundedCornerShape(28.dp))
-                    .focusRequester(req).onFocusChanged { focused = it.isFocused }.focusable()
+                    .focusRequester(req).onFocusChanged { focused = it.isFocused }
                     .clickable { onTab(t) }
                     .padding(vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -262,7 +290,7 @@ private fun Rail(tab: Tab, onTab: (Tab) -> Unit) {
 /* ---------- Home / Search / Library / Settings ---------- */
 
 @Composable
-private fun HomeScreen(videos: List<VideoItem>, audio: List<VideoItem>, onOpen: (VideoItem) -> Unit, onFolders: () -> Unit) {
+private fun HomeScreen(videos: List<VideoItem>, audio: List<VideoItem>, loading: Boolean, permissionDenied: Boolean, onOpen: (VideoItem) -> Unit, onFolders: () -> Unit) {
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
     val continueWatching = videos.filter { resume.containsKey(it.path.hashCode().toString()) }
@@ -272,6 +300,10 @@ private fun HomeScreen(videos: List<VideoItem>, audio: List<VideoItem>, onOpen: 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(start = 32.dp, top = 32.dp, end = 32.dp)) {
         item {
             Text("${greeting()}", fontSize = 22.sp, color = Primary)
+            if (permissionDenied) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("PlayBox can't see your videos yet — media permission was not allowed. You can still browse Folders / USB, or allow it in Settings.", fontSize = 20.sp, color = Muted)
+            }
             if (hero != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(hero.name, fontSize = 48.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -286,8 +318,8 @@ private fun HomeScreen(videos: List<VideoItem>, audio: List<VideoItem>, onOpen: 
                 }
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("No videos yet", fontSize = 40.sp, color = White)
-                Text("Plug in a USB drive, or copy a video to this TV, and it will show up here.", fontSize = 20.sp, color = Muted)
+                Text(if (loading) "Loading your files…" else "No videos yet", fontSize = 40.sp, color = White)
+                Text(if (loading) "This takes a moment on a big library." else "Plug in a USB drive, or copy a video to this TV, and it will show up here.", fontSize = 20.sp, color = Muted)
                 Spacer(modifier = Modifier.height(16.dp))
                 TvButton("Folders / USB") { onFolders() }
             }
@@ -361,11 +393,15 @@ private fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Stri
 }
 
 @Composable
-private fun LibraryScreen(videos: List<VideoItem>, audio: List<VideoItem>, onOpen: (VideoItem) -> Unit) {
+private fun LibraryScreen(videos: List<VideoItem>, audio: List<VideoItem>, loading: Boolean, onOpen: (VideoItem) -> Unit) {
     val context = LocalContext.current
     var mode by remember { mutableStateOf("Videos") }
     var folder by remember { mutableStateOf<File?>(null) }
     val roots = remember { MediaLibrary.storageRoots() }
+    BackHandler(enabled = folder != null) {
+        val parent = folder?.parentFile
+        folder = if (parent != null && roots.any { parent.absolutePath.startsWith(it.absolutePath) }) parent else null
+    }
     val (dirs, media) = remember(folder) { val f = folder; if (f == null) emptyList<File>() to emptyList() else MediaLibrary.listFolder(f) }
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(32.dp)) {
@@ -413,7 +449,7 @@ private fun LibraryScreen(videos: List<VideoItem>, audio: List<VideoItem>, onOpe
             else -> {
                 val list = if (mode == "Videos") videos else audio
                 if (list.isEmpty()) {
-                    item { Text("No ${mode.lowercase()} found yet.", fontSize = 20.sp, color = Muted) }
+                    item { Text(if (loading) "Loading…" else "No ${mode.lowercase()} found yet.", fontSize = 20.sp, color = Muted) }
                 } else {
                     items(list.chunked(3)) { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -452,7 +488,7 @@ private fun SettingsScreen() {
             Spacer(modifier = Modifier.height(24.dp))
             Text("About", fontSize = 24.sp, color = White)
             Spacer(modifier = Modifier.height(12.dp))
-            Text("PlayBox TV 1.0.0 — Batch 1, working video player for Jio TV.", fontSize = 20.sp, color = White)
+            Text("PlayBox TV 1.0.1 — Batch 1.1, working video player for Jio TV.", fontSize = 20.sp, color = White)
             Text("Local and USB video and audio. Seek, fast-forward, rewind, speed, subtitles and audio tracks.", fontSize = 20.sp, color = Muted)
             Text("No sign-in. No ads in Batch 1. No Google Play Services.", fontSize = 20.sp, color = Muted)
             Spacer(modifier = Modifier.height(12.dp))
@@ -463,6 +499,7 @@ private fun SettingsScreen() {
 
 @Composable
 private fun DetailsScreen(item: VideoItem, onBack: () -> Unit, onPlay: (VideoItem) -> Unit) {
+    BackHandler { onBack() }
     val context = LocalContext.current
     val saved = remember { context.getSharedPreferences("playbox_resume", Context.MODE_PRIVATE).getLong(item.path.hashCode().toString(), 0L) }
     Column(modifier = Modifier.fillMaxSize().padding(48.dp)) {
@@ -507,19 +544,46 @@ private fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> 
     var ended by remember { mutableStateOf(false) }
     var subsOn by remember { mutableStateOf(settings.getBoolean("subtitles_on", true)) }
 
-    val player = remember {
+    val rootFocus = remember { FocusRequester() }
+    val playPauseFocus = remember { FocusRequester() }
+    val panelFocus = remember { FocusRequester() }
+    val endedFocus = remember { FocusRequester() }
+    LaunchedEffect(showControls, panel, ended) {
+        runCatching {
+            when {
+                ended -> endedFocus.requestFocus()
+                panel != null -> panelFocus.requestFocus()
+                showControls -> playPauseFocus.requestFocus()
+                else -> rootFocus.requestFocus()
+            }
+        }
+    }
+
+    val player = remember(item) {
         ExoPlayer.Builder(context).build().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
+                /* handleAudioFocus = */ true
+            )
+            setWakeMode(C.WAKE_MODE_LOCAL)
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_READY) durationMs = duration
                     if (state == Player.STATE_ENDED) ended = true
                 }
+                override fun onPlayerError(error: PlaybackException) {
+                    status = "Can't play this file (${error.errorCodeName})"
+                    showControls = true
+                }
             })
         }
     }
 
     DisposableEffect(item) {
+        ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null
         val prefs = context.getSharedPreferences("playbox_resume", Context.MODE_PRIVATE)
         val saved = prefs.getLong(item.path.hashCode().toString(), 0L)
         val subtitleFile = try {
@@ -537,6 +601,9 @@ private fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> 
         player.prepare()
         val resumeAt = if (ResumeStore.shouldResume(saved, item.durationMs)) saved else 0L
         if (resumeAt > 0) { player.seekTo(resumeAt); status = "Resumed at ${TimeFormatter.format(resumeAt)}" }
+        player.setPlaybackSpeed(speed)
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
         player.play()
         onDispose {
             try {
@@ -549,7 +616,14 @@ private fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> 
         }
     }
 
-    LaunchedEffect(isPlaying) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, player) {
+        val observer = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) runCatching { player.pause() } }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(isPlaying, player) {
         while (true) {
             try { positionMs = player.currentPosition; durationMs = player.duration } catch (_: Exception) { }
             delay(500)
@@ -583,20 +657,33 @@ private fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> 
 
     val nextItem = queue.getOrNull(queue.indexOf(item) + 1)
 
+    BackHandler {
+        when {
+            panel != null -> panel = null
+            ended -> onExit()
+            showControls -> showControls = false
+            else -> onExit()
+        }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
+            .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val uiVisible = showControls || panel != null || ended
                 when (event.key) {
-                    Key.DirectionLeft -> { seekBy(-skipMs); true }
-                    Key.DirectionRight -> { seekBy(skipMs); true }
                     Key.MediaFastForward -> { seekBy(30_000L); true }
                     Key.MediaRewind -> { seekBy(-30_000L); true }
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
                         if (player.isPlaying) player.pause() else player.play(); showControls = true; true
                     }
-                    Key.DirectionCenter, Key.Enter -> { showControls = !showControls; true }
-                    Key.Back -> { if (panel != null) panel = null else onExit(); true }
+                    Key.DirectionLeft, Key.DirectionRight ->
+                        if (uiVisible) false
+                        else { seekBy(if (event.key == Key.DirectionLeft) -skipMs else skipMs); true }
+                    Key.DirectionUp, Key.DirectionDown, Key.DirectionCenter, Key.Enter ->
+                        if (uiVisible) false
+                        else { showControls = true; true }
                     else -> false
                 }
             }
@@ -621,13 +708,12 @@ private fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> 
                 WaveProgress(progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f)
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TvButton(if (isPlaying) "Pause" else "Play") { if (player.isPlaying) player.pause() else player.play() }
+                    TvButton(if (isPlaying) "Pause" else "Play", Modifier.focusRequester(playPauseFocus)) { if (player.isPlaying) player.pause() else player.play() }
                     TvButton("-${skipSec}s") { seekBy(-skipMs) }
                     TvButton("+${skipSec}s") { seekBy(skipMs) }
                     TvButton("${speed}x") { cycleSpeed() }
                     TvButton("Subtitles") { panel = "subs" }
                     TvButton("Audio") { cycleAudioTrack() }
-                    TvButton("Quality") { panel = "quality" }
                     TvButton("Exit") { onExit() }
                 }
                 if (status.isNotBlank()) {
@@ -638,20 +724,19 @@ private fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> 
         }
 
         if (panel != null) {
-            val options = when (panel) {
-                "subs" -> listOf("Subtitles: On", "Subtitles: Off")
-                "quality" -> listOf("Auto", "Original quality")
-                else -> emptyList()
-            }
+            val options = listOf("Subtitles: On", "Subtitles: Off")
             Column(
                 modifier = Modifier.align(Alignment.CenterEnd).width(420.dp).fillMaxHeight()
                     .background(SurfaceHigh, RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp)).padding(24.dp)
             ) {
-                Text(if (panel == "subs") "Subtitles" else "Quality", fontSize = 28.sp, color = White)
+                Text("Subtitles", fontSize = 28.sp, color = White)
                 Spacer(modifier = Modifier.height(16.dp))
-                options.forEach { opt ->
-                    TvButton(opt) {
-                        if (panel == "subs") { subsOn = opt.contains("On"); settings.edit().putBoolean("subtitles_on", subsOn).apply() }
+                options.forEachIndexed { i, opt ->
+                    TvButton(opt, if (i == 0) Modifier.focusRequester(panelFocus) else Modifier) {
+                        subsOn = opt.contains("On")
+                        settings.edit().putBoolean("subtitles_on", subsOn).apply()
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
                         panel = null
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -670,8 +755,9 @@ private fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, onExit: () -> 
                 Text(nextItem?.name ?: item.name, fontSize = 28.sp, color = White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    if (nextItem != null) TvButton("Play now") { onPlayNext(nextItem) }
-                    TvButton("Back") { onExit() }
+                    if (nextItem != null) TvButton("Play now", Modifier.focusRequester(endedFocus)) { onPlayNext(nextItem) }
+                    else TvButton("Back", Modifier.focusRequester(endedFocus)) { onExit() }
+                    if (nextItem != null) TvButton("Back") { onExit() }
                 }
             }
         }
