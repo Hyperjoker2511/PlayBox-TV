@@ -39,6 +39,14 @@ object VideoFilter {
     )
     val AUDIO_EXTENSIONS = setOf("mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "opus")
 
+    /**
+     * Batch 1.4 (polish): formats Media3 cannot play yet — WMV/ASF has no
+     * extractor, and AVI/FLV only play if the codecs inside are
+     * device-decodable. They still LIST (hiding a user's file is worse),
+     * but the UI badges them "May not play" until Batch 2 brings LibVLC.
+     */
+    val LIKELY_UNSUPPORTED_EXTENSIONS = setOf("wmv", "asf", "avi", "flv")
+
     fun isVideoFile(name: String): Boolean =
         name.substringAfterLast('.', "").lowercase() in VIDEO_EXTENSIONS
 
@@ -46,6 +54,9 @@ object VideoFilter {
         name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
 
     fun isMediaFile(name: String): Boolean = isVideoFile(name) || isAudioFile(name)
+
+    fun isLikelyUnsupported(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in LIKELY_UNSUPPORTED_EXTENSIONS
 }
 
 object SubtitleFinder {
@@ -79,6 +90,8 @@ data class VideoItem(
 ) {
     val isVideo: Boolean get() = VideoFilter.isVideoFile(name)
     val isAudio: Boolean get() = VideoFilter.isAudioFile(name)
+    /** Batch 1.4: Media3 cannot play this format yet (see VideoFilter). */
+    val likelyUnsupported: Boolean get() = VideoFilter.isLikelyUnsupported(name)
 }
 
 object ResumeStore {
