@@ -46,7 +46,7 @@ internal fun SettingsScreen() {
             Spacer(modifier = Modifier.height(24.dp))
             Text("About", fontSize = 24.sp, color = White)
             Spacer(modifier = Modifier.height(12.dp))
-            Text("PlayBox TV 1.0.4 — Batch 1.4, Qwen review #3 polish: format badges, wave progress, status auto-clear, FF/RW follows skip, speed 0.5x in Settings, temporary in-player speed, Continue watching by last-watched, music keeps playing.", fontSize = 20.sp, color = White)
+            Text("PlayBox TV 1.1.0 — Batch 2: open with PlayBox, thumbnails, MediaSession background audio, subtitle picker, sort options, play from URL, SMB/NAS, DLNA cast from your phone.", fontSize = 20.sp, color = White)
             Text("Local and USB video and audio. Seek, fast-forward, rewind, speed, subtitles and audio tracks.", fontSize = 20.sp, color = Muted)
             Text("No sign-in. No ads in Batch 1. No Google Play Services.", fontSize = 20.sp, color = Muted)
             Spacer(modifier = Modifier.height(12.dp))
