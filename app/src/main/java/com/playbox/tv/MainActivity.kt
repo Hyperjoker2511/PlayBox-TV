@@ -1,6 +1,8 @@
 package com.playbox.tv
 
 import android.Manifest
+import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,6 +79,16 @@ class MainActivity : ComponentActivity() {
         setContent { PlayBoxApp() }
     }
 
+    // Patch 7 (PiP): leaving the app with the Home key while a video
+    // is playing shrinks it into a picture-in-picture window instead
+    // of stopping it. pipPlaying is set from PlayBoxApp.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (pipPlaying.value) {
+            runCatching { enterPictureInPictureMode(PictureInPictureParams.Builder().build()) }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -91,6 +106,10 @@ class MainActivity : ComponentActivity() {
 
 // Batch 2: the URI of a file another app asked us to play (null normally).
 private val viewUri = mutableStateOf<Uri?>(null)
+
+// Patch 7 (PiP): true while a video is on screen — MainActivity's
+// onUserLeaveHint reads this to decide whether to enter PiP.
+private val pipPlaying = mutableStateOf(false)
 
 private val permissionTick = mutableStateOf(0)
 
@@ -133,6 +152,9 @@ private fun PlayBoxApp() {
     var details by remember { mutableStateOf<VideoItem?>(null) }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
     var playList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    // Patch 3: videos the user queued from a Details page — merged into
+    // the play list when playback starts, then cleared.
+    var queued by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     // Batch 1.3 (B3): the list the video was opened from, so "Up next"
     // follows the folder/USB list instead of a random MediaStore video.
     var detailList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
@@ -152,6 +174,9 @@ private fun PlayBoxApp() {
     // Batch 2: the Network browse state lives here too.
     var networkServer by remember { mutableStateOf<SmbServer?>(null) }
     var networkPath by remember { mutableStateOf<String?>(null) }
+    // Patch 7: the FTP/SFTP browse state, same pattern as SMB.
+    var ftpServer by remember { mutableStateOf<FtpServer?>(null) }
+    var ftpPath by remember { mutableStateOf<String?>(null) }
 
     // Batch 1.3 (B8): reload the MediaStore lists when media changes
     // (USB plugged in) or when the user presses Refresh.
@@ -185,6 +210,25 @@ private fun PlayBoxApp() {
         if (pendingCast != null) {
             playing = pendingCast; playList = listOf(pendingCast); playFromStart = false; playStartSpeed = 1f
             CastInbox.item.value = null
+        }
+    }
+
+    // Patch 2: "Recently played" — recorded whenever a video starts,
+    // whichever way it was opened (Home, Details, cast, share).
+    LaunchedEffect(playing) {
+        playing?.let { LibraryStores.recordRecent(context, it.path) }
+    }
+
+    // Patch 7: the engine override — the gear's "Switch engine" for
+    // one file (path + engine). It only applies to that path, so
+    // opening another file goes back to the default engine.
+    var engineOverride by remember { mutableStateOf<Pair<String, PlayerEngine>?>(null) }
+    // Patch 7 (PiP): MainActivity's onUserLeaveHint reads this.
+    LaunchedEffect(playing) { pipPlaying.value = playing != null }
+    val activity = LocalContext.current as? Activity
+    val enterPip: () -> Unit = {
+        runCatching {
+            activity?.enterPictureInPictureMode(PictureInPictureParams.Builder().build())
         }
     }
 
@@ -232,29 +276,85 @@ private fun PlayBoxApp() {
                     }
                 )
             } else if (playing != null) {
-                PlayerScreen(
-                    item = playing!!,
-                    queue = playList.ifEmpty { all },
-                    fromStart = playFromStart,
-                    startSpeed = playStartSpeed,
-                    onExit = { playing = null; playFromStart = false; playStartSpeed = null },
-                    onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null }
+                // Patch 7: the engine for this file — the gear's override
+                // wins, otherwise FTP/SFTP and formats Media3 cannot play
+                // go to LibVLC, and everything else stays on Media3.
+                val engine = engineFor(
+                    playing!!,
+                    engineOverride?.takeIf { it.first == playing!!.path }?.second
                 )
+                if (engine == PlayerEngine.VLC) {
+                    VlcPlayerScreen(
+                        item = playing!!,
+                        queue = playList.ifEmpty { all },
+                        fromStart = playFromStart,
+                        startSpeed = playStartSpeed,
+                        onExit = { playing = null; playFromStart = false; playStartSpeed = null },
+                        onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
+                        onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.MEDIA3 },
+                        onEnterPip = enterPip
+                    )
+                } else {
+                    PlayerScreen(
+                        item = playing!!,
+                        queue = playList.ifEmpty { all },
+                        fromStart = playFromStart,
+                        startSpeed = playStartSpeed,
+                        onExit = { playing = null; playFromStart = false; playStartSpeed = null },
+                        onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
+                        onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.VLC },
+                        onEnterPip = enterPip
+                    )
+                }
             } else if (details != null) {
                 DetailsScreen(
                     item = details!!,
+                    list = detailList.ifEmpty { all },
                     onBack = { details = null },
-                    onPlay = { item, fromStart -> playing = item; playList = detailList.ifEmpty { all }; playFromStart = fromStart; details = null }
+                    onPlay = { item, fromStart ->
+                        playing = item
+                        playList = mergeQueue(detailList.ifEmpty { all }, queued)
+                        queued = emptyList()
+                        playFromStart = fromStart
+                        details = null
+                    },
+                    onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                    onOpen = { item -> details = item }
                 )
             } else {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    Rail(tab = tab, onTab = { tab = it })
-                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Batch 3 (Qwen): one ambient glow layer at the top —
+                    // the only glow on a browse screen, so it stays cheap.
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(320.dp).background(
+                            Brush.verticalGradient(
+                                listOf(Color(0x298B5CF6), Color.Transparent)
+                            )
+                        )
+                    ) {}
+                    TopNav(
+                        tab = tab, onTab = { tab = it },
+                        onPlayer = {
+                            // Player pill: resume the most recently watched
+                            // video (or the first one) — never a dead end.
+                            val times = resumeTimes(context)
+                            val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
+                            val item = recent ?: all.firstOrNull()
+                            if (item != null) {
+                                playing = item; playList = all; playFromStart = false; playStartSpeed = null
+                            }
+                        },
+                        modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 24.dp)
+                    )
+                    Box(modifier = Modifier.weight(1f).fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
                         when (tab) {
                             Tab.Home -> HomeScreen(
                                 videos = videos, audio = audio,
                                 loading = !libraryLoaded, permissionDenied = permissionDenied,
                                 onOpen = { item, list -> details = item; detailList = list },
+                                onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
+                                onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
+                                onSettings = { tab = Tab.Settings },
                                 onFolders = { tab = Tab.Library },
                                 onRefresh = { refreshNonce++ }
                             )
@@ -270,6 +370,8 @@ private fun PlayBoxApp() {
                                 listState = libraryListState,
                                 networkServer = networkServer, onNetworkServer = { networkServer = it },
                                 networkPath = networkPath, onNetworkPath = { networkPath = it },
+                                ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                                ftpPath = ftpPath, onFtpPath = { ftpPath = it },
                                 onOpen = { item, list -> details = item; detailList = list },
                                 onRefresh = { refreshNonce++ }
                             )
