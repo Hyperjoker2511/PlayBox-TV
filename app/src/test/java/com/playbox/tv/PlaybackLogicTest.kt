@@ -83,6 +83,22 @@ class PlaybackLogicTest {
         assertFalse(VideoItem(path = "x", name = "movie.mp4").likelyUnsupported)
     }
 
+    @Test fun sortOrders() {
+        // Batch 2: Library sort — Name, Newest, Largest, Longest.
+        val items = listOf(
+            VideoItem(path = "b", name = "banana.mp4", durationMs = 60_000, sizeBytes = 100, dateAddedSec = 2),
+            VideoItem(path = "a", name = "Apple.mp4", durationMs = 120_000, sizeBytes = 300, dateAddedSec = 3),
+            VideoItem(path = "c", name = "cherry.mp4", durationMs = 30_000, sizeBytes = 200, dateAddedSec = 1)
+        )
+        assertEquals(listOf("a", "b", "c"), VideoSorter.sort(items, SortOrder.NAME).map { it.path })
+        assertEquals(listOf("a", "b", "c"), VideoSorter.sort(items, SortOrder.DATE_ADDED).map { it.path })
+        assertEquals(listOf("a", "c", "b"), VideoSorter.sort(items, SortOrder.SIZE).map { it.path })
+        assertEquals(listOf("a", "b", "c"), VideoSorter.sort(items, SortOrder.DURATION).map { it.path })
+        assertEquals(SortOrder.DATE_ADDED, VideoSorter.next(SortOrder.NAME))
+        assertEquals(SortOrder.NAME, VideoSorter.next(SortOrder.DURATION))
+        assertEquals(SortOrder.DATE_ADDED, VideoSorter.fromName("bogus"))
+    }
+
     @Test fun pendingResumeForUnknownDuration() {
         // Batch 1.3 (B2): a folder/USB video has no duration at load time,
         // so only the "past 5s" check applies until the player reports one.
