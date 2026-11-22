@@ -1,6 +1,8 @@
 package com.playbox.tv
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
@@ -49,19 +51,23 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import java.util.concurrent.Executor
 
 /** Subtitle lookup for one video: File-based for folder-browsed videos,
  * content-URI lookup for MediaStore / SAF videos. Runs on Dispatchers.IO
@@ -79,16 +85,73 @@ private fun lookupSubtitleForItem(context: Context, item: VideoItem, subsOn: Boo
 
 /** Persist the current position (Batch 1.3, B9): called on pause, on
  * stop, on exit and every ~10s while playing, so a low-RAM TV killing
- * the process does not lose the position. */
-private fun persistResumePosition(context: Context, player: ExoPlayer, item: VideoItem) {
+ * the process does not lose the position. Takes a Player, not an
+ * ExoPlayer — Batch 2 drives the service's player through a
+ * MediaController, which is a Player. */
+private fun persistResumePosition(context: Context, player: Player, item: VideoItem) {
     try {
         saveResumePosition(context, item.path, player.currentPosition, player.duration)
     } catch (_: Exception) { }
 }
 
+/** Batch 2: one entry in the subtitle picker. group == null means Off. */
+private data class SubOption(val id: String, val label: String, val group: TrackGroup?, val trackIndex: Int)
+
+/** Batch 2: Off + the external subtitle file (matched by its file-name
+ * label) + every embedded text track in the file. */
+private fun buildSubtitleOptions(player: Player, subtitle: Pair<Uri, String>?): List<SubOption> {
+    val options = mutableListOf(SubOption("off", "Off", null, -1))
+    val extName = subtitle?.second
+    try {
+        val textGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        textGroups.forEachIndexed { gi, group ->
+            (0 until group.length).forEach { ti ->
+                val format = group.getTrackFormat(ti)
+                val isExternal = extName != null && format.label == extName
+                val base = format.label ?: format.language ?: "Track ${ti + 1}"
+                val label = when {
+                    isExternal -> "External: $base"
+                    format.language != null && format.label != null -> "$base (${format.language})"
+                    else -> base
+                }
+                options.add(SubOption(if (isExternal) "ext" else "g${gi}t$ti", label, group.mediaTrackGroup, ti))
+            }
+        }
+    } catch (_: Exception) { }
+    return options
+}
+
+/** Batch 2: which picker entry is currently playing, if any. */
+private fun selectedSubtitleId(player: Player, options: List<SubOption>): String? {
+    return try {
+        val params = player.trackSelectionParameters
+        if (params.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) return "off"
+        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        for (opt in options) {
+            if (opt.group == null) continue
+            val g = groups.firstOrNull { it.mediaTrackGroup == opt.group } ?: continue
+            if (g.isTrackSelected(opt.trackIndex)) return opt.id
+        }
+        null
+    } catch (_: Exception) { null }
+}
+
+/** Batch 2: apply a picker choice — disable text for Off, otherwise
+ * select that exact track. */
+private fun applySubtitleOption(player: Player, opt: SubOption) {
+    player.trackSelectionParameters = if (opt.group == null) {
+        player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+    } else {
+        player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(opt.group, opt.trackIndex)).build()
+    }
+}
+
 @OptIn(UnstableApi::class)
 @Composable
-internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit) {
+internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
     val skipSec = settings.getInt("skip_seconds", 10)
@@ -97,7 +160,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
-    var speed by remember { mutableStateOf(settings.getFloat("default_speed", 1f)) }
+    var speed by remember { mutableStateOf(startSpeed ?: settings.getFloat("default_speed", 1f)) }
     var status by remember { mutableStateOf("") }
     var panel by remember { mutableStateOf<String?>(null) }
     var ended by remember { mutableStateOf(false) }
@@ -112,6 +175,9 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var subtitle by remember(item) { mutableStateOf<Pair<Uri, String>?>(null) }
     var subtitleReady by remember(item) { mutableStateOf(false) }
     var lastSavedMs by remember { mutableStateOf(0L) }
+    // Batch 2: bumped when the player's track list arrives, so the
+    // subtitle picker recomposes with the real embedded tracks.
+    var tracksVersion by remember { mutableStateOf(0) }
 
     val rootFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
@@ -135,31 +201,46 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying }
     DisposableEffect(Unit) { onDispose { view.keepScreenOn = false } }
 
-    val player = remember(item) {
-        ExoPlayer.Builder(context).build().apply {
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
-                /* handleAudioFocus = */ true
-            )
-            setWakeMode(C.WAKE_MODE_LOCAL)
-            addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
-                override fun onPlaybackStateChanged(state: Int) {
-                    if (state == Player.STATE_READY) durationMs = duration
-                    if (state == Player.STATE_ENDED) ended = true
-                }
-                override fun onPlayerError(error: PlaybackException) {
-                    status = "Can't play this file (${error.errorCodeName})"
-                    showControls = true
-                }
-            })
-        }
+    // Batch 2: the player lives in PlaybackService (MediaSessionService),
+    // so audio keeps playing when this screen closes and the system media
+    // controls can drive it. This screen connects to it with a
+    // MediaController, which IS a Player — the code below talks to it
+    // exactly like the old local ExoPlayer. The service is started (not
+    // just bound) so playback survives this screen closing.
+    val sessionToken = remember { SessionToken(context, ComponentName(context, PlaybackService::class.java)) }
+    var controller by remember { mutableStateOf<MediaController?>(null) }
+    LaunchedEffect(sessionToken) {
+        context.startService(Intent(context, PlaybackService::class.java))
+        val future = MediaController.Builder(context, sessionToken).buildAsync()
+        future.addListener(
+            { controller = runCatching { future.get() }.getOrNull() },
+            Executor { it.run() }
+        )
     }
-    // B9d: the player is created in remember(item) — release it in its own
-    // effect, so a discarded composition can never leak it.
-    DisposableEffect(player) { onDispose { runCatching { player.release() } } }
+    DisposableEffect(Unit) { onDispose { controller?.release() } }
+
+    // The player listener lives here now (it used to be attached in the
+    // ExoPlayer.Builder): sync the UI state on connect, then keep it live.
+    DisposableEffect(controller) {
+        val c = controller ?: return@DisposableEffect onDispose { }
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) durationMs = c.duration
+                if (state == Player.STATE_ENDED) ended = true
+            }
+            override fun onTracksChanged(tracks: Tracks) { tracksVersion++ }
+            override fun onPlayerError(error: PlaybackException) {
+                status = "Can't play this file (${error.errorCodeName})"
+                showControls = true
+            }
+        }
+        c.addListener(listener)
+        isPlaying = c.isPlaying
+        positionMs = c.currentPosition
+        if (c.duration > 0) durationMs = c.duration
+        onDispose { c.removeListener(listener) }
+    }
 
     // B7: subtitle lookup on Dispatchers.IO, bounded so a huge folder
     // listing cannot stall playback start for more than ~2s.
@@ -171,10 +252,12 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         subtitleReady = true
     }
 
-    // Player setup — runs once the subtitle lookup has finished. The no-op
-    // branch exists because DisposableEffect must always end in onDispose.
-    DisposableEffect(item, subtitleReady, fromStart) {
-        if (!subtitleReady) {
+    // Player setup — runs once the subtitle lookup has finished AND the
+    // controller has connected. The no-op branch exists because
+    // DisposableEffect must always end in onDispose.
+    DisposableEffect(item, subtitleReady, fromStart, controller) {
+        val c = controller
+        if (!subtitleReady || c == null) {
             onDispose { }
         } else {
             ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null; pendingResumeMs = 0L
@@ -183,11 +266,21 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                 listOf(
                     MediaItem.SubtitleConfiguration.Builder(sub.first)
                         .setMimeType(SubtitleFinder.subtitleMimeTypeForName(sub.second))
+                        // Batch 2: the file name is the label, so the
+                        // subtitle picker can tell it apart from embedded
+                        // tracks.
+                        .setLabel(sub.second)
                         .setLanguage("en").setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
                 )
             } else emptyList()
-            player.setMediaItem(MediaItem.Builder().setUri(Uri.parse(item.path)).setSubtitleConfigurations(subtitleConfigs).build())
-            player.prepare()
+            // Batch 2: the title is what the media notification shows.
+            c.setMediaItem(
+                MediaItem.Builder().setUri(Uri.parse(item.path))
+                    .setSubtitleConfigurations(subtitleConfigs)
+                    .setMediaMetadata(MediaMetadata.Builder().setTitle(item.name).build())
+                    .build()
+            )
+            c.prepare()
             if (fromStart) {
                 // B1: "Play from start" really starts over — and clears the
                 // saved position so the next open does not offer Resume.
@@ -196,17 +289,17 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                 val saved = savedResumePosition(context, item.path)
                 if (item.durationMs > 0L) {
                     val resumeAt = if (ResumeStore.shouldResume(saved, item.durationMs)) saved else 0L
-                    if (resumeAt > 0) { player.seekTo(resumeAt); status = "Resumed at ${TimeFormatter.format(resumeAt)}" }
+                    if (resumeAt > 0) { c.seekTo(resumeAt); status = "Resumed at ${TimeFormatter.format(resumeAt)}" }
                 } else if (ResumeStore.hasSavedPosition(saved)) {
                     // B2: duration unknown for folder/USB videos — hold the
                     // position until the player reports its real duration.
                     pendingResumeMs = saved
                 }
             }
-            player.setPlaybackSpeed(speed)
-            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            c.setPlaybackSpeed(speed)
+            c.trackSelectionParameters = c.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
-            player.play()
+            c.play()
             onDispose { }
         }
     }
@@ -215,9 +308,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // apply the held resume position — or drop it if it is too near the end.
     LaunchedEffect(durationMs) {
         val pr = pendingResumeMs
-        if (pr > 0L && durationMs > 0L) {
+        val c = controller
+        if (pr > 0L && durationMs > 0L && c != null) {
             if (ResumeStore.shouldResume(pr, durationMs)) {
-                player.seekTo(pr)
+                c.seekTo(pr)
                 positionMs = pr
                 status = "Resumed at ${TimeFormatter.format(pr)}"
             }
@@ -234,37 +328,45 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // B9b: save on exit (best effort — the throttled poll save below and
     // the ON_STOP save are the reliable ones).
     DisposableEffect(item) {
-        onDispose { persistResumePosition(context, player, item) }
+        onDispose { controller?.let { persistResumePosition(context, it, item) } }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, player) {
-        val observer = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_STOP) {
-                // Batch 1.4 (polish): video pauses when the screen turns
-                // off; music keeps playing, as a music player should.
-                if (item.isVideo) runCatching { player.pause() }
-                persistResumePosition(context, player, item)
+    DisposableEffect(lifecycleOwner, controller) {
+        val c = controller
+        if (c == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, e ->
+                if (e == Lifecycle.Event.ON_STOP) {
+                    // Batch 1.4 (polish): video pauses when the screen turns
+                    // off; music keeps playing, as a music player should.
+                    if (item.isVideo) runCatching { c.pause() }
+                    persistResumePosition(context, c, item)
+                }
             }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // B9b: save whenever playback pauses, not only on exit.
     LaunchedEffect(isPlaying) {
-        if (!isPlaying && positionMs > 5_000L) persistResumePosition(context, player, item)
+        if (!isPlaying && positionMs > 5_000L) controller?.let { persistResumePosition(context, it, item) }
     }
 
-    LaunchedEffect(isPlaying, player) {
+    LaunchedEffect(isPlaying, controller) {
         while (true) {
+            val c = controller
             try {
-                positionMs = player.currentPosition; durationMs = player.duration
-                // B9b: throttled save while playing — a process kill on a
-                // low-RAM TV loses at most ~10s of progress.
-                if (isPlaying && positionMs > 5_000L && positionMs - lastSavedMs >= 10_000L) {
-                    persistResumePosition(context, player, item)
-                    lastSavedMs = positionMs
+                if (c != null) {
+                    positionMs = c.currentPosition; durationMs = c.duration
+                    // B9b: throttled save while playing — a process kill on a
+                    // low-RAM TV loses at most ~10s of progress.
+                    if (isPlaying && positionMs > 5_000L && positionMs - lastSavedMs >= 10_000L) {
+                        persistResumePosition(context, c, item)
+                        lastSavedMs = positionMs
+                    }
                 }
             } catch (_: Exception) { }
             delay(500)
@@ -274,6 +376,30 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // panel or the ended screen keeps the controls up.
     LaunchedEffect(showControls, isPlaying, panel, ended, interactionTick) {
         if (showControls && isPlaying && panel == null && !ended) { delay(5000); showControls = false }
+    }
+
+    // B3: guard the queue lookup — an item that is not in the queue must
+    // not fall through to getOrNull(0), the first unrelated video.
+    val queueIndex = queue.indexOf(item)
+    val nextItem = if (queueIndex >= 0) queue.getOrNull(queueIndex + 1) else null
+
+    BackHandler {
+        when {
+            panel != null -> panel = null
+            ended -> onExit()
+            showControls -> showControls = false
+            else -> onExit()
+        }
+    }
+
+    // Batch 2: from here on, `player` is the connected controller. Until
+    // it connects, show a plain connecting screen. All the hooks above
+    // have already run, so returning here keeps the hook order stable.
+    val player: Player = controller ?: run {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            Text("Connecting…", fontSize = 24.sp, color = White)
+        }
+        return
     }
 
     fun pokeControls() { showControls = true; interactionTick++ }
@@ -301,20 +427,6 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                 .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, next)).build()
             status = "Audio track ${next + 1} of ${group.length}"
         } catch (e: Exception) { status = "Audio switch failed" }
-    }
-
-    // B3: guard the queue lookup — an item that is not in the queue must
-    // not fall through to getOrNull(0), the first unrelated video.
-    val queueIndex = queue.indexOf(item)
-    val nextItem = if (queueIndex >= 0) queue.getOrNull(queueIndex + 1) else null
-
-    BackHandler {
-        when {
-            panel != null -> panel = null
-            ended -> onExit()
-            showControls -> showControls = false
-            else -> onExit()
-        }
     }
 
     Box(
@@ -379,19 +491,30 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         }
 
         if (panel != null) {
-            val options = listOf("Subtitles: On", "Subtitles: Off")
+            // Batch 2: a real subtitle picker — Off, the external subtitle
+            // file found next to the video, and every embedded text track
+            // in the file. Rebuilt when tracks arrive (tracksVersion).
+            val subOptions = remember(tracksVersion, subtitleReady) { buildSubtitleOptions(player, subtitle) }
+            val selectedId = remember(tracksVersion, subOptions) { selectedSubtitleId(player, subOptions) }
             Column(
                 modifier = Modifier.align(Alignment.CenterEnd).width(420.dp).fillMaxHeight()
                     .background(SurfaceHigh, RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp)).padding(24.dp)
             ) {
                 Text("Subtitles", fontSize = 28.sp, color = White)
                 Spacer(modifier = Modifier.height(16.dp))
-                options.forEachIndexed { i, opt ->
-                    TvButton(opt, if (i == 0) Modifier.focusRequester(panelFocus) else Modifier) {
-                        subsOn = opt.contains("On")
+                if (subOptions.size <= 1) {
+                    Text("No subtitles in this file.", fontSize = 20.sp, color = Muted)
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                subOptions.forEachIndexed { i, opt ->
+                    TvButton(
+                        (if (opt.id == selectedId) "● " else "") + opt.label,
+                        if (i == 0) Modifier.focusRequester(panelFocus) else Modifier
+                    ) {
+                        applySubtitleOption(player, opt)
+                        subsOn = opt.id != "off"
                         settings.edit().putBoolean("subtitles_on", subsOn).apply()
-                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
+                        status = if (opt.id == "off") "Subtitles off" else "Subtitles: ${opt.label}"
                         panel = null
                     }
                     Spacer(modifier = Modifier.height(12.dp))
