@@ -8,7 +8,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,10 +53,19 @@ internal fun LibraryScreen(
     safFolder: Uri?,
     onSafFolder: (Uri?) -> Unit,
     listState: LazyListState,
+    // Batch 2: the Network browse state is hoisted too (like the folder
+    // state above), so coming back from a video keeps your place.
+    networkServer: SmbServer?,
+    onNetworkServer: (SmbServer?) -> Unit,
+    networkPath: String?,
+    onNetworkPath: (String?) -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
     onRefresh: () -> Unit
 ) {
     val context = LocalContext.current
+    // Batch 2: sort order, remembered in prefs.
+    val sortPrefs = remember { context.getSharedPreferences("playbox_sort", Context.MODE_PRIVATE) }
+    var sortOrder by remember { mutableStateOf(VideoSorter.fromName(sortPrefs.getString("order", "DATE_ADDED") ?: "DATE_ADDED")) }
     var safFolders by remember { mutableStateOf(MediaLibrary.safFolders(context)) }
     var safPickerError by remember { mutableStateOf<String?>(null) }
     val addFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -83,6 +94,9 @@ internal fun LibraryScreen(
     }
     val (dirs, media) = folderContents
     val (safDirs, safMedia) = safContents
+    // Batch 2: folder lists follow the same sort order as the grids.
+    val sortedMedia = remember(media, sortOrder) { VideoSorter.sort(media, sortOrder) }
+    val sortedSafMedia = remember(safMedia, sortOrder) { VideoSorter.sort(safMedia, sortOrder) }
 
     // B7: safFolderName(...) does a DocumentFile lookup per call — it was
     // called once per row during composition. Cache the names instead.
@@ -110,24 +124,41 @@ internal fun LibraryScreen(
     }
     BackHandler(enabled = folder != null || safFolder != null) { navigateUp() }
 
-    // Adaptive columns (Batch 1.3, Round 2): see HomeScreen.
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val cols = (maxWidth / 240.dp).toInt().coerceIn(1, 6)
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(32.dp)) {
-            item {
-                Text("Library", fontSize = 36.sp, color = White)
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    listOf("Videos", "Music", "Folders / USB").forEach { m ->
-                        TvButton(if (mode == m) "● $m" else m) { onMode(m); onFolder(null); onSafFolder(null) }
-                    }
-                    // B8: reload the MediaStore lists on demand.
-                    TvButton("Refresh") { onRefresh() }
-                }
-                Spacer(modifier = Modifier.height(24.dp))
+    // Header stays fixed at the top now (Batch 2: the Network screen is
+    // its own scrolling list, and a LazyColumn cannot nest inside one).
+    Column(modifier = Modifier.fillMaxSize().padding(32.dp)) {
+        Text("Library", fontSize = 36.sp, color = White)
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf("Videos", "Music", "Folders / USB", "Network").forEach { m ->
+                TvButton(if (mode == m) "● $m" else m) { onMode(m); onFolder(null); onSafFolder(null) }
             }
-            when (mode) {
-                "Folders / USB" -> {
+            // B8: reload the MediaStore lists on demand.
+            TvButton("Refresh") { onRefresh() }
+            // Batch 2: sort order for the lists below.
+            TvButton("Sort: ${VideoSorter.label(sortOrder)}") {
+                sortOrder = VideoSorter.next(sortOrder)
+                sortPrefs.edit().putString("order", sortOrder.name).apply()
+            }
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        when (mode) {
+            "Network" -> {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    NetworkScreen(
+                        server = networkServer, onServer = onNetworkServer,
+                        path = networkPath, onPath = onNetworkPath,
+                        onOpen = onOpen
+                    )
+                }
+            }
+            else -> {
+                // Adaptive columns (Batch 1.3, Round 2): see HomeScreen.
+                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    val cols = (maxWidth / 240.dp).toInt().coerceIn(1, 6)
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                        when (mode) {
+                            "Folders / USB" -> {
                     if (folder == null && safFolder == null) {
                         items(roots, key = { it.absolutePath }) { root ->
                             Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onFolder(root) }.padding(20.dp)) {
@@ -167,13 +198,13 @@ internal fun LibraryScreen(
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                         }
-                        items(safMedia, key = { it.path }) { item ->
-                            Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onOpen(item, safMedia) }.padding(20.dp)) {
+                        items(sortedSafMedia, key = { it.path }) { item ->
+                            Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onOpen(item, sortedSafMedia) }.padding(20.dp)) {
                                 Text(if (item.likelyUnsupported) "${item.name}  ·  May not play" else item.name, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                         }
-                        if (safDirs.isEmpty() && safMedia.isEmpty()) item { Text("This folder is empty.", fontSize = 20.sp, color = Muted) }
+                        if (safDirs.isEmpty() && sortedSafMedia.isEmpty()) item { Text("This folder is empty.", fontSize = 20.sp, color = Muted) }
                         item {
                             Spacer(modifier = Modifier.height(16.dp))
                             TvButton("Remove this folder") {
@@ -198,23 +229,23 @@ internal fun LibraryScreen(
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                         }
-                        items(media, key = { it.path }) { item ->
-                            Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onOpen(item, media) }.padding(20.dp)) {
+                        items(sortedMedia, key = { it.path }) { item ->
+                            Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onOpen(item, sortedMedia) }.padding(20.dp)) {
                                 Text(if (item.likelyUnsupported) "${item.name}  ·  May not play" else item.name, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                         }
-                        if (dirs.isEmpty() && media.isEmpty()) item { Text("This folder is empty.", fontSize = 20.sp, color = Muted) }
+                        if (dirs.isEmpty() && sortedMedia.isEmpty()) item { Text("This folder is empty.", fontSize = 20.sp, color = Muted) }
                     }
                 }
                 else -> {
-                    val list = if (mode == "Videos") videos else audio
+                    val list = VideoSorter.sort(if (mode == "Videos") videos else audio, sortOrder)
                     if (list.isEmpty()) {
                         item { Text(if (loading) "Loading…" else "No ${mode.lowercase()} found yet.", fontSize = 20.sp, color = Muted) }
                     } else {
                         items(list.chunked(cols), key = { row -> row.firstOrNull()?.path ?: "row" }) { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                row.forEach { item -> TvTile(item.name, tileSub(item)) { onOpen(item, list) } }
+                                row.forEach { item -> ThumbTile(item, tileSub(item)) { onOpen(item, list) } }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                         }
@@ -223,4 +254,7 @@ internal fun LibraryScreen(
             }
         }
     }
+}
+}
+}
 }
