@@ -36,7 +36,10 @@ internal fun HomeScreen(
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
     // Batch 1.3 (B9): resume keys are the path itself, not path.hashCode().
+    // Batch 1.4 (polish): ordered by last-watched, not by DATE_ADDED.
+    val resumeTime = remember { resumeTimes(context) }
     val continueWatching = videos.filter { resume.containsKey(it.path) }
+        .sortedByDescending { resumeTime[it.path] ?: 0L }
     val hero = continueWatching.firstOrNull() ?: videos.firstOrNull()
     var filter by remember { mutableStateOf("All") }
 
@@ -114,7 +117,7 @@ internal fun HomeScreen(
                 items(shown.chunked(cols), key = { row -> row.firstOrNull()?.path ?: "row" }) { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         row.forEach { item ->
-                            TvTile(item.name, if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null) { onOpen(item, shown) }
+                            TvTile(item.name, tileSub(item)) { onOpen(item, shown) }
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
