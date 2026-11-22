@@ -44,7 +44,7 @@ internal fun SettingsScreen() {
             Spacer(modifier = Modifier.height(24.dp))
             Text("About", fontSize = 24.sp, color = White)
             Spacer(modifier = Modifier.height(12.dp))
-            Text("PlayBox TV 1.0.2 — Batch 1.2, working video player for Jio TV.", fontSize = 20.sp, color = White)
+            Text("PlayBox TV 1.0.3 — Batch 1.3, Qwen review #3 fixes: play-from-start, USB resume, up-next queue, keep-screen-on, library state, controls timer, background I/O, USB refresh, resume keys.", fontSize = 20.sp, color = White)
             Text("Local and USB video and audio. Seek, fast-forward, rewind, speed, subtitles and audio tracks.", fontSize = 20.sp, color = Muted)
             Text("No sign-in. No ads in Batch 1. No Google Play Services.", fontSize = 20.sp, color = Muted)
             Spacer(modifier = Modifier.height(12.dp))
