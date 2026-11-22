@@ -31,6 +31,17 @@ import androidx.compose.ui.unit.sp
 
 internal enum class Tab { Home, Search, Library, Settings }
 
+/** Tile subtitle: duration plus a "May not play" badge for formats
+ * Media3 cannot play yet (Batch 1.4 polish). Null when there is nothing
+ * to show, so the tile stays clean. */
+internal fun tileSub(item: VideoItem): String? {
+    val parts = listOfNotNull(
+        if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null,
+        if (item.likelyUnsupported) "May not play" else null
+    )
+    return parts.joinToString("  ·  ").ifBlank { null }
+}
+
 @Composable
 internal fun TvTile(text: String, sub: String? = null, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
