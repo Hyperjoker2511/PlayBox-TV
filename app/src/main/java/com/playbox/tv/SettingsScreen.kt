@@ -38,13 +38,15 @@ internal fun SettingsScreen() {
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvButton("Skip: ${skip}s") { skip = if (skip == 10) 30 else 10; save() }
-                TvButton("Speed: ${speed}x") { speed = if (speed == 1f) 1.5f else if (speed == 1.5f) 2f else 1f; save() }
+                // Batch 1.4 (polish): the Settings cycle now matches the
+                // player's (1, 1.5, 2, 0.5) — 0.5x was missing here.
+                TvButton("Speed: ${speed}x") { speed = when (speed) { 1f -> 1.5f; 1.5f -> 2f; 2f -> 0.5f; else -> 1f }; save() }
                 TvButton(if (subsOn) "Subtitles: On" else "Subtitles: Off") { subsOn = !subsOn; save() }
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text("About", fontSize = 24.sp, color = White)
             Spacer(modifier = Modifier.height(12.dp))
-            Text("PlayBox TV 1.0.3 — Batch 1.3, Qwen review #3 fixes: play-from-start, USB resume, up-next queue, keep-screen-on, library state, controls timer, background I/O, USB refresh, resume keys.", fontSize = 20.sp, color = White)
+            Text("PlayBox TV 1.0.4 — Batch 1.4, Qwen review #3 polish: format badges, wave progress, status auto-clear, FF/RW follows skip, speed 0.5x in Settings, temporary in-player speed, Continue watching by last-watched, music keeps playing.", fontSize = 20.sp, color = White)
             Text("Local and USB video and audio. Seek, fast-forward, rewind, speed, subtitles and audio tracks.", fontSize = 20.sp, color = Muted)
             Text("No sign-in. No ads in Batch 1. No Google Play Services.", fontSize = 20.sp, color = Muted)
             Spacer(modifier = Modifier.height(12.dp))
