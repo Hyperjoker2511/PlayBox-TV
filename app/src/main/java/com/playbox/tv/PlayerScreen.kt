@@ -225,6 +225,12 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         }
     }
 
+    // Batch 1.4 (polish): status messages ("Resumed at…", "Audio track
+    // 2 of 3") clear themselves after ~4s instead of staying up forever.
+    LaunchedEffect(status) {
+        if (status.isNotBlank()) { delay(4000); status = "" }
+    }
+
     // B9b: save on exit (best effort — the throttled poll save below and
     // the ON_STOP save are the reliable ones).
     DisposableEffect(item) {
@@ -235,7 +241,9 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, e ->
             if (e == Lifecycle.Event.ON_STOP) {
-                runCatching { player.pause() }
+                // Batch 1.4 (polish): video pauses when the screen turns
+                // off; music keeps playing, as a music player should.
+                if (item.isVideo) runCatching { player.pause() }
                 persistResumePosition(context, player, item)
             }
         }
@@ -275,7 +283,9 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     }
     fun cycleSpeed() {
         val next = when (speed) { 1f -> 1.5f; 1.5f -> 2f; 2f -> 0.5f; else -> 1f }
-        speed = next; player.setPlaybackSpeed(next); settings.edit().putFloat("default_speed", next).apply()
+        // Batch 1.4 (polish): an in-player speed change is temporary for
+        // this session — it no longer overwrites the default_speed setting.
+        speed = next; player.setPlaybackSpeed(next)
         pokeControls()
     }
     fun cycleAudioTrack() {
@@ -316,8 +326,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                 interactionTick++
                 val uiVisible = showControls || panel != null || ended
                 when (event.key) {
-                    Key.MediaFastForward -> { seekBy(30_000L); true }
-                    Key.MediaRewind -> { seekBy(-30_000L); true }
+                    // Batch 1.4 (polish): FF/RW follow the user's skip
+                    // setting (10s or 30s) instead of hardcoding 30s.
+                    Key.MediaFastForward -> { seekBy(skipMs); true }
+                    Key.MediaRewind -> { seekBy(-skipMs); true }
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
                         if (player.isPlaying) player.pause() else player.play(); pokeControls(); true
                     }
@@ -409,23 +421,30 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
 
 @Composable
 internal fun WaveProgress(progress: Float) {
+    // Batch 1.4 (polish): reuse one Path instead of allocating a new one
+    // every frame, and use dp — not raw px — so the wave looks the same
+    // on every density.
+    val wavePath = remember { Path() }
     Canvas(modifier = Modifier.fillMaxWidth().height(24.dp)) {
         val w = size.width
         val h = size.height
         val playedW = w * progress
-        drawLine(Color(0xFF444444), Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = 10f)
+        val trackW = 10.dp.toPx()
+        drawLine(Color(0xFF444444), Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = trackW)
         if (playedW > 0) {
-            val path = Path()
-            path.moveTo(0f, h / 2)
+            val step = 24.dp.toPx()
+            val amp = 10.dp.toPx()
+            wavePath.reset()
+            wavePath.moveTo(0f, h / 2)
             var x = 0f
             var up = true
             while (x < playedW) {
-                val nx = (x + 24f).coerceAtMost(playedW)
-                path.quadraticTo(x + 12f, if (up) h / 2 - 10f else h / 2 + 10f, nx, h / 2)
+                val nx = (x + step).coerceAtMost(playedW)
+                wavePath.quadraticTo(x + step / 2, if (up) h / 2 - amp else h / 2 + amp, nx, h / 2)
                 x = nx; up = !up
             }
-            drawPath(path, Primary, style = Stroke(width = 9f))
-            drawCircle(Primary, radius = 22f, center = Offset(playedW, h / 2))
+            drawPath(wavePath, Primary, style = Stroke(width = 9.dp.toPx()))
+            drawCircle(Primary, radius = 22.dp.toPx(), center = Offset(playedW, h / 2))
         }
     }
 }
