@@ -15,8 +15,8 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -89,6 +89,10 @@ dependencies {
     implementation("androidx.media3:media3-common:1.6.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.6.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.6.1")
+    // MediaSession — Batch 2: background audio + system media controls
+    implementation("androidx.media3:media3-session:1.6.1")
+    // jcifs-ng — Batch 2: SMB/NAS browsing (SMB1/2/3, pure Java)
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.9")
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
