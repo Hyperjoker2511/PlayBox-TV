@@ -169,7 +169,7 @@ internal fun LibraryScreen(
                         }
                         items(safMedia, key = { it.path }) { item ->
                             Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onOpen(item, safMedia) }.padding(20.dp)) {
-                                Text(item.name, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (item.likelyUnsupported) "${item.name}  ·  May not play" else item.name, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                         }
@@ -200,7 +200,7 @@ internal fun LibraryScreen(
                         }
                         items(media, key = { it.path }) { item ->
                             Row(modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(16.dp)).clickable { onOpen(item, media) }.padding(20.dp)) {
-                                Text(item.name, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (item.likelyUnsupported) "${item.name}  ·  May not play" else item.name, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                         }
@@ -214,7 +214,7 @@ internal fun LibraryScreen(
                     } else {
                         items(list.chunked(cols), key = { row -> row.firstOrNull()?.path ?: "row" }) { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                row.forEach { item -> TvTile(item.name, if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null) { onOpen(item, list) } }
+                                row.forEach { item -> TvTile(item.name, tileSub(item)) { onOpen(item, list) } }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                         }
