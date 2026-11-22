@@ -2,7 +2,7 @@
 
 A clean video player for Android TV / Jio set-top box. Local and USB videos, seek that actually works.
 
-- Package: `com.playbox.tv` — version 1.1.0 (versionCode 6), minSdk 26, targetSdk 36
+- Package: `com.playbox.tv` — version 1.2.0 (versionCode 7), minSdk 26, targetSdk 36
 - Engine: Media3 / ExoPlayer 1.6.1 (Batch 1)
 - UI: Material 3, full-screen player, left navigation rail
 - No sign-in, no ads, no Google Play Services
