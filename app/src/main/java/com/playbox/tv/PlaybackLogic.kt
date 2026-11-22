@@ -82,7 +82,17 @@ data class VideoItem(
 }
 
 object ResumeStore {
+    /** Preference key for a video's saved position: the path itself, so the
+     * same video reached two ways (MediaStore path vs SAF content:// URI)
+     * does not get two different keys. Batch 1.2 used path.hashCode(). */
+    fun keyFor(path: String): String = path
+
     /** A position is worth resuming only if it is past 5s and at least 10s from the end. */
     fun shouldResume(savedMs: Long, durationMs: Long): Boolean =
         savedMs > 5_000L && durationMs > 0L && savedMs < durationMs - 10_000L
+
+    /** True when a saved position is worth holding for a video whose
+     * duration is not known yet (folder/USB videos): it is applied once
+     * the player reports its real duration. */
+    fun hasSavedPosition(savedMs: Long): Boolean = savedMs > 5_000L
 }
