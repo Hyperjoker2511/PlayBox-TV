@@ -47,9 +47,33 @@ internal fun saveResumePosition(context: Context, path: String, posMs: Long, dur
     val prefs = context.getSharedPreferences("playbox_resume", Context.MODE_PRIVATE)
     if (ResumeStore.shouldResume(posMs, durationMs)) {
         prefs.edit().putLong(ResumeStore.keyFor(path), posMs).apply()
+        // Batch 1.4 (polish): "Continue watching" is ordered by when the
+        // video was last watched, not by DATE_ADDED.
+        recordWatchTime(context, path)
     } else {
         prefs.edit().remove(ResumeStore.keyFor(path)).apply()
+        clearWatchTime(context, path)
     }
+}
+
+// ---------- Last-watched times (Batch 1.4) ----------
+// Kept in a separate prefs file so the resume map stays position-only.
+
+internal fun recordWatchTime(context: Context, path: String) {
+    context.getSharedPreferences("playbox_resume_time", Context.MODE_PRIVATE)
+        .edit().putLong(ResumeStore.keyFor(path), System.currentTimeMillis()).apply()
+}
+
+internal fun clearWatchTime(context: Context, path: String) {
+    context.getSharedPreferences("playbox_resume_time", Context.MODE_PRIVATE)
+        .edit().remove(ResumeStore.keyFor(path)).apply()
+}
+
+internal fun resumeTimes(context: Context): Map<String, Long> {
+    val prefs = context.getSharedPreferences("playbox_resume_time", Context.MODE_PRIVATE)
+    val out = mutableMapOf<String, Long>()
+    prefs.all.forEach { (k, v) -> if (v is Long) out[k] = v }
+    return out
 }
 
 internal fun clearResumePosition(context: Context, path: String) {
