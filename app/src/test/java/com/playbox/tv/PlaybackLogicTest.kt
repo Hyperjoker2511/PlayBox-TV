@@ -68,6 +68,21 @@ class PlaybackLogicTest {
         )
     }
 
+    @Test fun likelyUnsupportedFormats() {
+        // Batch 1.4 (polish): WMV/ASF has no Media3 extractor, and AVI/FLV
+        // only play if the codecs inside are device-decodable — so the UI
+        // badges them instead of promising playback.
+        assertTrue(VideoFilter.isLikelyUnsupported("movie.wmv"))
+        assertTrue(VideoFilter.isLikelyUnsupported("movie.asf"))
+        assertTrue(VideoFilter.isLikelyUnsupported("clip.AVI"))
+        assertTrue(VideoFilter.isLikelyUnsupported("show.flv"))
+        assertFalse(VideoFilter.isLikelyUnsupported("movie.mkv"))
+        assertFalse(VideoFilter.isLikelyUnsupported("movie.mp4"))
+        assertFalse(VideoFilter.isLikelyUnsupported("song.mp3"))
+        assertTrue(VideoItem(path = "x", name = "movie.wmv").likelyUnsupported)
+        assertFalse(VideoItem(path = "x", name = "movie.mp4").likelyUnsupported)
+    }
+
     @Test fun pendingResumeForUnknownDuration() {
         // Batch 1.3 (B2): a folder/USB video has no duration at load time,
         // so only the "past 5s" check applies until the player reports one.
