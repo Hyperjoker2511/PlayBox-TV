@@ -2,10 +2,18 @@ package com.playbox.tv
 
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.provider.MediaStore
+import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import java.io.File
 
 object MediaLibrary {
+
+    private const val TAG = "PlayBoxMedia"
+    private const val SAF_PREFS = "playbox_saf_folders"
+    private const val SAF_KEY = "folders"
 
     fun listVideosFromMediaStore(context: Context): List<VideoItem> {
         val out = mutableListOf<VideoItem>()
@@ -40,8 +48,9 @@ object MediaLibrary {
                     )
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             // MediaStore unavailable / permission denied: Folders screen is the fallback.
+            Log.w(TAG, "listVideosFromMediaStore failed", e)
         }
         return out
     }
@@ -78,7 +87,8 @@ object MediaLibrary {
                     )
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "listAudioFromMediaStore failed", e)
         }
         return out
     }
@@ -103,5 +113,143 @@ object MediaLibrary {
         val media = files.filter { it.isFile && VideoFilter.isMediaFile(it.name) }
             .map { VideoItem(path = it.absolutePath, name = it.name, sizeBytes = it.length()) }
         return dirs to media
+    }
+
+    // ---------- SAF (Storage Access Framework) folders ----------
+    // Android 11+ scoped storage blocks raw File access to shared storage, so
+    // a folder the user picks here is the reliable way to reach USB / folders
+    // the MediaStore rows miss. The permission survives reboots (persisted).
+
+    fun safFolders(context: Context): List<Uri> {
+        val prefs = context.getSharedPreferences(SAF_PREFS, Context.MODE_PRIVATE)
+        return prefs.getStringSet(SAF_KEY, emptySet())?.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() } ?: emptyList()
+    }
+
+    fun addSafFolder(context: Context, uri: Uri) {
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "takePersistableUriPermission failed for $uri", e)
+        }
+        val prefs = context.getSharedPreferences(SAF_PREFS, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(SAF_KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.add(uri.toString())
+        prefs.edit().putStringSet(SAF_KEY, set).apply()
+    }
+
+    fun removeSafFolder(context: Context, uri: Uri) {
+        try {
+            context.contentResolver.releasePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "releasePersistableUriPermission failed for $uri", e)
+        }
+        val prefs = context.getSharedPreferences(SAF_PREFS, Context.MODE_PRIVATE)
+        val set = prefs.getStringSet(SAF_KEY, emptySet())?.toMutableSet() ?: mutableSetOf()
+        set.remove(uri.toString())
+        prefs.edit().putStringSet(SAF_KEY, set).apply()
+    }
+
+    fun listSafFolder(context: Context, treeUri: Uri): Pair<List<Uri>, List<VideoItem>> {
+        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList<Uri>() to emptyList()
+        val children = try {
+            root.listFiles().sortedWith(
+                compareBy<DocumentFile> { it.isFile }.thenBy { (it.name ?: "").lowercase() }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "listSafFolder failed for $treeUri", e)
+            return emptyList<Uri>() to emptyList()
+        }
+        val dirs = children.filter { it.isDirectory && !(it.name ?: "").startsWith(".") }.map { it.uri }
+        val media = children.filter { it.isFile && VideoFilter.isMediaFile(it.name ?: "") }
+            .map { VideoItem(path = it.uri.toString(), name = it.name ?: "File", sizeBytes = it.length()) }
+        return dirs to media
+    }
+
+    fun safFolderName(context: Context, treeUri: Uri): String =
+        DocumentFile.fromTreeUri(context, treeUri)?.name ?: treeUri.lastPathSegment ?: "Folder"
+
+    // ---------- Subtitle lookup for content:// videos ----------
+    // MediaStore items arrive as content:// URIs, where File(path) finds
+    // nothing — so look the subtitle up the same way the video was found:
+    // same-named .srt/.vtt/.ass next to it, via DocumentFile or MediaStore.
+
+    /** Returns the subtitle URI plus its file name (for the mime type). */
+    fun findSubtitleForUri(context: Context, videoUriString: String): Pair<Uri, String>? {
+        val videoUri = runCatching { Uri.parse(videoUriString) }.getOrNull() ?: return null
+        return try {
+            findSubtitleViaDocumentFile(context, videoUri)
+                ?: findSubtitleViaMediaStore(context, videoUri)
+        } catch (e: Exception) {
+            Log.w(TAG, "findSubtitleForUri failed for $videoUriString", e)
+            null
+        }
+    }
+
+    private fun findSubtitleViaDocumentFile(context: Context, videoUri: Uri): Pair<Uri, String>? {
+        val video = DocumentFile.fromSingleUri(context, videoUri) ?: return null
+        val base = (video.name ?: "").substringBeforeLast('.')
+        if (base.isEmpty()) return null
+        val parent = video.parentFile ?: return null
+        val found = parent.listFiles().firstOrNull { file ->
+            val name = file.name ?: return@firstOrNull false
+            name.substringBeforeLast('.').equals(base, ignoreCase = true) &&
+                name.substringAfterLast('.', "").lowercase() in SubtitleFinder.SUBTITLE_EXTENSIONS
+        } ?: return null
+        return found.uri to (found.name ?: "")
+    }
+
+    private fun findSubtitleViaMediaStore(context: Context, videoUri: Uri): Pair<Uri, String>? {
+        // Resolve the video's folder + base name from the URI itself, then
+        // search MediaStore.Files for a same-named subtitle in that folder.
+        var relativePath: String? = null
+        var displayName: String? = null
+        try {
+            context.contentResolver.query(
+                videoUri,
+                arrayOf(MediaStore.MediaColumns.RELATIVE_PATH, MediaStore.MediaColumns.DISPLAY_NAME),
+                null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val rpCol = cursor.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+                    val dnCol = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                    if (rpCol >= 0) relativePath = cursor.getString(rpCol)
+                    if (dnCol >= 0) displayName = cursor.getString(dnCol)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "subtitle lookup: video query failed for $videoUri", e)
+            return null
+        }
+        val base = (displayName ?: "").substringBeforeLast('.')
+        if (base.isEmpty() || relativePath == null) return null
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+        val args = arrayOf(relativePath)
+        try {
+            context.contentResolver.query(
+                MediaStore.Files.getContentUri("external"),
+                arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
+                selection, args, null
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                while (cursor.moveToNext()) {
+                    val name = cursor.getString(nameCol) ?: continue
+                    if (name.substringBeforeLast('.').equals(base, ignoreCase = true) &&
+                        name.substringAfterLast('.', "").lowercase() in SubtitleFinder.SUBTITLE_EXTENSIONS
+                    ) {
+                        return ContentUris.withAppendedId(
+                            MediaStore.Files.getContentUri("external"), cursor.getLong(idCol)
+                        ) to name
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "subtitle lookup: MediaStore search failed for $videoUri", e)
+        }
+        return null
     }
 }
