@@ -3,8 +3,13 @@ package com.playbox.tv
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.database.ContentObserver
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -19,10 +24,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,7 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /*
  * PlayBox TV — Batch 1 UI, adapted from the user's full Material 3 design
@@ -102,7 +111,32 @@ private fun PlayBoxApp() {
     var details by remember { mutableStateOf<VideoItem?>(null) }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
     var playList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    // Batch 1.3 (B3): the list the video was opened from, so "Up next"
+    // follows the folder/USB list instead of a random MediaStore video.
+    var detailList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    // Batch 1.3 (B1): "Play from start" passes through to the player.
+    var playFromStart by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
+
+    // Batch 1.3 (B4): Library navigation state lives here, not inside
+    // LibraryScreen — opening a video no longer resets mode/folder/scroll.
+    var libraryMode by remember { mutableStateOf("Videos") }
+    var libraryFolder by remember { mutableStateOf<File?>(null) }
+    var librarySafFolder by remember { mutableStateOf<Uri?>(null) }
+    val libraryListState = rememberLazyListState()
+
+    // Batch 1.3 (B8): reload the MediaStore lists when media changes
+    // (USB plugged in) or when the user presses Refresh.
+    var refreshNonce by remember { mutableStateOf(0) }
+    DisposableEffect(context) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { refreshNonce++ }
+        }
+        val resolver = context.contentResolver
+        resolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
+        resolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
 
     val tick by permissionTick
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
@@ -119,7 +153,10 @@ private fun PlayBoxApp() {
         showRationale = false
         permissionTick.value++
     }
-    LaunchedEffect(tick) {
+    LaunchedEffect(tick, refreshNonce) {
+        // Debounce: a USB mount fires several observer callbacks at once;
+        // the delay collapses them into one reload.
+        delay(400)
         permissionDenied = mediaPermissionDenied(context)
         videos = withContext(Dispatchers.IO) { MediaLibrary.listVideosFromMediaStore(context) }
         audio = withContext(Dispatchers.IO) { MediaLibrary.listAudioFromMediaStore(context) }
@@ -148,14 +185,15 @@ private fun PlayBoxApp() {
                 PlayerScreen(
                     item = playing!!,
                     queue = playList.ifEmpty { all },
-                    onExit = { playing = null },
-                    onPlayNext = { next -> playing = next }
+                    fromStart = playFromStart,
+                    onExit = { playing = null; playFromStart = false },
+                    onPlayNext = { next -> playing = next; playFromStart = false }
                 )
             } else if (details != null) {
                 DetailsScreen(
                     item = details!!,
                     onBack = { details = null },
-                    onPlay = { playing = it; playList = all; details = null }
+                    onPlay = { item, fromStart -> playing = item; playList = detailList.ifEmpty { all }; playFromStart = fromStart; details = null }
                 )
             } else {
                 Row(modifier = Modifier.fillMaxSize()) {
@@ -165,16 +203,22 @@ private fun PlayBoxApp() {
                             Tab.Home -> HomeScreen(
                                 videos = videos, audio = audio,
                                 loading = !libraryLoaded, permissionDenied = permissionDenied,
-                                onOpen = { details = it },
-                                onFolders = { tab = Tab.Library }
+                                onOpen = { item, list -> details = item; detailList = list },
+                                onFolders = { tab = Tab.Library },
+                                onRefresh = { refreshNonce++ }
                             )
                             Tab.Search -> SearchScreen(
                                 items = all, search = search, onSearch = { search = it },
-                                onOpen = { details = it }
+                                onOpen = { item, list -> details = item; detailList = list }
                             )
                             Tab.Library -> LibraryScreen(
                                 videos = videos, audio = audio, loading = !libraryLoaded,
-                                onOpen = { details = it }
+                                mode = libraryMode, onMode = { libraryMode = it },
+                                folder = libraryFolder, onFolder = { libraryFolder = it },
+                                safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
+                                listState = libraryListState,
+                                onOpen = { item, list -> details = item; detailList = list },
+                                onRefresh = { refreshNonce++ }
                             )
                             Tab.Settings -> SettingsScreen()
                         }
@@ -184,4 +228,3 @@ private fun PlayBoxApp() {
         }
     }
 }
-
