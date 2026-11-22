@@ -57,4 +57,22 @@ class PlaybackLogicTest {
         assertFalse(ResumeStore.shouldResume(595_000L, 600_000L))
         assertFalse(ResumeStore.shouldResume(60_000L, 0L))
     }
+
+    @Test fun resumeKeyIsPathItself() {
+        // Batch 1.3 (B9): the same video reached as a file path and as a
+        // content:// URI must not get two different resume keys.
+        assertEquals("/storage/video.mp4", ResumeStore.keyFor("/storage/video.mp4"))
+        assertEquals(
+            "content://com.android.externalstorage.documents/tree/1",
+            ResumeStore.keyFor("content://com.android.externalstorage.documents/tree/1")
+        )
+    }
+
+    @Test fun pendingResumeForUnknownDuration() {
+        // Batch 1.3 (B2): a folder/USB video has no duration at load time,
+        // so only the "past 5s" check applies until the player reports one.
+        assertTrue(ResumeStore.hasSavedPosition(60_000L))
+        assertFalse(ResumeStore.hasSavedPosition(2_000L))
+        assertTrue(ResumeStore.shouldResume(60_000L, 600_000L))
+    }
 }
