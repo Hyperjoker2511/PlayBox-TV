@@ -108,8 +108,8 @@ jobs:
       - name: Build signed release APK
         run: ./gradlew :app:assembleRelease
 
-      - name: Upload signed APK
+      - name: Upload signed APKs
         uses: actions/upload-artifact@v4
         with:
           name: playbox-tv-release
-          path: app/build/outputs/apk/release/app-release.apk
+          path: app/build/outputs/apk/release/*.apk
