@@ -35,6 +35,39 @@ android {
         }
     }
 
+    // ABI splits — Patch 7 fix: the first 1.2.0 build was one universal
+    // APK of 181 MB because LibVLC ships its native engine once per ABI
+    // (~40-51 MB each x 4). One APK per ABI keeps each file in the
+    // user's 50-70 MB range with no feature cut. arm64-v8a is the file
+    // for the user's phone and the Jio TV (Amlogic S905X4, arm64).
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
+    applicationVariants.all {
+        outputs.all {
+            val output = this as? com.android.build.gradle.api.ApkVariantOutput
+            if (output != null) {
+                val abi = output.filters.find { it.filterType == "ABI" }?.identifier
+                val abiCode = when (abi) {
+                    "armeabi-v7a" -> 1
+                    "arm64-v8a" -> 2
+                    "x86" -> 3
+                    "x86_64" -> 4
+                    else -> 0
+                }
+                // vc7 -> 71/72/73/74: still updates over 1.1.0 (vc6) and
+                // over the never-delivered universal 1.2.0 (vc7).
+                output.versionCodeOverride = versionCode * 10 + abiCode
+            }
+        }
+    }
+
     buildTypes {
         release {
             // R8 on (Tool Kit self-checklist). Rules in app/proguard-rules.pro.
