@@ -3,9 +3,14 @@ package com.playbox.tv
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.media.ThumbnailUtils
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
+import android.util.Size
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 
@@ -23,6 +28,7 @@ object MediaLibrary {
             MediaStore.Video.Media.DISPLAY_NAME,
             MediaStore.Video.Media.DURATION,
             MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DATE_ADDED,
             MediaStore.Video.Media.DATA
         )
         val sort = "${MediaStore.Video.Media.DATE_ADDED} DESC"
@@ -32,6 +38,7 @@ object MediaLibrary {
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
                 val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
                 val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
@@ -43,7 +50,8 @@ object MediaLibrary {
                             path = path.ifBlank { contentUri },
                             name = name,
                             durationMs = cursor.getLong(durCol),
-                            sizeBytes = cursor.getLong(sizeCol)
+                            sizeBytes = cursor.getLong(sizeCol),
+                            dateAddedSec = cursor.getLong(dateCol)
                         )
                     )
                 }
@@ -63,6 +71,7 @@ object MediaLibrary {
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.DATA
         )
         try {
@@ -71,6 +80,7 @@ object MediaLibrary {
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val durCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
@@ -82,7 +92,8 @@ object MediaLibrary {
                             path = path.ifBlank { contentUri },
                             name = name,
                             durationMs = cursor.getLong(durCol),
-                            sizeBytes = cursor.getLong(sizeCol)
+                            sizeBytes = cursor.getLong(sizeCol),
+                            dateAddedSec = cursor.getLong(dateCol)
                         )
                     )
                 }
@@ -111,7 +122,7 @@ object MediaLibrary {
         ) ?: emptyList()
         val dirs = files.filter { it.isDirectory && !it.name.startsWith(".") }
         val media = files.filter { it.isFile && VideoFilter.isMediaFile(it.name) }
-            .map { VideoItem(path = it.absolutePath, name = it.name, sizeBytes = it.length()) }
+            .map { VideoItem(path = it.absolutePath, name = it.name, sizeBytes = it.length(), dateAddedSec = it.lastModified() / 1000) }
         return dirs to media
     }
 
@@ -165,12 +176,67 @@ object MediaLibrary {
         }
         val dirs = children.filter { it.isDirectory && !(it.name ?: "").startsWith(".") }.map { it.uri }
         val media = children.filter { it.isFile && VideoFilter.isMediaFile(it.name ?: "") }
-            .map { VideoItem(path = it.uri.toString(), name = it.name ?: "File", sizeBytes = it.length()) }
+            .map { VideoItem(path = it.uri.toString(), name = it.name ?: "File", sizeBytes = it.length(), dateAddedSec = it.lastModified() / 1000) }
         return dirs to media
     }
 
     fun safFolderName(context: Context, treeUri: Uri): String =
         DocumentFile.fromTreeUri(context, treeUri)?.name ?: treeUri.lastPathSegment ?: "Folder"
+
+    // ---------- "Open with PlayBox" (Batch 2) ----------
+    // Another app shares a video/audio file with us via ACTION_VIEW. The
+    // URI may be content:// (with a temporary read grant) or a file path;
+    // the name comes from OpenableColumns when the provider has it.
+    fun videoItemFromUri(context: Context, uri: Uri): VideoItem? {
+        val last = uri.lastPathSegment ?: ""
+        val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull() ?: ""
+        val isMedia = VideoFilter.isMediaFile(last) ||
+            mime.startsWith("video/") || mime.startsWith("audio/")
+        if (!isMedia) return null
+        val name = runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull() ?: last.substringAfterLast('/').ifBlank { "Video" }
+        return VideoItem(path = uri.toString(), name = name)
+    }
+
+    // ---------- Video thumbnails (Batch 2) ----------
+    // Small in-memory cache (64 × 320×180 ≈ 14 MB max) so scrolling a
+    // grid does not re-decode every tile. Thumbnails load on IO from the
+    // tile composable; a failure just leaves the gradient tile.
+
+    object ThumbnailCache {
+        private const val MAX_ENTRIES = 64
+        private val map = object : LinkedHashMap<String, Bitmap>(MAX_ENTRIES, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean =
+                size > MAX_ENTRIES
+        }
+        @Synchronized fun get(key: String): Bitmap? = map[key]
+        @Synchronized fun put(key: String, bitmap: Bitmap) { map[key] = bitmap }
+    }
+
+    fun loadVideoThumbnail(context: Context, item: VideoItem): Bitmap? {
+        if (!item.isVideo) return null
+        ThumbnailCache.get(item.path)?.let { return it }
+        return try {
+            val bmp: Bitmap? = when {
+                item.path.startsWith("content://") && Build.VERSION.SDK_INT >= 29 ->
+                    context.contentResolver.loadThumbnail(Uri.parse(item.path), Size(320, 180), null)
+                item.path.startsWith("/") && Build.VERSION.SDK_INT >= 29 ->
+                    ThumbnailUtils.createVideoThumbnail(File(item.path), Size(320, 180), null)
+                item.path.startsWith("/") ->
+                    @Suppress("DEPRECATION")
+                    ThumbnailUtils.createVideoThumbnail(item.path, MediaStore.Video.Thumbnails.MINI_KIND)
+                else -> null
+            }
+            if (bmp != null) ThumbnailCache.put(item.path, bmp)
+            bmp
+        } catch (e: Exception) {
+            Log.w(TAG, "thumbnail failed for ${item.path}", e)
+            null
+        }
+    }
 
     // ---------- Subtitle lookup for content:// videos ----------
     // MediaStore items arrive as content:// URIs, where File(path) finds
