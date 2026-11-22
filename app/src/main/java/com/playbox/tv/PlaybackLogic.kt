@@ -86,12 +86,44 @@ data class VideoItem(
     val path: String,
     val name: String,
     val durationMs: Long = 0L,
-    val sizeBytes: Long = 0L
+    val sizeBytes: Long = 0L,
+    /** Unix seconds the file was added (MediaStore DATE_ADDED, or the
+     * file's last-modified time for folders). 0 when unknown. */
+    val dateAddedSec: Long = 0L
 ) {
     val isVideo: Boolean get() = VideoFilter.isVideoFile(name)
     val isAudio: Boolean get() = VideoFilter.isAudioFile(name)
     /** Batch 1.4: Media3 cannot play this format yet (see VideoFilter). */
     val likelyUnsupported: Boolean get() = VideoFilter.isLikelyUnsupported(name)
+}
+
+/** Batch 2: Library sort orders. */
+enum class SortOrder { NAME, DATE_ADDED, SIZE, DURATION }
+
+object VideoSorter {
+    fun sort(items: List<VideoItem>, order: SortOrder): List<VideoItem> = when (order) {
+        SortOrder.NAME -> items.sortedBy { it.name.lowercase() }
+        SortOrder.DATE_ADDED -> items.sortedByDescending { it.dateAddedSec }
+        SortOrder.SIZE -> items.sortedByDescending { it.sizeBytes }
+        SortOrder.DURATION -> items.sortedByDescending { it.durationMs }
+    }
+
+    fun label(order: SortOrder): String = when (order) {
+        SortOrder.NAME -> "Name"
+        SortOrder.DATE_ADDED -> "Newest"
+        SortOrder.SIZE -> "Largest"
+        SortOrder.DURATION -> "Longest"
+    }
+
+    fun next(order: SortOrder): SortOrder = when (order) {
+        SortOrder.NAME -> SortOrder.DATE_ADDED
+        SortOrder.DATE_ADDED -> SortOrder.SIZE
+        SortOrder.SIZE -> SortOrder.DURATION
+        SortOrder.DURATION -> SortOrder.NAME
+    }
+
+    fun fromName(name: String): SortOrder =
+        runCatching { SortOrder.valueOf(name) }.getOrDefault(SortOrder.DATE_ADDED)
 }
 
 object ResumeStore {
