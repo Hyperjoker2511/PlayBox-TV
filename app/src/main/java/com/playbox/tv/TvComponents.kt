@@ -1,5 +1,6 @@
 package com.playbox.tv
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,25 +10,34 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal enum class Tab { Home, Search, Library, Settings }
 
@@ -59,6 +69,62 @@ internal fun TvTile(text: String, sub: String? = null, onClick: () -> Unit) {
         if (sub != null) {
             Spacer(modifier = Modifier.height(6.dp))
             Text(sub, fontSize = 16.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Batch 2: the video's thumbnail, loaded on IO and cached (see
+ * MediaLibrary.loadVideoThumbnail). Draws nothing when there is no
+ * thumbnail yet — the gradient tile stays underneath. */
+@Composable
+internal fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var bitmap by remember(item.path) { mutableStateOf(MediaLibrary.ThumbnailCache.get(item.path)) }
+    LaunchedEffect(item.path) {
+        if (bitmap == null && item.isVideo) {
+            bitmap = withContext(Dispatchers.IO) { MediaLibrary.loadVideoThumbnail(context, item) }
+        }
+    }
+    val bmp = bitmap
+    if (bmp != null) {
+        Image(
+            bmp.asImageBitmap(), contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.clip(RoundedCornerShape(24.dp))
+        )
+    }
+}
+
+/** Batch 2: same tile as TvTile, but with the video's thumbnail behind
+ * the title. Audio tiles have no thumbnail, so they look like before. */
+@Composable
+internal fun ThumbTile(item: VideoItem, sub: String? = null, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val req = remember { FocusRequester() }
+    Box(
+        modifier = Modifier
+            .width(220.dp)
+            .height(180.dp)
+            .background(if (focused) PrimaryContainer else Surface, RoundedCornerShape(24.dp))
+            .border(if (focused) 4.dp else 0.dp, if (focused) Primary else Color.Transparent, RoundedCornerShape(24.dp))
+            .focusRequester(req).onFocusChanged { focused = it.isFocused }
+            .clickable { onClick() }
+    ) {
+        if (item.isVideo) VideoThumb(item, Modifier.fillMaxSize())
+        // Dark scrim at the bottom so the title stays readable on a photo.
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.Transparent, Color(0xCC000000))
+                )
+            )
+        )
+        Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+            Text(item.name, fontSize = 20.sp, color = White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (sub != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(sub, fontSize = 15.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
