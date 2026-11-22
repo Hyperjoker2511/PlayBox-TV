@@ -15,8 +15,8 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -37,7 +37,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 on (Tool Kit self-checklist). Rules in app/proguard-rules.pro.
+            // NOTE: not yet verified by a real release build — the user asked
+            // for no builds until the TV test is possible; verify on the next build.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (rootProject.file("keystore.properties").exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -74,6 +79,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    // DocumentFile — SAF folder browsing (Batch 1.2)
+    implementation("androidx.documentfile:documentfile:1.0.0")
     // Media3 / ExoPlayer — Batch 1 playback engine (Google Maven, verified 2026-11-22)
     implementation("androidx.media3:media3-exoplayer:1.6.1")
     implementation("androidx.media3:media3-ui:1.6.1")
