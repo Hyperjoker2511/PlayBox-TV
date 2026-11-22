@@ -62,7 +62,9 @@ object SubtitleFinder {
             }
     }
 
-    fun subtitleMimeType(file: File): String = when (file.extension.lowercase()) {
+    fun subtitleMimeType(file: File): String = subtitleMimeTypeForName(file.name)
+
+    fun subtitleMimeTypeForName(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
         "vtt" -> "text/vtt"
         "ass", "ssa" -> "text/x-ssa"
         else -> "application/x-subrip"
