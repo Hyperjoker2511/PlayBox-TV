@@ -15,8 +15,8 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -40,6 +40,8 @@ android {
             // R8 on (Tool Kit self-checklist). Rules in app/proguard-rules.pro.
             // NOTE: not yet verified by a real release build — the user asked
             // for no builds until the TV test is possible; verify on the next build.
+            // Batch 1.3: the old blanket -keep lines are gone (see the rules
+            // file) — they effectively switched R8 off while this was true.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
