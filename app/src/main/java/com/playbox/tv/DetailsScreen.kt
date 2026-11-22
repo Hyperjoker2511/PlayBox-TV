@@ -38,6 +38,10 @@ internal fun DetailsScreen(item: VideoItem, onBack: () -> Unit, onPlay: (VideoIt
             ).joinToString("  •  "),
             fontSize = 20.sp, color = Muted
         )
+        if (item.likelyUnsupported) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("May not play on this player yet — LibVLC support is coming in Batch 2.", fontSize = 20.sp, color = Muted)
+        }
         Spacer(modifier = Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // B1: the two buttons must not do the same thing — "Play from
