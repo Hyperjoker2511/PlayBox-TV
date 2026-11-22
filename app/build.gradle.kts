@@ -15,8 +15,8 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.0"
+        versionCode = 7
+        versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -93,6 +93,14 @@ dependencies {
     implementation("androidx.media3:media3-session:1.6.1")
     // jcifs-ng — Batch 2: SMB/NAS browsing (SMB1/2/3, pure Java)
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.9")
+    // Patch 7: LibVLC — the second engine, for formats Media3 cannot
+    // play, and for audio/subtitle delay, deinterlace, video adjust,
+    // volume above 100% and chapters.
+    implementation("org.videolan.android:libvlc-all:3.6.1")
+    // Patch 7: FTP (Apache Commons Net — its group is commons-net,
+    // not org.apache.commons) and SFTP (JSch fork) browsing.
+    implementation("commons-net:commons-net:3.10.0")
+    implementation("com.github.mwiede:jsch:0.2.18")
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
