@@ -1,0 +1,60 @@
+name: Build signed release
+
+# Builds the signed PlayBox TV release APK for Jio Store submission.
+# No PC needed. Secrets required in the repo (Settings > Secrets and variables > Actions):
+#   KEYSTORE_BASE64      — base64 of playbox-release.keystore (never commit the file itself)
+#   KEYSTORE_PASSWORD    — keystore password
+#   KEY_ALIAS            — key alias, e.g. playbox
+#   KEY_PASSWORD         — key password
+# Trigger: push a tag like v1.0.0, or run manually from the Actions tab.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.11.1
+
+      - name: Restore keystore from secret
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > playbox-release.keystore
+
+      - name: Create keystore.properties
+        run: |
+          cat > keystore.properties <<'EOF'
+          storeFile=playbox-release.keystore
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest
+
+      - name: Build signed release APK
+        run: gradle :app:assembleRelease
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: playbox-tv-release
+          path: app/build/outputs/apk/release/app-release.apk
