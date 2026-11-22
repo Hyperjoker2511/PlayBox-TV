@@ -2,10 +2,11 @@
 
 A clean video player for Android TV / Jio set-top box. Local and USB videos, seek that actually works.
 
-- Package: `com.playbox.tv` — version 1.0.0 (versionCode 1), minSdk 26, targetSdk 36
+- Package: `com.playbox.tv` — version 1.0.2 (versionCode 3), minSdk 26, targetSdk 36
 - Engine: Media3 / ExoPlayer 1.6.1 (Batch 1)
 - UI: Material 3, full-screen player, left navigation rail
 - No sign-in, no ads, no Google Play Services
+- License: MIT (see `LICENSE`)
 
 ## Build on your PC (Android Studio)
 
@@ -29,4 +30,4 @@ A clean video player for Android TV / Jio set-top box. Local and USB videos, see
 
 ## Status
 
-Batch 1 — player for Jio Store submission. Batch 2 adds LibVLC formats, network stream / SMB, and PlayBox Cast.
+Batch 1.2 — player for Jio Store submission, with Qwen (Batch 1.1) and DeepSeek fixes: per-video player, D-pad/focus/Back handling, audio focus, permission reload, SAF folder access, subtitle lookup for content URIs, R8. Batch 2 adds LibVLC formats, network stream / SMB, and PlayBox Cast.
