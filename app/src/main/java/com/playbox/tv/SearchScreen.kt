@@ -39,7 +39,7 @@ internal fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Str
             } else {
                 items(shown.chunked(cols), key = { row -> row.firstOrNull()?.path ?: "row" }) { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        row.forEach { item -> TvTile(item.name, tileSub(item)) { onOpen(item, shown) } }
+                        row.forEach { item -> ThumbTile(item, tileSub(item)) { onOpen(item, shown) } }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
