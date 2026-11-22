@@ -19,10 +19,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-internal fun DetailsScreen(item: VideoItem, onBack: () -> Unit, onPlay: (VideoItem) -> Unit) {
+internal fun DetailsScreen(item: VideoItem, onBack: () -> Unit, onPlay: (VideoItem, Boolean) -> Unit) {
     BackHandler { onBack() }
     val context = LocalContext.current
-    val saved = remember { context.getSharedPreferences("playbox_resume", Context.MODE_PRIVATE).getLong(item.path.hashCode().toString(), 0L) }
+    // Batch 1.3: resume key is the path itself (B9), with a one-time
+    // migration from the old hashCode keys.
+    val saved = remember { savedResumePosition(context, item.path) }
     Column(modifier = Modifier.fillMaxSize().padding(48.dp)) {
         TvButton("Back") { onBack() }
         Spacer(modifier = Modifier.height(24.dp))
@@ -38,11 +40,12 @@ internal fun DetailsScreen(item: VideoItem, onBack: () -> Unit, onPlay: (VideoIt
         )
         Spacer(modifier = Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            TvButton(if (saved > 5_000L) "Resume at ${TimeFormatter.format(saved)}" else "Play") { onPlay(item) }
-            TvButton("Play from start") { onPlay(item) }
+            // B1: the two buttons must not do the same thing — "Play from
+            // start" passes fromStart = true and really starts at 0.
+            TvButton(if (saved > 5_000L) "Resume at ${TimeFormatter.format(saved)}" else "Play") { onPlay(item, false) }
+            TvButton("Play from start") { onPlay(item, true) }
         }
         Spacer(modifier = Modifier.height(24.dp))
         Text("Remote: OK to play, Back to go back.", fontSize = 18.sp, color = Muted)
     }
 }
-
