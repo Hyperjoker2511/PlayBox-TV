@@ -2,6 +2,7 @@ package com.playbox.tv
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.net.Uri
@@ -64,11 +65,32 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleViewIntent(intent)
+        // Batch 2 (DLNA): keep the renderer discoverable while the app
+        // is installed — the service itself stays alive in the background.
+        startService(Intent(this, CastService::class.java))
         // The permission request itself lives in PlayBoxApp (rememberLauncherForActivityResult),
         // behind a plain-words rationale shown on first launch — no silent system prompt.
         setContent { PlayBoxApp() }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleViewIntent(intent)
+    }
+
+    // Batch 2 ("Open with PlayBox"): a file shared to us via ACTION_VIEW
+    // lands here; PlayBoxApp picks it up and plays it.
+    private fun handleViewIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            intent.data?.let { viewUri.value = it }
+        }
+    }
 }
+
+// Batch 2: the URI of a file another app asked us to play (null normally).
+private val viewUri = mutableStateOf<Uri?>(null)
 
 private val permissionTick = mutableStateOf(0)
 
@@ -116,6 +138,9 @@ private fun PlayBoxApp() {
     var detailList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     // Batch 1.3 (B1): "Play from start" passes through to the player.
     var playFromStart by remember { mutableStateOf(false) }
+    // Batch 2 (DLNA): a cast video plays at 1x — a sender expects normal
+    // speed, not the user's default. Null = use the saved default.
+    var playStartSpeed by remember { mutableStateOf<Float?>(null) }
     var search by remember { mutableStateOf("") }
 
     // Batch 1.3 (B4): Library navigation state lives here, not inside
@@ -124,6 +149,9 @@ private fun PlayBoxApp() {
     var libraryFolder by remember { mutableStateOf<File?>(null) }
     var librarySafFolder by remember { mutableStateOf<Uri?>(null) }
     val libraryListState = rememberLazyListState()
+    // Batch 2: the Network browse state lives here too.
+    var networkServer by remember { mutableStateOf<SmbServer?>(null) }
+    var networkPath by remember { mutableStateOf<String?>(null) }
 
     // Batch 1.3 (B8): reload the MediaStore lists when media changes
     // (USB plugged in) or when the user presses Refresh.
@@ -136,6 +164,28 @@ private fun PlayBoxApp() {
         resolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
         resolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, observer)
         onDispose { resolver.unregisterContentObserver(observer) }
+    }
+
+    // Batch 2 ("Open with PlayBox"): play the file another app shared
+    // with us, then clear the request so it does not replay on recompose.
+    val pendingView = viewUri.value
+    LaunchedEffect(pendingView) {
+        if (pendingView != null) {
+            MediaLibrary.videoItemFromUri(context, pendingView)?.let { item ->
+                playing = item; playList = listOf(item); playFromStart = false; playStartSpeed = null
+            }
+            viewUri.value = null
+        }
+    }
+
+    // Batch 2 (DLNA): a video cast from a phone opens the player for it,
+    // at normal speed. Cleared after handling, like viewUri above.
+    val pendingCast = CastInbox.item.value
+    LaunchedEffect(pendingCast) {
+        if (pendingCast != null) {
+            playing = pendingCast; playList = listOf(pendingCast); playFromStart = false; playStartSpeed = 1f
+            CastInbox.item.value = null
+        }
     }
 
     val tick by permissionTick
@@ -186,8 +236,9 @@ private fun PlayBoxApp() {
                     item = playing!!,
                     queue = playList.ifEmpty { all },
                     fromStart = playFromStart,
-                    onExit = { playing = null; playFromStart = false },
-                    onPlayNext = { next -> playing = next; playFromStart = false }
+                    startSpeed = playStartSpeed,
+                    onExit = { playing = null; playFromStart = false; playStartSpeed = null },
+                    onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null }
                 )
             } else if (details != null) {
                 DetailsScreen(
@@ -217,6 +268,8 @@ private fun PlayBoxApp() {
                                 folder = libraryFolder, onFolder = { libraryFolder = it },
                                 safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
                                 listState = libraryListState,
+                                networkServer = networkServer, onNetworkServer = { networkServer = it },
+                                networkPath = networkPath, onNetworkPath = { networkPath = it },
                                 onOpen = { item, list -> details = item; detailList = list },
                                 onRefresh = { refreshNonce++ }
                             )
