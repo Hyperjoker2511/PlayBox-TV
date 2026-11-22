@@ -1,0 +1,86 @@
+package com.playbox.tv
+
+import java.io.File
+
+/** Pure logic for PlayBox TV Batch 1 — unit-tested, no Android framework needed. */
+
+object SeekHelper {
+    /** Clamp a seek target to [0, durationMs]. Returns 0 when duration is unknown. */
+    fun clampSeek(currentMs: Long, deltaMs: Long, durationMs: Long): Long {
+        if (durationMs <= 0L) return 0L
+        return (currentMs + deltaMs).coerceIn(0L, durationMs)
+    }
+
+    fun stepForward(currentMs: Long, durationMs: Long): Long =
+        clampSeek(currentMs, 10_000L, durationMs)
+
+    fun stepBack(currentMs: Long, durationMs: Long): Long =
+        clampSeek(currentMs, -10_000L, durationMs)
+}
+
+object TimeFormatter {
+    fun format(ms: Long): String {
+        if (ms < 0L) return "0:00"
+        val totalSeconds = ms / 1000
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) {
+            "%d:%02d:%02d".format(hours, minutes, seconds)
+        } else {
+            "%d:%02d".format(minutes, seconds)
+        }
+    }
+}
+
+object VideoFilter {
+    val VIDEO_EXTENSIONS = setOf(
+        "mp4", "mkv", "avi", "mov", "ts", "m2ts", "webm", "flv", "wmv", "mpg", "mpeg", "3gp", "m4v"
+    )
+    val AUDIO_EXTENSIONS = setOf("mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "opus")
+
+    fun isVideoFile(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in VIDEO_EXTENSIONS
+
+    fun isAudioFile(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
+
+    fun isMediaFile(name: String): Boolean = isVideoFile(name) || isAudioFile(name)
+}
+
+object SubtitleFinder {
+    val SUBTITLE_EXTENSIONS = setOf("srt", "vtt", "ass", "ssa", "sub")
+
+    /** Find a subtitle file sitting next to the video with the same base name. */
+    fun findForVideo(videoFile: File): File? {
+        val parent = videoFile.parentFile ?: return null
+        val base = videoFile.nameWithoutExtension
+        return parent.listFiles()
+            ?.firstOrNull { file ->
+                file.nameWithoutExtension.equals(base, ignoreCase = true) &&
+                    file.extension.lowercase() in SUBTITLE_EXTENSIONS
+            }
+    }
+
+    fun subtitleMimeType(file: File): String = when (file.extension.lowercase()) {
+        "vtt" -> "text/vtt"
+        "ass", "ssa" -> "text/x-ssa"
+        else -> "application/x-subrip"
+    }
+}
+
+data class VideoItem(
+    val path: String,
+    val name: String,
+    val durationMs: Long = 0L,
+    val sizeBytes: Long = 0L
+) {
+    val isVideo: Boolean get() = VideoFilter.isVideoFile(name)
+    val isAudio: Boolean get() = VideoFilter.isAudioFile(name)
+}
+
+object ResumeStore {
+    /** A position is worth resuming only if it is past 5s and at least 10s from the end. */
+    fun shouldResume(savedMs: Long, durationMs: Long): Boolean =
+        savedMs > 5_000L && durationMs > 0L && savedMs < durationMs - 10_000L
+}
