@@ -3,6 +3,7 @@ package com.playbox.tv
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,20 +47,25 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
-// ---------- Patch 3 (Qwen Search + the Short's animations #1 + #5) ----------
-// One combined flow: the field stretches open from a narrow pill (#1),
-// then on focus the title slides away, the field rises, Cancel slides
-// in and Recent chips drop below (#5). All transform + opacity only,
-// so it stays cheap on the 2 GB box.
+// ---------- LUMEN Search (2026-11-23) — the Short's animations #1 + #5, for real ----------
+// #1 Icon Expand: the field starts as a small round pill — just the
+// magnifier — and springs open to full width when the screen appears.
+// The icon grows with it and the text field fades in only once the
+// pill is wide enough to hold it, so the expansion is unmistakable.
+// #5 Focus Morph: on focus the title slides away, the field rises,
+// Cancel slides in and the Recent chips drop below. All transform +
+// opacity only, so it stays cheap on the 2 GB box.
 
 /** Recent searches, newest first, max 8 — one string, queries joined. */
 private const val RECENT_SEARCH_PREFS = "playbox_recent_searches"
@@ -128,13 +135,24 @@ internal fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Str
     // Patch 6: reduce motion skips the entry stretch — the field is
     // full width from the first frame.
     val reduceMotion = remember { isReduceMotion(context) }
-    // #1: the field starts narrow and stretches open when the screen appears.
+    // #1: the field starts as a small pill and springs open.
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val fieldWidth by animateFloatAsState(
-        targetValue = if (entered || reduceMotion) 1f else 0.5f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 200f),
+        targetValue = if (entered || reduceMotion) 1f else 0.16f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
         label = "searchExpand"
+    )
+    val iconScale by animateFloatAsState(
+        targetValue = if (entered || reduceMotion) 1f else 0.7f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+        label = "searchIcon"
+    )
+    // #5: the field rises a little when focused.
+    val fieldRise by animateDpAsState(
+        targetValue = if (fieldFocused && !reduceMotion) (-8).dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 380f),
+        label = "searchRise"
     )
     val shown = searchFilter(items, search)
     val resume = remember { resumePositions(context) }
@@ -156,7 +174,11 @@ internal fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Str
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.offset { IntOffset(0, fieldRise.roundToPx()) }
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(fieldWidth)
@@ -168,34 +190,48 @@ internal fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Str
                         contentAlignment = Alignment.CenterStart
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("⌕", fontSize = 26.sp, color = Periwinkle)
+                            Text(
+                                "⌕", fontSize = 26.sp, color = Periwinkle,
+                                modifier = Modifier.graphicsLayer { scaleX = iconScale; scaleY = iconScale }
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
-                            BasicTextField(
-                                value = search,
-                                onValueChange = onSearch,
-                                singleLine = true,
-                                textStyle = TextStyle(fontSize = 22.sp, color = White),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = {
-                                    if (search.isNotBlank()) {
-                                        saveRecentSearch(context, search)
-                                        recent = recentSearches(context)
-                                        focusManager.clearFocus()
-                                    }
-                                }),
-                                modifier = Modifier.weight(1f).onFocusChanged { fieldFocused = it.hasFocus },
-                                decorationBox = { inner ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
-                                        if (search.isEmpty()) TypewriterHint()
-                                        inner()
+                            // The text field fades in only once the pill
+                            // is wide enough to hold it — before that
+                            // the pill is just the icon, expanding.
+                            AnimatedVisibility(
+                                visible = fieldWidth > 0.55f || reduceMotion,
+                                enter = fadeIn(),
+                                exit = fadeOut()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    BasicTextField(
+                                        value = search,
+                                        onValueChange = onSearch,
+                                        singleLine = true,
+                                        textStyle = TextStyle(fontSize = 22.sp, color = White),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                        keyboardActions = KeyboardActions(onSearch = {
+                                            if (search.isNotBlank()) {
+                                                saveRecentSearch(context, search)
+                                                recent = recentSearches(context)
+                                                focusManager.clearFocus()
+                                            }
+                                        }),
+                                        modifier = Modifier.weight(1f).onFocusChanged { fieldFocused = it.hasFocus },
+                                        decorationBox = { inner ->
+                                            Box(contentAlignment = Alignment.CenterStart) {
+                                                if (search.isEmpty()) TypewriterHint()
+                                                inner()
+                                            }
+                                        }
+                                    )
+                                    if (search.isNotEmpty()) {
+                                        Text(
+                                            "×", fontSize = 26.sp, color = Muted,
+                                            modifier = Modifier.clickable { onSearch("") }.padding(8.dp)
+                                        )
                                     }
                                 }
-                            )
-                            if (search.isNotEmpty()) {
-                                Text(
-                                    "×", fontSize = 26.sp, color = Muted,
-                                    modifier = Modifier.clickable { onSearch("") }.padding(8.dp)
-                                )
                             }
                         }
                     }
@@ -214,15 +250,23 @@ internal fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Str
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 if (search.isBlank()) {
-                    if (recent.isNotEmpty()) {
-                        Text("Recent", fontSize = 20.sp, color = Muted)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(recent, key = { it }) { q ->
-                                GlassButton(q) { onSearch(q) }
+                    // #5: the Recent chips drop in below the field when
+                    // it is focused, and slide away with Cancel.
+                    AnimatedVisibility(
+                        visible = fieldFocused && recent.isNotEmpty(),
+                        enter = if (reduceMotion) fadeIn() else fadeIn() + slideInVertically { it / 2 },
+                        exit = if (reduceMotion) fadeOut() else fadeOut() + slideOutVertically { it / 2 }
+                    ) {
+                        Column {
+                            Text("Recent", fontSize = 20.sp, color = Muted)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(recent, key = { it }) { q ->
+                                    GlassButton(q) { onSearch(q) }
+                                }
                             }
+                            Spacer(modifier = Modifier.height(16.dp))
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
                     }
                     Text("${items.size} files", fontSize = 18.sp, color = Muted)
                 } else {
