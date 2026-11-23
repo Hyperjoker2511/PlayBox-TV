@@ -79,7 +79,10 @@ internal fun HomeScreen(
     // nest inside this LazyColumn, so the grid stays chunked rows.)
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val cols = (maxWidth / 240.dp).toInt().coerceIn(1, 6)
-        val heroHeight = (maxHeight * 0.42f).coerceIn(240.dp, 380.dp)
+        // FIX (2026-11-23): the floor was 240.dp — on a phone in
+        // landscape the content area is only ~300dp tall, so the hero
+        // alone filled it and the tiles never showed without scrolling.
+        val heroHeight = (maxHeight * 0.42f).coerceIn(160.dp, 380.dp)
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
                 Text(greeting(), fontSize = 30.sp, color = White)
