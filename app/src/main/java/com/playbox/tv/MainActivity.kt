@@ -80,6 +80,10 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 1.4.0: the crash-note handler goes in before anything
+        // else can throw — it is the only witness a native death
+        // leaves behind (see CrashNote.kt).
+        CrashLog.install(this)
         handleViewIntent(intent)
         // Batch 2 (DLNA): keep the renderer discoverable while the app
         // is installed — the service itself stays alive in the background.
@@ -241,10 +245,17 @@ private fun PlayBoxApp() {
     // one file (path + engine). It only applies to that path, so
     // opening another file goes back to the default engine.
     var engineOverride by remember { mutableStateOf<Pair<String, PlayerEngine>?>(null) }
-    // Patch 1.3.3 (Nova): the whole-app design — Nova (from scratch)
-    // or Qwen (the kept option). Kept in state so switching it in
-    // Settings re-renders the scaffold immediately; saved to prefs
-    // so it survives a restart.
+    // 1.4.5 Patch B: the path an automatic engine fallback already
+    // fired for. A fallback runs once per file — Media3 failing
+    // switches to VLC, VLC failing switches to Media3, but neither
+    // fires twice for the same file, so the two engines cannot
+    // ping-pong on a file neither can play. A new file resets it
+    // (the path differs), and a manual gear switch is unaffected.
+    var fallbackDoneFor by remember { mutableStateOf<String?>(null) }
+    // 1.4.2 (Nova, now official): the whole-app design — Nova (from
+    // scratch, the default) or Qwen (the kept option). Kept in state
+    // so switching it in Settings re-renders the scaffold
+    // immediately; saved to prefs so it survives a restart.
     var appDesign by remember { mutableStateOf(appDesign(context)) }
     // Patch 7 (PiP): MainActivity's onUserLeaveHint reads this.
     LaunchedEffect(playing) { pipPlaying.value = playing != null }
@@ -281,9 +292,28 @@ private fun PlayBoxApp() {
     }
     val all = remember(videos, audio) { videos + audio }
 
+    // 1.4.0: the crash gate — if the last run died (a saved Java
+    // note, or a stale VLC marker with no note = a native death),
+    // the note screen is the first thing shown. Read once per cold
+    // start; Continue clears the records and lets the app through.
+    val crashNote = remember { CrashLog.note(context) }
+    val staleVlcDeath = remember { hasStaleVlcAttempt(context) }
+    var crashGateDone by remember { mutableStateOf(false) }
+    val showCrashGate = !crashGateDone && (crashNote != null || staleVlcDeath)
+
     MaterialTheme(colorScheme = darkColorScheme(primary = Primary, surface = Bg, background = Bg)) {
         Box(modifier = Modifier.fillMaxSize().background(Bg)) {
-            if (showRationale) {
+            if (showCrashGate) {
+                CrashNoteScreen(
+                    note = crashNote,
+                    lastStep = CrashLog.lastStep(context),
+                    onContinue = {
+                        CrashLog.clear(context)
+                        clearVlcAttempt(context)
+                        crashGateDone = true
+                    }
+                )
+            } else if (showRationale) {
                 PermissionRationaleScreen(
                     onAllow = {
                         val perms = if (Build.VERSION.SDK_INT >= 33) {
@@ -304,13 +334,31 @@ private fun PlayBoxApp() {
                 // force Media3 this time instead of crashing again.
                 // The gear's explicit engine choice still wins.
                 val vlcAvailable = !hasStaleVlcAttempt(context)
-                // Patch 1.3.0: LibVLC is the default player — the gear's
-                // override wins, otherwise every file plays on VLC.
+                // 1.4.0: Media3 is the default again (see engineFor);
+                // the gear's override wins, then the file's own
+                // Details-page choice, then the Settings default.
+                // 1.4.6 Patch D: HDR files go to VLC for tone
+                // mapping — detected once per path (cached) from the
+                // file header, so a local file costs one fast read.
+                val isHdr = remember(playing!!.path) { HdrDetect.isHdr(playing!!.path) }
                 val engine = engineFor(
                     playing!!,
-                    engineOverride?.takeIf { it.first == playing!!.path }?.second,
-                    vlcAvailable
+                    engineOverride?.takeIf { it.first == playing!!.path }?.second
+                        ?: chosenEngine(context, playing!!.path),
+                    vlcAvailable,
+                    defaultEnginePref(context),
+                    hdr = isHdr
                 )
+                // 1.4.0 (crash fix): the breadcrumb and the VLC
+                // attempt marker are written HERE — before the
+                // player screen composes and the engine is created.
+                // The 1.3.2 marker was written in a later setup
+                // step, so a death during engine creation left no
+                // marker and the guard never fired.
+                LaunchedEffect(playing!!.path, engine) {
+                    CrashLog.step(context, "engine chosen: $engine for ${playing!!.name}")
+                    if (engine == PlayerEngine.VLC) markVlcAttempt(context)
+                }
                 if (engine == PlayerEngine.VLC) {
                     VlcPlayerScreen(
                         item = playing!!,
@@ -323,7 +371,15 @@ private fun PlayBoxApp() {
                         onEnterPip = enterPip,
                         // Patch 1.3.1: the VLC engine could not start —
                         // open the same file on Media3 instead of crashing.
-                        onEngineFailed = { engineOverride = playing!!.path to PlayerEngine.MEDIA3 }
+                        // 1.4.5 Patch B: guarded — fires once per file,
+                        // so it cannot loop back to Media3 after a
+                        // Media3→VLC fallback for the same file.
+                        onEngineFailed = {
+                            if (fallbackDoneFor != playing!!.path) {
+                                fallbackDoneFor = playing!!.path
+                                engineOverride = playing!!.path to PlayerEngine.MEDIA3
+                            }
+                        }
                     )
                 } else {
                     PlayerScreen(
@@ -334,15 +390,41 @@ private fun PlayBoxApp() {
                         onExit = { playing = null; playFromStart = false; playStartSpeed = null },
                         onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
                         onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.VLC },
-                        onEnterPip = enterPip
+                        onEnterPip = enterPip,
+                        // 1.4.5 Patch B: Media3 failed to play this
+                        // file — retry it on LibVLC instead of
+                        // showing an error. Guarded to once per file,
+                        // so the two engines cannot ping-pong.
+                        onEngineFailed = {
+                            if (fallbackDoneFor != playing!!.path) {
+                                fallbackDoneFor = playing!!.path
+                                engineOverride = playing!!.path to PlayerEngine.VLC
+                            }
+                        }
                     )
                 }
             } else if (details != null) {
-                // Patch 1.3.3 (Nova): the Details screen follows the
-                // app design — Nova's stacked actions and list rows,
-                // or Qwen's glass chips and tile strip.
+                // 1.4.2 (Nova, now official): the Details screen
+                // follows the app design — Nova's stacked actions and
+                // list rows, Aura's backdrop + More Like This row, or
+                // Qwen's glass chips and tile strip.
                 if (appDesign == AppDesign.NOVA) {
                     NovaDetailsScreen(
+                        item = details!!,
+                        list = detailList.ifEmpty { all },
+                        onBack = { details = null },
+                        onPlay = { item, fromStart ->
+                            playing = item
+                            playList = mergeQueue(detailList.ifEmpty { all }, queued)
+                            queued = emptyList()
+                            playFromStart = fromStart
+                            details = null
+                        },
+                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                        onOpen = { item -> details = item }
+                    )
+                } else if (appDesign == AppDesign.AURA) {
+                    AuraDetailsScreen(
                         item = details!!,
                         list = detailList.ifEmpty { all },
                         onBack = { details = null },
@@ -373,8 +455,8 @@ private fun PlayBoxApp() {
                     )
                 }
             } else if (appDesign == AppDesign.NOVA) {
-                // Patch 1.3.3 (Nova): the rail on wide screens (TV,
-                // phone landscape), the tab strip on narrow ones
+                // 1.4.2 (Nova, now official): the rail on wide screens
+                // (TV, phone landscape), the tab strip on narrow ones
                 // (phone portrait). The content switches with a fade
                 // + a small rise (Nova motion), not Qwen's slide.
                 // The Player button resumes the most recently watched
@@ -401,6 +483,22 @@ private fun PlayBoxApp() {
                         Tab.Search -> NovaSearchScreen(
                             items = all, search = search, onSearch = { search = it },
                             onOpen = { item, list -> details = item; detailList = list }
+                        )
+                        // Explore is Aura's browse view (1.4.5). Nova has
+                        // no Explore tab, so it falls back to Library if
+                        // the design is switched while on Explore.
+                        Tab.Explore -> NovaLibraryScreen(
+                            videos = videos, audio = audio, loading = !libraryLoaded,
+                            mode = libraryMode, onMode = { libraryMode = it },
+                            folder = libraryFolder, onFolder = { libraryFolder = it },
+                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
+                            listState = libraryListState,
+                            networkServer = networkServer, onNetworkServer = { networkServer = it },
+                            networkPath = networkPath, onNetworkPath = { networkPath = it },
+                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onRefresh = { refreshNonce++ }
                         )
                         Tab.Library -> NovaLibraryScreen(
                             videos = videos, audio = audio, loading = !libraryLoaded,
@@ -452,6 +550,92 @@ private fun PlayBoxApp() {
                         }
                     }
                 }
+            } else if (appDesign == AppDesign.AURA) {
+                // 1.4.5 Patch 2 (Aura, the third design): the expanding
+                // left rail on wide screens (TV, phone landscape), the
+                // bottom nav on narrow ones (phone portrait). Five
+                // rail items — Home / Search / Explore / Library /
+                // Settings — the Aura file's navigation. The content
+                // switches with a fade + a small rise (Aura motion),
+                // not Qwen's slide. The Player button resumes the
+                // most recently watched video, like Nova and Qwen.
+                val onPlayer: () -> Unit = {
+                    val times = resumeTimes(context)
+                    val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
+                    val item = recent ?: all.firstOrNull()
+                    if (item != null) {
+                        playing = item; playList = all; playFromStart = false; playStartSpeed = null
+                    }
+                }
+                val auraContent: @Composable (Tab) -> Unit = { currentTab ->
+                    when (currentTab) {
+                        Tab.Home -> AuraHomeScreen(
+                            videos = videos, audio = audio,
+                            loading = !libraryLoaded, permissionDenied = permissionDenied,
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
+                            onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
+                            onFolders = { tab = Tab.Library },
+                            onRefresh = { refreshNonce++ }
+                        )
+                        Tab.Search -> AuraSearchScreen(
+                            items = all, search = search, onSearch = { search = it },
+                            onOpen = { item, list -> details = item; detailList = list }
+                        )
+                        Tab.Explore -> AuraExploreScreen(
+                            videos = videos, audio = audio,
+                            onOpen = { item, list -> details = item; detailList = list }
+                        )
+                        Tab.Library -> AuraLibraryScreen(
+                            videos = videos, audio = audio, loading = !libraryLoaded,
+                            mode = libraryMode, onMode = { libraryMode = it },
+                            folder = libraryFolder, onFolder = { libraryFolder = it },
+                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
+                            listState = libraryListState,
+                            networkServer = networkServer, onNetworkServer = { networkServer = it },
+                            networkPath = networkPath, onNetworkPath = { networkPath = it },
+                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onRefresh = { refreshNonce++ }
+                        )
+                        Tab.Settings -> AuraSettingsScreen(
+                            currentDesign = appDesign,
+                            onDesignChange = { appDesign = it; saveAppDesign(context, it) }
+                        )
+                    }
+                }
+                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(AuraSurface)) {
+                    if (maxWidth >= 700.dp) {
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            AuraRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
+                            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                AnimatedContent(
+                                    targetState = tab,
+                                    transitionSpec = {
+                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
+                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                    },
+                                    label = "auraTabSwitch"
+                                ) { currentTab -> auraContent(currentTab) }
+                            }
+                        }
+                    } else {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
+                                AnimatedContent(
+                                    targetState = tab,
+                                    transitionSpec = {
+                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
+                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                    },
+                                    label = "auraTabSwitch"
+                                ) { currentTab -> auraContent(currentTab) }
+                            }
+                            AuraBottomNav(tab = tab, onTab = { tab = it })
+                        }
+                    }
+                }
             } else {
                 // Batch 3 (Qwen): one ambient glow layer at the top.
                 // FIX (2026-11-23): the glow used to be a 320.dp box in
@@ -461,49 +645,43 @@ private fun PlayBoxApp() {
                 // now a background overlay that takes no layout space,
                 // sized as a fraction of the screen so it scales from a
                 // 32-inch TV down to a phone.
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.35f)
-                            .align(Alignment.TopCenter).background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0x298B5CF6), Color.Transparent)
-                                )
-                            )
-                    ) {}
-                    Column(modifier = Modifier.fillMaxSize()) {
-                    TopNav(
-                        tab = tab, onTab = { tab = it },
-                        onPlayer = {
-                            // Player pill: resume the most recently watched
-                            // video (or the first one) — never a dead end.
-                            val times = resumeTimes(context)
-                            val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
-                            val item = recent ?: all.firstOrNull()
-                            if (item != null) {
-                                playing = item; playList = all; playFromStart = false; playStartSpeed = null
-                            }
-                        },
-                        modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 24.dp)
-                    )
-                    Box(modifier = Modifier.weight(1f).fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
-                        // Lumen: switching tabs slides + fades (280ms,
-                        // transform + opacity only) — forward slides in
-                        // from the right, back from the left.
+                // 1.4.3 (enhanced): on wide screens (TV) the top pill bar
+                // is replaced by the Qwen left rail (QwenRail); the phone
+                // keeps the pill bar. The Player action and the tab
+                // content are shared by both layouts.
+                val qwenPlayer: () -> Unit = {
+                    val times = resumeTimes(context)
+                    val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
+                    val item = recent ?: all.firstOrNull()
+                    if (item != null) {
+                        playing = item; playList = all; playFromStart = false; playStartSpeed = null
+                    }
+                }
+                val qwenContent: @Composable () -> Unit = {
                         AnimatedContent(
                             targetState = tab,
                             transitionSpec = {
-                                val dir = tabSlideDirection(initialState, targetState)
-                                val enter = if (dir >= 0) {
-                                    slideInHorizontally(tween(280)) { it / 4 } + fadeIn(tween(200))
+                                // 1.4.0 (Nocturne TV motion): the tab
+                                // switch rides the shared Soft spring —
+                                // direction-aware slide + fade + a
+                                // small scale settle (in from 1.02,
+                                // out to 0.98). Springs follow the
+                                // velocity, so a second tab press
+                                // mid-flight redirects the motion
+                                // instead of queueing. Reduce motion
+                                // swaps it for a plain fade.
+                                if (isReduceMotion(context)) {
+                                    fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
                                 } else {
-                                    slideInHorizontally(tween(280)) { -it / 4 } + fadeIn(tween(200))
+                                    val dir = tabSlideDirection(initialState, targetState)
+                                    val enter = slideInHorizontally(Motion.soft()) { if (dir >= 0) it / 4 else -it / 4 } +
+                                        fadeIn(Motion.soft()) +
+                                        scaleIn(Motion.soft(), initialScale = 1.02f)
+                                    val exit = slideOutHorizontally(Motion.soft()) { if (dir >= 0) -it / 4 else it / 4 } +
+                                        fadeOut(Motion.soft()) +
+                                        scaleOut(Motion.soft(), targetScale = 0.98f)
+                                    enter togetherWith exit
                                 }
-                                val exit = if (dir >= 0) {
-                                    slideOutHorizontally(tween(280)) { -it / 4 } + fadeOut(tween(200))
-                                } else {
-                                    slideOutHorizontally(tween(280)) { it / 4 } + fadeOut(tween(200))
-                                }
-                                enter togetherWith exit
                             },
                             label = "tabSwitch"
                         ) { currentTab ->
@@ -520,6 +698,23 @@ private fun PlayBoxApp() {
                             Tab.Search -> SearchScreen(
                                 items = all, search = search, onSearch = { search = it },
                                 onOpen = { item, list -> details = item; detailList = list }
+                            )
+                            // Explore is Aura's browse view (1.4.5). Qwen
+                            // has no Explore tab, so it falls back to
+                            // Library if the design is switched while on
+                            // Explore.
+                            Tab.Explore -> LibraryScreen(
+                                videos = videos, audio = audio, loading = !libraryLoaded,
+                                mode = libraryMode, onMode = { libraryMode = it },
+                                folder = libraryFolder, onFolder = { libraryFolder = it },
+                                safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
+                                listState = libraryListState,
+                                networkServer = networkServer, onNetworkServer = { networkServer = it },
+                                networkPath = networkPath, onNetworkPath = { networkPath = it },
+                                ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                                ftpPath = ftpPath, onFtpPath = { ftpPath = it },
+                                onOpen = { item, list -> details = item; detailList = list },
+                                onRefresh = { refreshNonce++ }
                             )
                             Tab.Library -> LibraryScreen(
                                 videos = videos, audio = audio, loading = !libraryLoaded,
@@ -540,7 +735,37 @@ private fun PlayBoxApp() {
                             )
                         }
                         }
-                    }
+                }
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val wide = maxWidth >= 900.dp
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.35f)
+                                .align(Alignment.TopCenter).background(
+                                    Brush.verticalGradient(
+                                        listOf(Color(0x298B5CF6), Color.Transparent)
+                                    )
+                                )
+                        ) {}
+                        if (wide) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                QwenRail(tab = tab, onTab = { tab = it }, onPlayer = qwenPlayer)
+                                Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 32.dp, vertical = 24.dp)) {
+                                    qwenContent()
+                                }
+                            }
+                        } else {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                TopNav(
+                                    tab = tab, onTab = { tab = it },
+                                    onPlayer = qwenPlayer,
+                                    modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 24.dp)
+                                )
+                                Box(modifier = Modifier.weight(1f).fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
+                                    qwenContent()
+                                }
+                            }
+                        }
                     }
                 }
             }
