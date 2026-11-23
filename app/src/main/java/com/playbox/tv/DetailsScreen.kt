@@ -211,17 +211,28 @@ internal fun DetailsScreen(
                         Text("May not play on this player yet — LibVLC support is coming in the last patch.", fontSize = 18.sp, color = Muted)
                     }
                     Spacer(modifier = Modifier.height(20.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // B1: the two buttons must not do the same thing — "Play from
-                        // start" passes fromStart = true and really starts at 0.
-                        GlassButton(if (saved > 5_000L && isResumeOn(context)) "Resume at ${TimeFormatter.format(saved)}" else "Play") { onPlay(item, false) }
-                        GlassButton("Play from start") { onPlay(item, true) }
-                        GlassButton("Add to queue") {
-                            onQueue(item)
-                            addedNote = "Added to queue"
+                    // Lumen: the action row scrolls horizontally — on a
+                    // phone in landscape "Add to queue" used to be
+                    // pushed off the right edge and clipped.
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        item {
+                            // B1: the two buttons must not do the same thing — "Play from
+                            // start" passes fromStart = true and really starts at 0.
+                            GlassButton(if (saved > 5_000L && isResumeOn(context)) "Resume at ${TimeFormatter.format(saved)}" else "Play", primary = true) { onPlay(item, false) }
                         }
-                        GlassButton(if (isFav) "★ Favourite" else "☆ Favourite") {
-                            isFav = LibraryStores.toggleFavourite(context, item.path)
+                        item {
+                            GlassButton("Play from start") { onPlay(item, true) }
+                        }
+                        item {
+                            GlassButton("Add to queue") {
+                                onQueue(item)
+                                addedNote = "Added to queue"
+                            }
+                        }
+                        item {
+                            GlassButton(if (isFav) "★ Favourite" else "☆ Favourite") {
+                                isFav = LibraryStores.toggleFavourite(context, item.path)
+                            }
                         }
                     }
                     addedNote?.let {
