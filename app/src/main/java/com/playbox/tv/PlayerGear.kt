@@ -155,6 +155,12 @@ internal fun GearSheet(
     onRotation: (Int) -> Unit,
     onSwitchEngine: (() -> Unit)? = null,
     onEnterPip: (() -> Unit)? = null,
+    // Patch 1.3.1: the four missing VLC features.
+    onLock: () -> Unit,
+    onSavePlaylist: () -> Unit,
+    playAsAudio: Boolean,
+    onPlayAsAudio: (Boolean) -> Unit,
+    videoInfo: List<Pair<String, String>>,
     onClose: () -> Unit,
     focusRequester: FocusRequester
 ) {
@@ -181,7 +187,7 @@ internal fun GearSheet(
         }
         Spacer(modifier = Modifier.height(16.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf("Playback", "Subtitles", "Audio", "Video").forEachIndexed { i, name ->
+            listOf("Playback", "Subtitles", "Audio", "Video", "Info").forEachIndexed { i, name ->
                 item {
                     GlassButton(
                         name,
@@ -337,6 +343,27 @@ internal fun GearSheet(
                             Text("Shrinks the video to a small window so you can browse while it plays. Pressing Home does the same while a video is playing.", fontSize = 16.sp, color = Muted)
                         }
                     }
+                    item {
+                        GearSection("Lock") {
+                            GlassButton("Lock player") { onLock() }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Locks the controls so accidental touches do nothing. Press Back to unlock.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        GearSection("Save playlist") {
+                            GlassButton("Save playlist") { onSavePlaylist() }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Saves the videos in this queue as a playlist in the Library.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        GearSection("Play as audio") {
+                            GlassButton(if (playAsAudio) "Play as audio: On" else "Play as audio: Off") { onPlayAsAudio(!playAsAudio) }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Hides the picture and keeps the sound playing.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
                 }
                 "Subtitles" -> {
                     item {
@@ -485,6 +512,19 @@ internal fun GearSheet(
                     }
                     item {
                         Text("Brightness, contrast, saturation, deinterlace and filters live on the LibVLC engine — switch engines in the Playback tab.", fontSize = 16.sp, color = Muted)
+                    }
+                }
+                "Info" -> {
+                    item {
+                        GearSection("Video information") {
+                            videoInfo.forEach { (label, value) ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(label, fontSize = 18.sp, color = Muted, modifier = Modifier.width(170.dp))
+                                    Text(value, fontSize = 18.sp, color = White, modifier = Modifier.weight(1f))
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
                     }
                 }
             }
