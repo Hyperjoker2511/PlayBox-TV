@@ -246,6 +246,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var loudnessPct by remember { mutableStateOf(settings.getInt("loudness_pct", 0)) }
     var rotation by remember { mutableStateOf(0) }
     var audioFx by remember { mutableStateOf<AudioFx?>(null) }
+    // Patch 1.3.1: player lock + play-as-audio + the switchable UI.
+    var locked by remember { mutableStateOf(false) }
+    var playAsAudio by remember { mutableStateOf(false) }
+    val uiStyle = playerUiStyle(context)
 
     val rootFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
@@ -533,9 +537,12 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // not fall through to getOrNull(0), the first unrelated video.
     val queueIndex = queue.indexOf(item)
     val nextItem = if (queueIndex >= 0) queue.getOrNull(queueIndex + 1) else null
+    val prevItem = if (queueIndex >= 0) queue.getOrNull(queueIndex - 1) else null
 
     BackHandler {
         when {
+            // Patch 1.3.1: Back unlocks first, like VLC's lock.
+            locked -> locked = false
             panel != null -> panel = null
             ended -> onExit()
             // Patch 4: Back on a hidden panel shows the controls first;
@@ -607,6 +614,26 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     }
     val aspectLabel = when (aspectMode) { AspectMode.FIT -> "Fit"; AspectMode.FILL -> "Fill"; AspectMode.ZOOM -> "Zoom" }
 
+    // Patch 1.3.1: the rows of the Video information panel (gear "Info"
+    // tab) — audio / subtitle counts from the track lists, resolution
+    // from the video size the player already reported.
+    val audioTrackCount = remember(tracksVersion) {
+        try { player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.sumOf { it.length } } catch (_: Exception) { 0 }
+    }
+    val subTrackCount = remember(tracksVersion, subtitle) {
+        try {
+            player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.sumOf { it.length } +
+                (if (subtitle != null) 1 else 0)
+        } catch (_: Exception) { 0 }
+    }
+    val infoRows = videoInfoRows(
+        item,
+        formatSize(item.sizeBytes),
+        if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}" else "",
+        audioTrackCount,
+        subTrackCount
+    )
+
     // Patch 4: the SurfaceView is sized for the aspect mode from the
     // video's real size and the screen size.
     val configuration = LocalConfiguration.current
@@ -632,6 +659,8 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                // Patch 1.3.1: locked — no seeking or toggling.
+                if (locked) return@onPreviewKeyEvent false
                 // B6: every remote press restarts the auto-hide countdown.
                 interactionTick++
                 val uiVisible = showControls || panel != null || ended
@@ -666,14 +695,41 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             modifier = Modifier.fillMaxSize()
         )
 
+        // Patch 1.3.1: Play as audio — the video stays attached (so the
+        // audio keeps playing) under a black audio card.
+        if (playAsAudio) {
+            Box(
+                Modifier.fillMaxSize().background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("♪", fontSize = 72.sp, color = Primary)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        item.name, fontSize = 24.sp, color = Color.White,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 48.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "${TimeFormatter.format(positionMs)} / ${TimeFormatter.format(durationMs)}",
+                        fontSize = 18.sp, color = Muted
+                    )
+                }
+            }
+        }
+
         // Patch 4 (phone bug, fix 1): the tap toggle lives in a
         // transparent overlay ABOVE the SurfaceView, so taps on the video
         // actually reach it. pointerInput takes no D-pad focus, so the
         // remote still lands straight on the panel buttons.
+        // Patch 1.3.1: locked — taps do nothing.
         Box(
             modifier = Modifier.fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTapGestures(onTap = { showControls = !showControls; interactionTick++ })
+                    detectTapGestures(onTap = {
+                        if (!locked) { showControls = !showControls; interactionTick++ }
+                    })
                 }
         )
 
@@ -705,7 +761,8 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         PlayerTopBar(
             title = item.name,
             badge = if (videoSize.height > 0) "${videoSize.height}p" else containerOf(item),
-            visible = showControls && panel == null && !ended,
+            visible = showControls && panel == null && !ended && !locked,
+            style = uiStyle,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
         )
         PlayerDock(
@@ -727,9 +784,13 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             onGear = { panel = "gear" },
             playFocus = playPauseFocus,
             seekFocus = seekFocus,
-            visible = showControls && panel == null && !ended,
+            visible = showControls && panel == null && !ended && !locked,
             status = status,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+            style = uiStyle,
+            onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
+            onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS) 0.dp else 24.dp)
         )
 
         if (panel != null) {
@@ -831,9 +892,28 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                     onRotation = { rotation = it; pokeControls() },
                     onSwitchEngine = onSwitchEngine,
                     onEnterPip = onEnterPip,
+                    // Patch 1.3.1: Lock, Save Playlist, Play as audio,
+                    // Video information.
+                    onLock = { locked = true; panel = null },
+                    onSavePlaylist = {
+                        val name = LibraryStores.nextPlaylistName(context)
+                        queue.forEach { LibraryStores.addToPlaylist(context, name, it.path) }
+                        status = "Saved ${queue.size} videos to $name"
+                        pokeControls()
+                    },
+                    playAsAudio = playAsAudio,
+                    onPlayAsAudio = { playAsAudio = it; pokeControls() },
+                    videoInfo = infoRows,
                     onClose = { panel = null },
                     focusRequester = panelFocus
                 )
+            }
+        }
+
+        // Patch 1.3.1: locked — only the unlock button is on screen.
+        if (locked) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                GlassButton("🔒 Locked — tap to unlock") { locked = false }
             }
         }
 
