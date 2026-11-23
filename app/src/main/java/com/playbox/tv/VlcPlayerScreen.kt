@@ -179,6 +179,7 @@ internal fun VlcPlayerScreen(
                 // Patch 1.3.2 (crash guard): VLC is really playing —
                 // the attempt survived, so clear the marker.
                 clearVlcAttempt(context)
+                CrashLog.step(context, "vlc: playing")
                 tracksVersion++
                 if (pendingSeekMs > 0L) {
                     runCatching { engineRef?.player?.setTime(pendingSeekMs) }
@@ -212,11 +213,11 @@ internal fun VlcPlayerScreen(
     // the same file on Media3 instead. All engine effects are
     // unconditional hooks with a null guard inside, so the hook order
     // never changes whether the engine exists or not.
-    // Patch 1.3.3 (crash-guard hole fix): mark the attempt BEFORE
+    // 1.4.2 (guard-hole fix, from 1.3.3): mark the attempt BEFORE
     // constructing the engine. LibVLC() is a native call — a crash
     // there kills the process before any effect runs, so the setup
     // effect's mark never fired and the guard never engaged (the
-    // 1.3.2 bug: the user still crashed on every Play). Marking here
+    // 1.4.0 hole: the user still crashed on every Play). Marking here
     // covers construction, attach and play, and engine recreations
     // (brightness / contrast / saturation). It is a plain boolean
     // write, idempotent, so marking on every recreation is safe.
@@ -290,10 +291,10 @@ internal fun VlcPlayerScreen(
     // changes. Deinterlace / rotation changes re-play through
     // replayAt() below, which bumps restartNonce only for adjust.
     // Patch 1.3.2: this effect sets the player up but does NOT play —
-    // play waits for the surface (the gated effect below).
-    // Patch 1.3.3: the attempt is marked in the remember block above
-    // (before construction), not here — a native crash in LibVLC()
-    // never reaches this effect. Here, a null engine means a Kotlin
+    // play waits for the surface (the gated effect below). 1.4.2: the
+    // attempt is marked in the remember block above (before
+    // construction), not here — a native crash in LibVLC() never
+    // reaches this effect. Here, a null engine means a Kotlin
     // construction failure that was caught, not a native crash, so
     // clear the marker before falling back — the next open may retry
     // VLC instead of being forced to Media3 forever.
@@ -328,6 +329,7 @@ internal fun VlcPlayerScreen(
                     pendingSeekMs = saved
                 }
             }
+            CrashLog.step(context, "vlc: engine created, setup done")
             pendingPlay = true
         }
     }
@@ -340,6 +342,7 @@ internal fun VlcPlayerScreen(
         val e = engine
         if (e != null && surfaceReady && pendingPlay) {
             runCatching { e.play(item.path, deinterlaceOn, deinterlaceMode, rotation) }
+            CrashLog.step(context, "vlc: play called for ${item.name}")
             pendingPlay = false
         }
     }
@@ -631,7 +634,7 @@ internal fun VlcPlayerScreen(
             onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
             onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS || uiStyle == PlayerUiStyle.NOVA) 0.dp else 24.dp)
+                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS) 0.dp else 24.dp)
         )
 
         if (panel == "gear") {
