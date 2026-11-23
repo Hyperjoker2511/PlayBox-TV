@@ -65,7 +65,10 @@ private fun appVersion(context: Context): Pair<String?, Long> = try {
 }
 
 @Composable
-internal fun SettingsScreen() {
+internal fun SettingsScreen(
+    currentDesign: AppDesign = AppDesign.QWEN,
+    onDesignChange: (AppDesign) -> Unit = {}
+) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
     var category by remember { mutableStateOf("Playback") }
@@ -262,8 +265,31 @@ internal fun SettingsScreen() {
                 }
                 "Appearance" -> {
                     item {
+                        SettingsSection("App design") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    GlassButton("Nova", active = currentDesign == AppDesign.NOVA) {
+                                        onDesignChange(AppDesign.NOVA)
+                                    }
+                                }
+                                item {
+                                    GlassButton("Qwen", active = currentDesign == AppDesign.QWEN) {
+                                        onDesignChange(AppDesign.QWEN)
+                                    }
+                                }
+                            }
+                            Text("Nova is the new design, built from scratch — a left rail, lists instead of grids, flat solid surfaces. Qwen is the earlier glass design, kept as an option. Switching takes effect immediately.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
                         SettingsSection("Player UI") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    GlassButton("Nova", active = uiStyle == PlayerUiStyle.NOVA) {
+                                        uiStyle = PlayerUiStyle.NOVA
+                                        savePlayerUiStyle(context, PlayerUiStyle.NOVA)
+                                    }
+                                }
                                 item {
                                     GlassButton("Lumen", active = uiStyle == PlayerUiStyle.LUMEN) {
                                         uiStyle = PlayerUiStyle.LUMEN
@@ -283,7 +309,7 @@ internal fun SettingsScreen() {
                                     }
                                 }
                             }
-                            Text("Three player looks, same player underneath. Lumen is the default — the slim floating capsule with the full transport row and a mint play button. Liquid Glass is the full-width sheet with an orange seek bar and Prev / Next; Prism TV is the floating capsule with a mint play button.", fontSize = 16.sp, color = Muted)
+                            Text("Four player looks, same player underneath. Nova is the full-width solid bar. Lumen is the slim floating capsule with the full transport row and a mint play button. Liquid Glass is the full-width sheet with an orange seek bar and Prev / Next; Prism TV is the floating capsule with a mint play button.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
