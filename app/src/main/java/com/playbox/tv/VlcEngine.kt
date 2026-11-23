@@ -14,21 +14,19 @@ import java.io.File
 // The second engine, for the files Media3 cannot play and for the
 // features Media3 has no API for: audio delay, subtitle delay,
 // deinterlace, brightness / contrast / saturation, volume above 100%
-// and chapters. The Media3 player stays the default — VLC is used
-// only where it is needed (see engineFor).
+// and chapters. Patch 1.3.0: LibVLC is now the DEFAULT player — this
+// is a VLC-inspired app, so the full VLC video settings must be there
+// for every video, not hidden behind an engine switch. Media3 stays
+// available through the gear's "Switch to Media3".
 
 enum class PlayerEngine { MEDIA3, VLC }
 
 /** Which engine plays this item. An override (the gear's "Switch
- * engine") wins; FTP/SFTP always needs VLC (Media3 has no FTP/SFTP
- * source); formats Media3 cannot play need VLC; everything else
- * stays on Media3. (unit-tested) */
+ * engine") wins; otherwise LibVLC is the default (Patch 1.3.0 — the
+ * app is VLC-inspired, so the full VLC features are the default, not
+ * a fallback). (unit-tested) */
 internal fun engineFor(item: VideoItem, override: PlayerEngine?): PlayerEngine =
-    override ?: when {
-        item.path.startsWith("ftp://") || item.path.startsWith("sftp://") -> PlayerEngine.VLC
-        item.likelyUnsupported -> PlayerEngine.VLC
-        else -> PlayerEngine.MEDIA3
-    }
+    override ?: PlayerEngine.VLC
 
 /** Aspect modes map to VLC's scale types. Zoom is best-fit at 1.25x —
  * VLC has no crop-zoom of its own. (unit-tested) */
