@@ -136,8 +136,10 @@ internal fun NetworkScreen(
 
     fun playUrl() {
         val u = urlText.trim()
-        if (!u.startsWith("http://") && !u.startsWith("https://")) {
-            urlError = "That doesn't look like a link — it needs to start with http:// or https://"
+        if (!u.startsWith("http://") && !u.startsWith("https://") &&
+            !u.startsWith("rtsp://") && !u.startsWith("rtmp://") &&
+            !u.startsWith("nfs://")) {
+            urlError = "That doesn't look like a link — it needs to start with http://, https://, rtsp://, rtmp:// or nfs://"
             return
         }
         urlError = null
@@ -157,7 +159,7 @@ internal fun NetworkScreen(
             TextField(
                 value = urlText,
                 onValueChange = { urlText = it; urlError = null },
-                placeholder = { Text("https://…  (.mp4, .m3u8, .mpd)", color = Muted) },
+                placeholder = { Text("https://…  (.mp4, .m3u8, .mpd) or rtsp:// / rtmp:// / nfs://", color = Muted) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 colors = TextFieldDefaults.colors(
