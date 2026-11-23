@@ -291,7 +291,10 @@ private fun PlayBoxApp() {
                         onExit = { playing = null; playFromStart = false; playStartSpeed = null },
                         onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
                         onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.MEDIA3 },
-                        onEnterPip = enterPip
+                        onEnterPip = enterPip,
+                        // Patch 1.3.1: the VLC engine could not start —
+                        // open the same file on Media3 instead of crashing.
+                        onEngineFailed = { engineOverride = playing!!.path to PlayerEngine.MEDIA3 }
                     )
                 } else {
                     PlayerScreen(
