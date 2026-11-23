@@ -18,12 +18,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ---------- NOVA Home (2026-11-23) ----------
-// No hero banner, no grid, no quick chips. The Home is a list:
-// a "Continue watching" carousel of wide cards (one per in-progress
-// video), then "All videos" as a vertical list of rows. The rail
-// already holds Videos / Music / Folders / Network, so Home does not
-// repeat them. Everything scrolls vertically; nothing clips.
+// ---------- NOVA Home (2026-11-23, full copy 1.4.4) ----------
+// The enhanced Nova file's Home, rebuilt exactly: the feature hero
+// (orbit art + copy), a "Continue watching" carousel of wide cards,
+// then "All videos" as a vertical list of rows. The rail already
+// holds Videos / Music / Folders / Network, so Home does not repeat
+// them. Everything scrolls vertically; nothing clips.
+// Screen padding matches the file: 46px top / 34–88px sides / 56px
+// bottom on wide screens, 22px / 18px / 40px on a phone.
 
 @Composable
 internal fun NovaHomeScreen(
@@ -45,9 +47,14 @@ internal fun NovaHomeScreen(
     val all = videos + audio
     val servers = remember { SmbNetwork.servers(context).size }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 700.dp
+        val hPad = if (wide) (maxWidth * 0.05f).coerceIn(34.dp, 88.dp) else 18.dp
+        val topPad = if (wide) 46.dp else 22.dp
+        val bottomPad = if (wide) 56.dp else 40.dp
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = hPad)) {
         item {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(topPad))
             Text(greeting(), fontSize = 28.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -64,6 +71,24 @@ internal fun NovaHomeScreen(
                 )
             }
             Spacer(modifier = Modifier.height(24.dp))
+        }
+        // 1.4.3 (enhanced): the feature hero — the most recently
+        // resumed video (or the first video) as a big banner with
+        // Resume + Details. It sits above Continue watching.
+        val hero = continueWatching.firstOrNull() ?: videos.firstOrNull()
+        if (hero != null) {
+            item {
+                val heroResumeMs = resume[hero.path] ?: 0L
+                val heroFraction = if (hero.durationMs > 0) heroResumeMs.toFloat() / hero.durationMs else 0f
+                NovaHero(
+                    item = hero,
+                    resumeFraction = heroFraction,
+                    resumeMs = heroResumeMs,
+                    onResume = { onPlay(hero, all) },
+                    onDetails = { onOpen(hero, all) }
+                )
+                Spacer(modifier = Modifier.height(28.dp))
+            }
         }
         if (continueWatching.isNotEmpty()) {
             item {
@@ -123,7 +148,8 @@ internal fun NovaHomeScreen(
         item {
             Spacer(modifier = Modifier.height(8.dp))
             Text("Remote: OK to play, Back to go back.", fontSize = 15.sp, color = NovaMuted)
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(bottomPad))
+        }
         }
     }
 }
