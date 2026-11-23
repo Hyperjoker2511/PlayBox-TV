@@ -19,12 +19,12 @@ class Patch8Test {
     }
 
     @Test
-    fun playerUiStyle_unknownOrMissingFallsBackToPrism() {
-        // The default is PRISM — the look 1.3.0 shipped — so an upgrade
-        // never changes what the user sees.
-        assertEquals(PlayerUiStyle.PRISM, playerUiStyleFromName(null))
-        assertEquals(PlayerUiStyle.PRISM, playerUiStyleFromName(""))
-        assertEquals(PlayerUiStyle.PRISM, playerUiStyleFromName("something-else"))
+    fun playerUiStyle_unknownOrMissingFallsBackToLumen() {
+        // The default is LUMEN since 1.3.2 — the assistant's own
+        // design — so a fresh install sees it.
+        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName(null))
+        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName(""))
+        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("something-else"))
     }
 
     @Test
