@@ -60,12 +60,14 @@ internal fun tileSub(item: VideoItem): String? {
     return parts.joinToString("  ·  ").ifBlank { null }
 }
 
-// ---------- Batch 3 (Qwen design): glass + focus ----------
+// ---------- LUMEN (2026-11-23): glass + focus ----------
 
-/** The one focus treatment for the whole app (Qwen): a focused item
- * scales 1.035–1.05 on a 240ms spring, gains a 2px violet ring and a
- * soft violet glow. Transform + opacity only — nothing heavy, so it
- * stays smooth on the 2 GB box. */
+/** The one focus treatment for the whole app (Lumen): a focused item
+ * scales 1.06 on a spring, gains a 2px violet ring and a soft violet
+ * glow, and every glass surface carries a bright rim of light along
+ * its top edge — the detail that makes glass read as glass without
+ * any live blur. Transform + opacity only, so it stays smooth on the
+ * 2 GB box and the phone. */
 @Composable
 internal fun GlassSurface(
     onClick: () -> Unit,
@@ -79,8 +81,8 @@ internal fun GlassSurface(
     val surfaceContext = LocalContext.current
     val reduceMotion = remember(surfaceContext) { isReduceMotion(surfaceContext) }
     val scale by animateFloatAsState(
-        targetValue = if (focused && !reduceMotion) 1.05f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 300f),
+        targetValue = if (focused && !reduceMotion) 1.06f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 420f),
         label = "focusScale"
     )
     Box(
@@ -95,23 +97,36 @@ internal fun GlassSurface(
             .focusRequester(req).onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
             .clip(shape),
-        content = content
-    )
+    ) {
+        // Lumen rim light: a bright catch along the top edge.
+        Box(
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().height(2.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color.Transparent, GlassRim, Color.Transparent)
+                    )
+                )
+        )
+        content()
+    }
 }
 
-/** A glass pill button (tabs, toolbar actions). Active = violet fill. */
+/** A glass pill button (tabs, toolbar actions). Active = violet fill.
+ * Primary = mint fill with ink text — the "go" button (Play, Resume).
+ * Lumen: focus scales 1.06 on a spring with a violet ring. */
 @Composable
 internal fun GlassButton(
     text: String,
     modifier: Modifier = Modifier,
     active: Boolean = false,
+    primary: Boolean = false,
     onClick: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     val req = remember { FocusRequester() }
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.04f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 300f),
+        targetValue = if (focused) 1.06f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 420f),
         label = "focusScale"
     )
     Box(
@@ -119,11 +134,14 @@ internal fun GlassButton(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(if (focused) 12.dp else 0.dp, RoundedCornerShape(28.dp), ambientColor = FocusGlow, spotColor = FocusGlow)
             .then(
-                if (active) Modifier.background(Primary, RoundedCornerShape(28.dp))
-                else Modifier.background(
-                    Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
-                    RoundedCornerShape(28.dp)
-                )
+                when {
+                    primary -> Modifier.background(Mint, RoundedCornerShape(28.dp))
+                    active -> Modifier.background(Primary, RoundedCornerShape(28.dp))
+                    else -> Modifier.background(
+                        Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
+                        RoundedCornerShape(28.dp)
+                    )
+                }
             )
             .border(2.dp, if (focused) FocusBorder else GlassBorder, RoundedCornerShape(28.dp))
             .focusRequester(req).onFocusChanged { focused = it.isFocused }
@@ -131,7 +149,7 @@ internal fun GlassButton(
             .padding(horizontal = 28.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, fontSize = 20.sp, color = White, maxLines = 1)
+        Text(text, fontSize = 20.sp, color = if (primary) Ink else White, maxLines = 1)
     }
 }
 
@@ -152,6 +170,36 @@ internal fun GlassTile(
             Text(title, fontSize = 22.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(modifier = Modifier.height(4.dp))
             Text(sub, fontSize = 16.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Lumen quick chip: one compact glass pill (glyph + label) for the
+ * Home quick-actions row. The row scrolls horizontally, so on a phone
+ * in landscape nothing is ever clipped or pushed off the edge. */
+@Composable
+internal fun QuickChip(
+    glyph: String,
+    label: String,
+    sub: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    GlassSurface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(28.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(glyph, fontSize = 26.sp, color = Mint)
+            Column {
+                Text(label, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(sub, fontSize = 15.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
@@ -188,7 +236,7 @@ internal fun TopNav(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("▶", fontSize = 26.sp, color = Primary)
+        Text("▶", fontSize = 26.sp, color = Mint)
         Text("PlayBox", fontSize = 24.sp, color = White)
         Spacer(modifier = Modifier.width(28.dp))
         Row(
@@ -271,7 +319,7 @@ internal fun ThumbTile(
             ) {
                 Box(
                     modifier = Modifier.fillMaxWidth(resumeFraction.coerceIn(0f, 1f)).height(4.dp)
-                        .background(Primary)
+                        .background(Mint)
                 )
             }
         }
