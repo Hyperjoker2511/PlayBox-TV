@@ -7,6 +7,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -169,7 +171,11 @@ internal fun RemoteHints(modifier: Modifier = Modifier) {
 }
 
 /** Qwen's top navigation: logo + glass pills. The Player pill opens the
- * video that is playing (or the last one watched). */
+ * video that is playing (or the last one watched). Patch 1.3.0: the
+ * pills scroll horizontally inside the remaining space, so on a phone
+ * in landscape the Player pill is never pushed off the right edge
+ * (its label used to be clipped). On a TV everything fits, so nothing
+ * scrolls there. */
 @Composable
 internal fun TopNav(
     tab: Tab,
@@ -185,11 +191,16 @@ internal fun TopNav(
         Text("▶", fontSize = 26.sp, color = Primary)
         Text("PlayBox", fontSize = 24.sp, color = White)
         Spacer(modifier = Modifier.width(28.dp))
-        val pills = listOf(Tab.Home to "Home", Tab.Library to "Library", Tab.Search to "Search", Tab.Settings to "Settings")
-        pills.forEach { (t, label) ->
-            GlassButton(label, active = tab == t) { onTab(t) }
+        Row(
+            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            val pills = listOf(Tab.Home to "Home", Tab.Library to "Library", Tab.Search to "Search", Tab.Settings to "Settings")
+            pills.forEach { (t, label) ->
+                GlassButton(label, active = tab == t) { onTab(t) }
+            }
         }
-        Spacer(modifier = Modifier.weight(1f))
         GlassButton("▶  Player") { onPlayer() }
     }
 }
