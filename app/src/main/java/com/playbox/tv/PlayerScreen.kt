@@ -233,7 +233,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // Patch 4: the audio/subtitle choice made on the Details page,
     // applied once the tracks arrive.
     var trackChoiceApplied by remember(item) { mutableStateOf(false) }
-    var seekFocused by remember { mutableStateOf(false) }
+    // Patch 1.3.0: the seek bar's focus lives in the shared dock now.
     // Patch 5: gear state — loop and shuffle persist, the rest is
     // per-session.
     var loopMode by remember { mutableStateOf(settings.getInt("loop_mode", Player.REPEAT_MODE_OFF)) }
@@ -249,6 +249,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
 
     val rootFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
+    val seekFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     val endedFocus = remember { FocusRequester() }
     LaunchedEffect(showControls, panel, ended) {
@@ -684,7 +685,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             val style = subStyle(context)
             Box(
                 modifier = Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = if (showControls) 260.dp else 48.dp, start = 64.dp, end = 64.dp),
+                    .padding(bottom = if (showControls) 190.dp else 48.dp, start = 64.dp, end = 64.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -698,57 +699,38 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             }
         }
 
-        if (showControls && !ended) {
-            // Patch 4: ONE bottom glass panel — nothing else on screen.
-            Column(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
-                        RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
-                    )
-                    .border(1.dp, GlassBorder, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-                    .padding(horizontal = 32.dp, vertical = 20.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(TimeFormatter.format(positionMs), fontSize = 20.sp, color = White)
-                    Text(remainingLabel(durationMs, positionMs), fontSize = 20.sp, color = Muted)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                // Patch 4: the timeline takes D-pad focus — Left/Right
-                // seek by the skip setting while it is focused.
-                Box(
-                    modifier = Modifier.fillMaxWidth()
-                        .border(if (seekFocused) 2.dp else 0.dp, FocusBorder, RoundedCornerShape(12.dp))
-                        .focusable()
-                        .onFocusChanged { seekFocused = it.isFocused }
-                        .onKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                            when (event.key) {
-                                Key.DirectionLeft -> { seekBy(-skipMs); true }
-                                Key.DirectionRight -> { seekBy(skipMs); true }
-                                else -> false
-                            }
-                        }
-                ) {
-                    WaveProgress(progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f)
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TvButton("-${skipSec}s") { seekBy(-skipMs) }
-                    TvButton(if (isPlaying) "Pause" else "Play", Modifier.focusRequester(playPauseFocus)) { if (player.isPlaying) player.pause() else player.play() }
-                    TvButton("+${skipSec}s") { seekBy(skipMs) }
-                    TvButton("${speed}x") { cycleSpeed() }
-                    TvButton(subLabel) { panel = "subs" }
-                    TvButton(audioLabel) { cycleAudioTrack() }
-                    TvButton(aspectLabel) { aspectMode = nextAspect(aspectMode); pokeControls() }
-                    TvButton("⚙") { panel = "gear" }
-                }
-                if (status.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(status, fontSize = 16.sp, color = Muted)
-                }
-            }
-        }
+        // Patch 1.3.0: the slim floating dock + top bar from the designs
+        // replace the old full-width panel. The dock hides while a gear
+        // panel is open, like the designs.
+        PlayerTopBar(
+            title = item.name,
+            badge = if (videoSize.height > 0) "${videoSize.height}p" else containerOf(item),
+            visible = showControls && panel == null && !ended,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+        )
+        PlayerDock(
+            positionMs = positionMs,
+            durationMs = durationMs,
+            bufferedFraction = if (durationMs > 0) (player.bufferedPosition.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
+            isPlaying = isPlaying,
+            speed = speed,
+            skipSec = skipSec,
+            subLabel = subLabel,
+            audioLabel = audioLabel,
+            aspectLabel = aspectLabel,
+            onSeekBy = ::seekBy,
+            onPlayPause = { if (player.isPlaying) player.pause() else player.play() },
+            onCycleSpeed = ::cycleSpeed,
+            onSubtitles = { panel = "subs" },
+            onAudio = ::cycleAudioTrack,
+            onAspect = { aspectMode = nextAspect(aspectMode); pokeControls() },
+            onGear = { panel = "gear" },
+            playFocus = playPauseFocus,
+            seekFocus = seekFocus,
+            visible = showControls && panel == null && !ended,
+            status = status,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+        )
 
         if (panel != null) {
             // Batch 2: a real subtitle picker — Off, the external subtitle
