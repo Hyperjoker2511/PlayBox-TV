@@ -80,23 +80,32 @@ private val Night = Color(0xFF101524)
 private val Orange = Color(0xFFFF7A1A)
 private val LightOrange = Color(0xFFFFB347)
 
-/** The three player UIs. LUMEN is the default — it is the look 1.3.2
- * ships, so a fresh install sees the assistant's own design. */
-internal enum class PlayerUiStyle { LIQUID_GLASS, PRISM, LUMEN }
+/** The four player UIs. NOVA is the default when the app design is
+ * Nova (a full-width solid bar); LUMEN is the default when the app
+ * design is Qwen (the slim floating capsule). The user can pick any
+ * of the four in Settings > Appearance > Player UI. */
+internal enum class PlayerUiStyle { LIQUID_GLASS, PRISM, LUMEN, NOVA }
 
-/** The stored name ("liquid_glass" / "prism" / "lumen") back to a
- * style. Unknown or missing names fall back to LUMEN. (unit-tested) */
+/** The stored name ("nova" / "liquid_glass" / "prism" / "lumen")
+ * back to a style. Unknown or missing names fall back to LUMEN —
+ * the design-aware default lives in playerUiStyle(context) below.
+ * (unit-tested) */
 internal fun playerUiStyleFromName(name: String?): PlayerUiStyle = when (name) {
+    "nova" -> PlayerUiStyle.NOVA
     "liquid_glass" -> PlayerUiStyle.LIQUID_GLASS
     "prism" -> PlayerUiStyle.PRISM
     else -> PlayerUiStyle.LUMEN
 }
 
-internal fun playerUiStyle(context: Context): PlayerUiStyle =
-    playerUiStyleFromName(
-        context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
-            .getString("player_ui", null)
-    )
+/** The saved player UI, or the default for the current app design:
+ * NOVA for the Nova design, LUMEN for Qwen. An explicit choice in
+ * Settings always wins. */
+internal fun playerUiStyle(context: Context): PlayerUiStyle {
+    val saved = context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
+        .getString("player_ui", null)
+    if (saved != null) return playerUiStyleFromName(saved)
+    return if (appDesign(context) == AppDesign.NOVA) PlayerUiStyle.NOVA else PlayerUiStyle.LUMEN
+}
 
 internal fun savePlayerUiStyle(context: Context, style: PlayerUiStyle) {
     context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE).edit()
@@ -106,6 +115,7 @@ internal fun savePlayerUiStyle(context: Context, style: PlayerUiStyle) {
                 PlayerUiStyle.LIQUID_GLASS -> "liquid_glass"
                 PlayerUiStyle.PRISM -> "prism"
                 PlayerUiStyle.LUMEN -> "lumen"
+                PlayerUiStyle.NOVA -> "nova"
             }
         )
         .apply()
@@ -156,7 +166,11 @@ internal fun PlayerTopBar(
             ) {
                 Column(Modifier.weight(1f)) {
                     if (style != PlayerUiStyle.LIQUID_GLASS) {
-                        Text("NOW PLAYING", color = Mint, fontSize = 11.sp, letterSpacing = 2.sp)
+                        Text(
+                            "NOW PLAYING",
+                            color = if (style == PlayerUiStyle.NOVA) NovaMint else Mint,
+                            fontSize = 11.sp, letterSpacing = 2.sp
+                        )
                     }
                     Text(
                         title, color = Color.White, fontSize = 28.sp,
@@ -384,6 +398,7 @@ internal fun PlayerDock(
     val (gradient, thumbColor, accent) = when (style) {
         PlayerUiStyle.PRISM -> Triple(listOf(Lavender, Mint), Mint, Mint)
         PlayerUiStyle.LUMEN -> Triple(listOf(Lavender, Mint), Mint, Mint)
+        PlayerUiStyle.NOVA -> Triple(listOf(NovaViolet, NovaMint), NovaMint, NovaMint)
         PlayerUiStyle.LIQUID_GLASS -> Triple(listOf(Orange, LightOrange), Orange, Orange)
     }
     AnimatedVisibility(
@@ -575,6 +590,63 @@ internal fun PlayerDock(
                     if (status.isNotBlank()) {
                         Spacer(Modifier.height(8.dp))
                         Text(status, fontSize = 14.sp, color = Muted)
+                    }
+                }
+            }
+            PlayerUiStyle.NOVA -> {
+                // Nova: a full-width solid bottom BAR, edge to edge —
+                // not a floating capsule. A 1dp outline on top, the
+                // seek bar, then one row: Subtitles / Audio on the
+                // left, the transport in the centre, speed / aspect /
+                // gear on the right. The player screens give it 0dp
+                // bottom padding, so it sits flush with the screen.
+                Column(
+                    Modifier.fillMaxWidth().background(NovaSurface)
+                ) {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(NovaOutline))
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        DockTimeRow(positionMs, durationMs)
+                        Spacer(Modifier.height(6.dp))
+                        GlassSeekBar(
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            bufferedFraction = bufferedFraction,
+                            skipMs = skipMs,
+                            onSeekBy = onSeekBy,
+                            seekFocus = seekFocus,
+                            playFocus = playFocus,
+                            gradient = gradient,
+                            thumbColor = thumbColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            Spacer(Modifier.weight(1f))
+                            if (onPlayPrev != null) M3TonalButton("⏮", onClick = onPlayPrev, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3PlayButton(
+                                isPlaying = isPlaying,
+                                onClick = onPlayPause,
+                                modifier = upToSeek.focusRequester(playFocus),
+                                fill = NovaViolet
+                            )
+                            M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            if (onPlayNext != null) M3TonalButton("⏭", onClick = onPlayNext, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            Spacer(Modifier.weight(1f))
+                            M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        }
+                        if (status.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(status, fontSize = 14.sp, color = NovaMuted)
+                        }
                     }
                 }
             }
