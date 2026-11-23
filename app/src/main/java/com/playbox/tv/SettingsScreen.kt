@@ -87,6 +87,7 @@ internal fun SettingsScreen() {
     var smbServers by remember { mutableStateOf(SmbNetwork.servers(context)) }
     // Appearance
     var reduceMotion by remember { mutableStateOf(isReduceMotion(context)) }
+    var uiStyle by remember { mutableStateOf(playerUiStyle(context)) }
 
     fun save(block: android.content.SharedPreferences.Editor.() -> Unit) {
         prefs.edit().apply { block(); apply() }
@@ -260,6 +261,25 @@ internal fun SettingsScreen() {
                     }
                 }
                 "Appearance" -> {
+                    item {
+                        SettingsSection("Player UI") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    GlassButton("Liquid Glass", active = uiStyle == PlayerUiStyle.LIQUID_GLASS) {
+                                        uiStyle = PlayerUiStyle.LIQUID_GLASS
+                                        savePlayerUiStyle(context, PlayerUiStyle.LIQUID_GLASS)
+                                    }
+                                }
+                                item {
+                                    GlassButton("Prism TV", active = uiStyle == PlayerUiStyle.PRISM) {
+                                        uiStyle = PlayerUiStyle.PRISM
+                                        savePlayerUiStyle(context, PlayerUiStyle.PRISM)
+                                    }
+                                }
+                            }
+                            Text("Two player looks, same player underneath. Liquid Glass is the full-width sheet with an orange seek bar and Prev / Next; Prism TV is the floating capsule with a mint play button.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
                     item {
                         SettingsSection("Reduce motion") {
                             GlassButton(if (reduceMotion) "Reduce motion: On" else "Reduce motion: Off") {
