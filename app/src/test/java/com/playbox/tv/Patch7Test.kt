@@ -9,11 +9,23 @@ import org.videolan.libvlc.MediaPlayer
 class Patch7Test {
 
     @Test
-    fun engineFor_defaultsToVlc() {
-        // Patch 1.3.0: LibVLC is the default player — a plain local
-        // file plays on VLC, not Media3.
+    fun engineFor_defaultsToMedia3() {
+        // 1.4.0 (crash fix): Media3 is the default player again —
+        // the VLC-default era (Patch 1.3.0) is when the play
+        // crashes began. A plain local file plays on Media3.
         val local = VideoItem(path = "/storage/Movies/film.mp4", name = "film.mp4")
-        assertEquals(PlayerEngine.VLC, engineFor(local, null))
+        assertEquals(PlayerEngine.MEDIA3, engineFor(local, null))
+    }
+
+    @Test
+    fun engineFor_settingsDefaultHonoured() {
+        // The Settings → Player choice is the default when nothing
+        // else claims the file…
+        val local = VideoItem(path = "/storage/Movies/film.mp4", name = "film.mp4")
+        assertEquals(PlayerEngine.VLC, engineFor(local, null, true, PlayerEngine.VLC))
+        // …but the crash guard beats the setting: a VLC open that
+        // killed the process forces Media3 next time.
+        assertEquals(PlayerEngine.MEDIA3, engineFor(local, null, false, PlayerEngine.VLC))
     }
 
     @Test
@@ -30,6 +42,27 @@ class Patch7Test {
         val sftp = VideoItem(path = "sftp://user:pass@192.168.1.5:22/Movies/film.mp4", name = "film.mp4")
         assertEquals(PlayerEngine.VLC, engineFor(ftp, null))
         assertEquals(PlayerEngine.VLC, engineFor(sftp, null))
+    }
+
+    @Test
+    fun engineFor_rtspAndRtmpAlwaysVlc() {
+        // 1.4.3 Patch A: RTSP / RTMP streams only play on LibVLC —
+        // Media3 has no data source for them.
+        val rtsp = VideoItem(path = "rtsp://192.168.1.10:554/cam/stream", name = "cam")
+        val rtmp = VideoItem(path = "rtmp://live.example.com/app/stream", name = "stream")
+        assertEquals(PlayerEngine.VLC, engineFor(rtsp, null))
+        assertEquals(PlayerEngine.VLC, engineFor(rtmp, null))
+    }
+
+    @Test
+    fun engineFor_newVlcExtensionsGoToVlc() {
+        // 1.4.3 Patch A: VOB / RM / RMVB / DIVX now list in the
+        // Library and route to LibVLC instead of failing on Media3.
+        listOf("film.vob", "clip.rm", "show.rmvb", "old.divx").forEach { name ->
+            val item = VideoItem(path = "/storage/Movies/$name", name = name)
+            assertTrue("$name should be likelyUnsupported", item.likelyUnsupported)
+            assertEquals(PlayerEngine.VLC, engineFor(item, null))
+        }
     }
 
     @Test
