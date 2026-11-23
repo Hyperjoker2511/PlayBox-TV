@@ -1,5 +1,6 @@
 package com.playbox.tv
 
+import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -59,7 +60,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -76,15 +79,72 @@ import kotlin.math.roundToInt
 // violet, scales up with a spring and gets a mint border. Transform /
 // opacity only, so the 60fps rule still holds — the video surface is
 // never animated.
+//
+// ---------- Patch 1.3.1 (two player UIs) ----------
+// The two designs are now two switchable player UIs (design = UI, the
+// user's words): PRISM is the 1.3.0 look (floating capsule, lavender
+// to mint gradient, mint play button, compact row); LIQUID_GLASS is
+// the tvplayer design (full-width bottom sheet, orange gradient, white
+// play button, full row with Prev / Next). Same player underneath,
+// switched in Settings > Appearance ("Player UI").
 
 private val Mint = Color(0xFF8EF3DB)
 private val Lavender = Color(0xFFC6B6FF)
 private val Night = Color(0xFF101524)
+private val Orange = Color(0xFFFF7A1A)
+private val LightOrange = Color(0xFFFFB347)
 
-/** The top bar from the designs: NOW PLAYING + title + a quality
- * badge. Slim, slides down with the controls. */
+/** The two player UIs. PRISM is the default — it is the look 1.3.0
+ * shipped, so an upgrade does not change what the user sees. */
+internal enum class PlayerUiStyle { LIQUID_GLASS, PRISM }
+
+/** The stored name ("liquid_glass" / "prism") back to a style.
+ * Unknown or missing names fall back to PRISM. (unit-tested) */
+internal fun playerUiStyleFromName(name: String?): PlayerUiStyle =
+    if (name == "liquid_glass") PlayerUiStyle.LIQUID_GLASS else PlayerUiStyle.PRISM
+
+internal fun playerUiStyle(context: Context): PlayerUiStyle =
+    playerUiStyleFromName(
+        context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
+            .getString("player_ui", null)
+    )
+
+internal fun savePlayerUiStyle(context: Context, style: PlayerUiStyle) {
+    context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE).edit()
+        .putString("player_ui", if (style == PlayerUiStyle.LIQUID_GLASS) "liquid_glass" else "prism")
+        .apply()
+}
+
+/** The rows of the Video information panel (gear "Info" tab): label
+ * and value. Pure — the screens supply the already-formatted size
+ * and the resolution they know ("" when unknown). (unit-tested) */
+internal fun videoInfoRows(
+    item: VideoItem,
+    sizeLabel: String,
+    resolution: String,
+    audioCount: Int,
+    subCount: Int
+): List<Pair<String, String>> = listOf(
+    "File" to item.name,
+    "Format" to containerOf(item),
+    "Size" to sizeLabel,
+    "Duration" to TimeFormatter.format(item.durationMs),
+    "Resolution" to resolution.ifBlank { "—" },
+    "Audio tracks" to audioCount.toString(),
+    "Subtitle tracks" to subCount.toString()
+)
+
+/** The top bar from the designs. PRISM shows the NOW PLAYING label;
+ * LIQUID_GLASS shows just the title + badge. Slim, slides down with
+ * the controls. */
 @Composable
-internal fun PlayerTopBar(title: String, badge: String, visible: Boolean, modifier: Modifier = Modifier) {
+internal fun PlayerTopBar(
+    title: String,
+    badge: String,
+    visible: Boolean,
+    style: PlayerUiStyle = PlayerUiStyle.PRISM,
+    modifier: Modifier = Modifier
+) {
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(200)) + slideInVertically(spring(dampingRatio = 0.82f, stiffness = 380f)) { -it },
@@ -99,7 +159,9 @@ internal fun PlayerTopBar(title: String, badge: String, visible: Boolean, modifi
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("NOW PLAYING", color = Mint, fontSize = 11.sp, letterSpacing = 2.sp)
+                    if (style == PlayerUiStyle.PRISM) {
+                        Text("NOW PLAYING", color = Mint, fontSize = 11.sp, letterSpacing = 2.sp)
+                    }
                     Text(
                         title, color = Color.White, fontSize = 28.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis
@@ -117,10 +179,17 @@ internal fun PlayerTopBar(title: String, badge: String, visible: Boolean, modifi
     }
 }
 
-/** A Material 3 tonal button: translucent fill, solid violet + mint
+/** A Material 3 tonal button: translucent fill, solid violet + accent
  * border + spring scale when focused. */
 @Composable
-internal fun M3TonalButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun M3TonalButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Color = Mint,
+    fontSize: TextUnit = 16.sp,
+    hPadding: Dp = 14.dp
+) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val scale by animateFloatAsState(
@@ -133,19 +202,25 @@ internal fun M3TonalButton(label: String, onClick: () -> Unit, modifier: Modifie
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(if (focused) Primary else Color(0x19FFFFFF))
-            .border(if (focused) 2.dp else 1.dp, if (focused) Mint else Color(0x35FFFFFF), CircleShape)
+            .border(if (focused) 2.dp else 1.dp, if (focused) accent else Color(0x35FFFFFF), CircleShape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = hPadding),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = Color.White, fontSize = fontSize, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
-/** The big filled play / pause button: a mint circle with a dark
- * glyph that morphs between play and pause. */
+/** The big filled play / pause button: a filled circle with a dark
+ * glyph that morphs between play and pause. Mint on PRISM, white on
+ * LIQUID_GLASS. */
 @Composable
-internal fun M3PlayButton(isPlaying: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun M3PlayButton(
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    fill: Color = Mint
+) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val scale by animateFloatAsState(
@@ -157,7 +232,7 @@ internal fun M3PlayButton(isPlaying: Boolean, onClick: () -> Unit, modifier: Mod
             .size(58.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
-            .background(Mint)
+            .background(fill)
             .border(if (focused) 2.dp else 0.dp, Primary, CircleShape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -175,9 +250,9 @@ internal fun M3PlayButton(isPlaying: Boolean, onClick: () -> Unit, modifier: Mod
     }
 }
 
-/** The seek bar from the designs: a straight gradient bar (violet to
- * mint) that thickens on focus, a thumb that pops in, and a time
- * bubble that follows it. Left / Right seek by the skip setting. */
+/** The seek bar from the designs: a straight gradient bar that
+ * thickens on focus, a thumb that pops in, and a time bubble that
+ * follows it. Left / Right seek by the skip setting. */
 @Composable
 private fun GlassSeekBar(
     positionMs: Long,
@@ -187,6 +262,8 @@ private fun GlassSeekBar(
     onSeekBy: (Long) -> Unit,
     seekFocus: FocusRequester,
     playFocus: FocusRequester,
+    gradient: List<Color>,
+    thumbColor: Color,
     modifier: Modifier = Modifier
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -229,14 +306,14 @@ private fun GlassSeekBar(
             val w = size.width * fraction
             if (w > 0f) {
                 drawRoundRect(
-                    brush = Brush.horizontalGradient(listOf(Lavender, Mint), endX = w.coerceAtLeast(1f)),
+                    brush = Brush.horizontalGradient(gradient, endX = w.coerceAtLeast(1f)),
                     topLeft = Offset(0f, top), size = Size(w, h), cornerRadius = corner
                 )
             }
             val r = thumbRadius.toPx()
             if (r > 0.5f) {
                 val c = Offset(w, size.height / 2f)
-                drawCircle(color = Mint.copy(alpha = 0.35f), radius = r * 1.9f, center = c)
+                drawCircle(color = thumbColor.copy(alpha = 0.35f), radius = r * 1.9f, center = c)
                 drawCircle(color = Color.White, radius = r, center = c)
             }
         }
@@ -265,9 +342,19 @@ private fun GlassSeekBar(
     }
 }
 
-/** The slim floating dock: time row, gradient seek bar, then one row
- * of Material 3 buttons. Up from any button enters the timeline;
- * Down from the timeline returns to Play. Slides up with the controls. */
+@Composable
+private fun DockTimeRow(positionMs: Long, durationMs: Long) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(TimeFormatter.format(positionMs), fontSize = 16.sp, color = Color.White)
+        Text(remainingLabel(durationMs, positionMs), fontSize = 16.sp, color = Muted)
+    }
+}
+
+/** The dock: time row, gradient seek bar, then one row of Material 3
+ * buttons. Up from any button enters the timeline; Down from the
+ * timeline returns to Play. Slides up with the controls. PRISM is the
+ * slim floating capsule; LIQUID_GLASS is the full-width bottom sheet
+ * with Prev / Next. */
 @Composable
 internal fun PlayerDock(
     positionMs: Long,
@@ -290,73 +377,138 @@ internal fun PlayerDock(
     seekFocus: FocusRequester,
     visible: Boolean,
     status: String = "",
+    style: PlayerUiStyle = PlayerUiStyle.PRISM,
+    onPlayPrev: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val skipMs = skipSec * 1_000L
     val upToSeek = Modifier.focusProperties { up = seekFocus }
+    val (gradient, thumbColor, accent) = when (style) {
+        PlayerUiStyle.PRISM -> Triple(listOf(Lavender, Mint), Mint, Mint)
+        PlayerUiStyle.LIQUID_GLASS -> Triple(listOf(Orange, LightOrange), Orange, Orange)
+    }
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(200)) + slideInVertically(tween(230)) { it / 2 },
         exit = fadeOut(tween(140)) + slideOutVertically(tween(170)) { it / 2 },
         modifier = modifier
     ) {
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val w = (maxWidth * 0.90f).coerceAtMost(1160.dp)
-            Column(
-                Modifier.width(w).align(Alignment.Center)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Color(0xE32C3654), Color(0xEA141C30), Color(0xF0193034))
+        when (style) {
+            PlayerUiStyle.PRISM -> {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val w = (maxWidth * 0.90f).coerceAtMost(1160.dp)
+                    Column(
+                        Modifier.width(w).align(Alignment.Center)
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xE32C3654), Color(0xEA141C30), Color(0xF0193034))
+                                )
+                            )
+                            .border(
+                                1.dp,
+                                Brush.linearGradient(
+                                    listOf(Color(0x9AFFFFFF), Color(0x24FFFFFF), Color(0x757CF0DC))
+                                ),
+                                RoundedCornerShape(28.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                    ) {
+                        DockTimeRow(positionMs, durationMs)
+                        Spacer(Modifier.height(6.dp))
+                        GlassSeekBar(
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            bufferedFraction = bufferedFraction,
+                            skipMs = skipMs,
+                            onSeekBy = onSeekBy,
+                            seekFocus = seekFocus,
+                            playFocus = playFocus,
+                            gradient = gradient,
+                            thumbColor = thumbColor,
+                            modifier = Modifier.fillMaxWidth()
                         )
-                    )
-                    .border(
-                        1.dp,
-                        Brush.linearGradient(
-                            listOf(Color(0x9AFFFFFF), Color(0x24FFFFFF), Color(0x757CF0DC))
-                        ),
-                        RoundedCornerShape(28.dp)
-                    )
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
-            ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(TimeFormatter.format(positionMs), fontSize = 16.sp, color = Color.White)
-                    Text(remainingLabel(durationMs, positionMs), fontSize = 16.sp, color = Muted)
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent)
+                            M3PlayButton(
+                                isPlaying = isPlaying,
+                                onClick = onPlayPause,
+                                modifier = upToSeek.focusRequester(playFocus),
+                                fill = Mint
+                            )
+                            M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent)
+                            M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent)
+                            Spacer(Modifier.weight(1f))
+                            M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent)
+                            M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent)
+                            M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent)
+                            M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent)
+                        }
+                        if (status.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(status, fontSize = 14.sp, color = Muted)
+                        }
+                    }
                 }
-                Spacer(Modifier.height(6.dp))
-                GlassSeekBar(
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    bufferedFraction = bufferedFraction,
-                    skipMs = skipMs,
-                    onSeekBy = onSeekBy,
-                    seekFocus = seekFocus,
-                    playFocus = playFocus,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            }
+            PlayerUiStyle.LIQUID_GLASS -> {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                        .background(
+                            Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
+                            RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+                        )
+                        .border(1.dp, GlassBorder, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                        .padding(horizontal = 24.dp, vertical = 14.dp)
                 ) {
-                    M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek)
-                    M3PlayButton(
-                        isPlaying = isPlaying,
-                        onClick = onPlayPause,
-                        modifier = upToSeek.focusRequester(playFocus)
+                    DockTimeRow(positionMs, durationMs)
+                    Spacer(Modifier.height(6.dp))
+                    GlassSeekBar(
+                        positionMs = positionMs,
+                        durationMs = durationMs,
+                        bufferedFraction = bufferedFraction,
+                        skipMs = skipMs,
+                        onSeekBy = onSeekBy,
+                        seekFocus = seekFocus,
+                        playFocus = playFocus,
+                        gradient = gradient,
+                        thumbColor = thumbColor,
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek)
-                    M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek)
-                    Spacer(Modifier.weight(1f))
-                    M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek)
-                    M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek)
-                    M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek)
-                    M3TonalButton("⚙", onClick = onGear, modifier = upToSeek)
-                }
-                if (status.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(status, fontSize = 14.sp, color = Muted)
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        Spacer(Modifier.weight(1f))
+                        if (onPlayPrev != null) M3TonalButton("⏮", onClick = onPlayPrev, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        M3PlayButton(
+                            isPlaying = isPlaying,
+                            onClick = onPlayPause,
+                            modifier = upToSeek.focusRequester(playFocus),
+                            fill = Color.White
+                        )
+                        M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        if (onPlayNext != null) M3TonalButton("⏭", onClick = onPlayNext, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        Spacer(Modifier.weight(1f))
+                        M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                    }
+                    if (status.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(status, fontSize = 14.sp, color = Muted)
+                    }
                 }
             }
         }
