@@ -175,6 +175,9 @@ internal fun DetailsScreen(
     }
     var chosenAudio by remember { mutableStateOf(chosenAudioTrack(context, item.path)) }
     var chosenSub by remember { mutableStateOf(chosenSubtitleTrack(context, item.path)) }
+    // 1.4.0: this file's own player choice (null = Auto — the
+    // Settings default and the format rules decide).
+    var engineChoice by remember { mutableStateOf(chosenEngine(context, item.path)) }
     val upNext = remember(list, item.path) {
         val idx = list.indexOfFirst { it.path == item.path }
         if (idx < 0) list.take(6)
@@ -208,7 +211,7 @@ internal fun DetailsScreen(
                     }
                     if (item.likelyUnsupported) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("May not play on this player yet — LibVLC support is coming in the last patch.", fontSize = 18.sp, color = Muted)
+                        Text("This format plays on the VLC player.", fontSize = 18.sp, color = Muted)
                     }
                     Spacer(modifier = Modifier.height(20.dp))
                     // Lumen: the action row scrolls horizontally — on a
@@ -280,6 +283,31 @@ internal fun DetailsScreen(
                         if (subTracks.isEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("No subtitles inside this file — load one from the player.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    // 1.4.0: the per-file player door — for the file
+                    // that only plays right on one engine.
+                    Text("Player", fontSize = 18.sp, color = Muted)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        item {
+                            GlassButton("Auto", active = engineChoice == null) {
+                                engineChoice = null
+                                chooseEngine(context, item.path, null)
+                            }
+                        }
+                        item {
+                            GlassButton("Media3", active = engineChoice == PlayerEngine.MEDIA3) {
+                                engineChoice = PlayerEngine.MEDIA3
+                                chooseEngine(context, item.path, PlayerEngine.MEDIA3)
+                            }
+                        }
+                        item {
+                            GlassButton("VLC", active = engineChoice == PlayerEngine.VLC) {
+                                engineChoice = PlayerEngine.VLC
+                                chooseEngine(context, item.path, PlayerEngine.VLC)
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
