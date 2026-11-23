@@ -24,9 +24,43 @@ enum class PlayerEngine { MEDIA3, VLC }
 /** Which engine plays this item. An override (the gear's "Switch
  * engine") wins; otherwise LibVLC is the default (Patch 1.3.0 — the
  * app is VLC-inspired, so the full VLC features are the default, not
- * a fallback). (unit-tested) */
-internal fun engineFor(item: VideoItem, override: PlayerEngine?): PlayerEngine =
-    override ?: PlayerEngine.VLC
+ * a fallback). Patch 1.3.2 (crash guard): when the last VLC open
+ * killed the process (vlcAvailable = false) and there is no explicit
+ * override, force Media3 — a VLC crash must never brick playback
+ * twice in a row. An explicit override still wins, so the user can
+ * always switch back to VLC by hand. (unit-tested) */
+internal fun engineFor(item: VideoItem, override: PlayerEngine?, vlcAvailable: Boolean = true): PlayerEngine =
+    if (!vlcAvailable && override == null) PlayerEngine.MEDIA3
+    else override ?: PlayerEngine.VLC
+
+// ---------- Patch 1.3.2 (crash guard) ----------
+// A one-bit marker in its own prefs file. It is set the moment a VLC
+// player starts and cleared the moment VLC reports Playing. If the
+// process dies in between (a native libvlc crash), the marker is
+// still set on the next cold start — MainActivity reads it and forces
+// Media3. The marker is a plain boolean, so the read is cheap and
+// the logic is the same on 4KB and 16KB devices.
+
+private const val VLC_GUARD_PREFS = "playbox_vlc_guard"
+private const val VLC_ATTEMPT_KEY = "vlc_attempt"
+
+/** The VLC player is starting — record the attempt. */
+internal fun markVlcAttempt(context: Context) {
+    context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
+        .edit().putBoolean(VLC_ATTEMPT_KEY, true).apply()
+}
+
+/** VLC reported Playing — the attempt survived, clear the marker. */
+internal fun clearVlcAttempt(context: Context) {
+    context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
+        .edit().putBoolean(VLC_ATTEMPT_KEY, false).apply()
+}
+
+/** True when a previous VLC attempt never reached Playing — the
+ * process died while VLC was starting. */
+internal fun hasStaleVlcAttempt(context: Context): Boolean =
+    context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
+        .getBoolean(VLC_ATTEMPT_KEY, false)
 
 /** Aspect modes map to VLC's scale types. Zoom is best-fit at 1.25x —
  * VLC has no crop-zoom of its own. (unit-tested) */
