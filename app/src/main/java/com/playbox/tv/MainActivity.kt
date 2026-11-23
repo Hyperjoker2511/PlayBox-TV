@@ -20,6 +20,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -27,6 +29,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -238,6 +241,11 @@ private fun PlayBoxApp() {
     // one file (path + engine). It only applies to that path, so
     // opening another file goes back to the default engine.
     var engineOverride by remember { mutableStateOf<Pair<String, PlayerEngine>?>(null) }
+    // Patch 1.3.3 (Nova): the whole-app design — Nova (from scratch)
+    // or Qwen (the kept option). Kept in state so switching it in
+    // Settings re-renders the scaffold immediately; saved to prefs
+    // so it survives a restart.
+    var appDesign by remember { mutableStateOf(appDesign(context)) }
     // Patch 7 (PiP): MainActivity's onUserLeaveHint reads this.
     LaunchedEffect(playing) { pipPlaying.value = playing != null }
     val activity = LocalContext.current as? Activity
@@ -330,20 +338,120 @@ private fun PlayBoxApp() {
                     )
                 }
             } else if (details != null) {
-                DetailsScreen(
-                    item = details!!,
-                    list = detailList.ifEmpty { all },
-                    onBack = { details = null },
-                    onPlay = { item, fromStart ->
-                        playing = item
-                        playList = mergeQueue(detailList.ifEmpty { all }, queued)
-                        queued = emptyList()
-                        playFromStart = fromStart
-                        details = null
-                    },
-                    onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
-                    onOpen = { item -> details = item }
-                )
+                // Patch 1.3.3 (Nova): the Details screen follows the
+                // app design — Nova's stacked actions and list rows,
+                // or Qwen's glass chips and tile strip.
+                if (appDesign == AppDesign.NOVA) {
+                    NovaDetailsScreen(
+                        item = details!!,
+                        list = detailList.ifEmpty { all },
+                        onBack = { details = null },
+                        onPlay = { item, fromStart ->
+                            playing = item
+                            playList = mergeQueue(detailList.ifEmpty { all }, queued)
+                            queued = emptyList()
+                            playFromStart = fromStart
+                            details = null
+                        },
+                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                        onOpen = { item -> details = item }
+                    )
+                } else {
+                    DetailsScreen(
+                        item = details!!,
+                        list = detailList.ifEmpty { all },
+                        onBack = { details = null },
+                        onPlay = { item, fromStart ->
+                            playing = item
+                            playList = mergeQueue(detailList.ifEmpty { all }, queued)
+                            queued = emptyList()
+                            playFromStart = fromStart
+                            details = null
+                        },
+                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                        onOpen = { item -> details = item }
+                    )
+                }
+            } else if (appDesign == AppDesign.NOVA) {
+                // Patch 1.3.3 (Nova): the rail on wide screens (TV,
+                // phone landscape), the tab strip on narrow ones
+                // (phone portrait). The content switches with a fade
+                // + a small rise (Nova motion), not Qwen's slide.
+                // The Player button resumes the most recently watched
+                // video, like Qwen's Player pill.
+                val onPlayer: () -> Unit = {
+                    val times = resumeTimes(context)
+                    val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
+                    val item = recent ?: all.firstOrNull()
+                    if (item != null) {
+                        playing = item; playList = all; playFromStart = false; playStartSpeed = null
+                    }
+                }
+                val novaContent: @Composable (Tab) -> Unit = { currentTab ->
+                    when (currentTab) {
+                        Tab.Home -> NovaHomeScreen(
+                            videos = videos, audio = audio,
+                            loading = !libraryLoaded, permissionDenied = permissionDenied,
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
+                            onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
+                            onFolders = { tab = Tab.Library },
+                            onRefresh = { refreshNonce++ }
+                        )
+                        Tab.Search -> NovaSearchScreen(
+                            items = all, search = search, onSearch = { search = it },
+                            onOpen = { item, list -> details = item; detailList = list }
+                        )
+                        Tab.Library -> NovaLibraryScreen(
+                            videos = videos, audio = audio, loading = !libraryLoaded,
+                            mode = libraryMode, onMode = { libraryMode = it },
+                            folder = libraryFolder, onFolder = { libraryFolder = it },
+                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
+                            listState = libraryListState,
+                            networkServer = networkServer, onNetworkServer = { networkServer = it },
+                            networkPath = networkPath, onNetworkPath = { networkPath = it },
+                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onRefresh = { refreshNonce++ }
+                        )
+                        Tab.Settings -> NovaSettingsScreen(
+                            currentDesign = appDesign,
+                            onDesignChange = { appDesign = it; saveAppDesign(context, it) }
+                        )
+                    }
+                }
+                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(NovaBg)) {
+                    if (maxWidth >= 700.dp) {
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            NovaRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
+                            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                AnimatedContent(
+                                    targetState = tab,
+                                    transitionSpec = {
+                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
+                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                    },
+                                    label = "novaTabSwitch"
+                                ) { currentTab -> novaContent(currentTab) }
+                            }
+                        }
+                    } else {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            NovaTabStrip(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
+                            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
+                                AnimatedContent(
+                                    targetState = tab,
+                                    transitionSpec = {
+                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
+                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                    },
+                                    label = "novaTabSwitch"
+                                ) { currentTab -> novaContent(currentTab) }
+                            }
+                        }
+                    }
+                }
             } else {
                 // Batch 3 (Qwen): one ambient glow layer at the top.
                 // FIX (2026-11-23): the glow used to be a 320.dp box in
@@ -426,7 +534,10 @@ private fun PlayBoxApp() {
                                 onOpen = { item, list -> details = item; detailList = list },
                                 onRefresh = { refreshNonce++ }
                             )
-                            Tab.Settings -> SettingsScreen()
+                            Tab.Settings -> SettingsScreen(
+                                currentDesign = appDesign,
+                                onDesignChange = { appDesign = it; saveAppDesign(context, it) }
+                            )
                         }
                         }
                     }
