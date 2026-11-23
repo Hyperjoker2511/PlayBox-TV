@@ -20,9 +20,13 @@ class Patch9Test {
     }
 
     @Test
-    fun engineFor_vlcIsTheDefaultWhenAvailable() {
-        assertEquals(PlayerEngine.VLC, engineFor(item, null, vlcAvailable = true))
-        assertEquals(PlayerEngine.VLC, engineFor(item, null))
+    fun engineFor_media3IsTheDefaultWhenAvailable() {
+        // 1.4.0: Media3 is the default again (the 1.3.x VLC default
+        // is gone — it crashed on the M31). VLC is still routed for
+        // FTP/SFTP and likely-unsupported files, and the user can
+        // pick VLC as the default in Settings → Playback → Player.
+        assertEquals(PlayerEngine.MEDIA3, engineFor(item, null, vlcAvailable = true))
+        assertEquals(PlayerEngine.MEDIA3, engineFor(item, null))
     }
 
     @Test
