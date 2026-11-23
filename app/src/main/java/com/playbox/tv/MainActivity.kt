@@ -276,9 +276,8 @@ private fun PlayBoxApp() {
                     }
                 )
             } else if (playing != null) {
-                // Patch 7: the engine for this file — the gear's override
-                // wins, otherwise FTP/SFTP and formats Media3 cannot play
-                // go to LibVLC, and everything else stays on Media3.
+                // Patch 1.3.0: LibVLC is the default player — the gear's
+                // override wins, otherwise every file plays on VLC.
                 val engine = engineFor(
                     playing!!,
                     engineOverride?.takeIf { it.first == playing!!.path }?.second
