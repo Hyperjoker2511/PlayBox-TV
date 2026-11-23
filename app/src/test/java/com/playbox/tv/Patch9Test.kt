@@ -1,0 +1,59 @@
+package com.playbox.tv
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/** Patch 1.3.2 (Lumen + the crash guard): the pure helpers behind the
+ * new default player UI, the VLC crash guard, and the tab slide. */
+class Patch9Test {
+
+    private val item = VideoItem(
+        path = "/storage/Movies/film.mp4",
+        name = "film.mp4",
+        durationMs = 7_200_000L,
+        sizeBytes = 1_500_000_000L
+    )
+
+    @Test
+    fun playerUiStyle_lumenByName() {
+        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("lumen"))
+    }
+
+    @Test
+    fun engineFor_vlcIsTheDefaultWhenAvailable() {
+        assertEquals(PlayerEngine.VLC, engineFor(item, null, vlcAvailable = true))
+        assertEquals(PlayerEngine.VLC, engineFor(item, null))
+    }
+
+    @Test
+    fun engineFor_staleVlcAttemptForcesMedia3WhenThereIsNoOverride() {
+        // A VLC crash must never brick playback twice in a row.
+        assertEquals(PlayerEngine.MEDIA3, engineFor(item, null, vlcAvailable = false))
+    }
+
+    @Test
+    fun engineFor_explicitOverrideWinsEvenWhenVlcIsBlocked() {
+        // The gear's explicit choice is the user's — the guard only
+        // changes the default.
+        assertEquals(PlayerEngine.VLC, engineFor(item, PlayerEngine.VLC, vlcAvailable = false))
+        assertEquals(PlayerEngine.MEDIA3, engineFor(item, PlayerEngine.MEDIA3, vlcAvailable = false))
+    }
+
+    @Test
+    fun tabSlideDirection_forwardIsPositiveBackIsNegative() {
+        assertEquals(1, tabSlideDirection(Tab.Home, Tab.Search))
+        assertEquals(1, tabSlideDirection(Tab.Search, Tab.Library))
+        assertEquals(1, tabSlideDirection(Tab.Library, Tab.Settings))
+        assertEquals(-1, tabSlideDirection(Tab.Search, Tab.Home))
+        assertEquals(-1, tabSlideDirection(Tab.Settings, Tab.Library))
+    }
+
+    @Test
+    fun tabSlideDirection_sameTabIsZeroAndJumpsCoerceToOne() {
+        assertEquals(0, tabSlideDirection(Tab.Home, Tab.Home))
+        assertEquals(0, tabSlideDirection(Tab.Settings, Tab.Settings))
+        // A jump across several tabs still slides one step's worth.
+        assertEquals(1, tabSlideDirection(Tab.Home, Tab.Settings))
+        assertEquals(-1, tabSlideDirection(Tab.Settings, Tab.Home))
+    }
+}
