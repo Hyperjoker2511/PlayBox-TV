@@ -96,6 +96,12 @@ internal fun VlcGearSheet(
     onChapter: (Int) -> Unit,
     onSwitchEngine: () -> Unit,
     onEnterPip: () -> Unit,
+    // Patch 1.3.1: the four missing VLC features.
+    onLock: () -> Unit,
+    onSavePlaylist: () -> Unit,
+    playAsAudio: Boolean,
+    onPlayAsAudio: (Boolean) -> Unit,
+    videoInfo: List<Pair<String, String>>,
     initialTab: String,
     onClose: () -> Unit,
     focusRequester: FocusRequester
@@ -120,7 +126,7 @@ internal fun VlcGearSheet(
         }
         Spacer(modifier = Modifier.height(16.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf("Playback", "Subtitles", "Audio", "Video").forEachIndexed { i, name ->
+            listOf("Playback", "Subtitles", "Audio", "Video", "Info").forEachIndexed { i, name ->
                 item {
                     GlassButton(
                         name,
@@ -274,6 +280,27 @@ internal fun VlcGearSheet(
                             GlassButton("Picture in picture") { onEnterPip() }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Shrinks the video to a small window so you can browse while it plays.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        VlcGearSection("Lock") {
+                            GlassButton("Lock player") { onLock() }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Locks the controls so accidental touches do nothing. Press Back to unlock.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        VlcGearSection("Save playlist") {
+                            GlassButton("Save playlist") { onSavePlaylist() }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Saves the videos in this queue as a playlist in the Library.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        VlcGearSection("Play as audio") {
+                            GlassButton(if (playAsAudio) "Play as audio: On" else "Play as audio: Off") { onPlayAsAudio(!playAsAudio) }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Hides the picture and keeps the sound playing.", fontSize = 16.sp, color = Muted)
                         }
                     }
                 }
@@ -437,6 +464,19 @@ internal fun VlcGearSheet(
                                     GlassButton("$label · ${TimeFormatter.format(chapter.timeOffset)}") { onChapter(i) }
                                     Spacer(modifier = Modifier.height(12.dp))
                                 }
+                            }
+                        }
+                    }
+                }
+                "Info" -> {
+                    item {
+                        VlcGearSection("Video information") {
+                            videoInfo.forEach { (label, value) ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(label, fontSize = 18.sp, color = Muted, modifier = Modifier.width(170.dp))
+                                    Text(value, fontSize = 18.sp, color = White, modifier = Modifier.weight(1f))
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
                         }
                     }
