@@ -322,16 +322,24 @@ private fun PlayBoxApp() {
                     onOpen = { item -> details = item }
                 )
             } else {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Batch 3 (Qwen): one ambient glow layer at the top —
-                    // the only glow on a browse screen, so it stays cheap.
+                // Batch 3 (Qwen): one ambient glow layer at the top.
+                // FIX (2026-11-23): the glow used to be a 320.dp box in
+                // this Column — on a phone in landscape (~390dp tall) it
+                // ate the whole screen and the content got zero height, so
+                // every tab looked blank with the nav at the bottom. It is
+                // now a background overlay that takes no layout space,
+                // sized as a fraction of the screen so it scales from a
+                // 32-inch TV down to a phone.
+                Box(modifier = Modifier.fillMaxSize()) {
                     Box(
-                        modifier = Modifier.fillMaxWidth().height(320.dp).background(
-                            Brush.verticalGradient(
-                                listOf(Color(0x298B5CF6), Color.Transparent)
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.35f)
+                            .align(Alignment.TopCenter).background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0x298B5CF6), Color.Transparent)
+                                )
                             )
-                        )
                     ) {}
+                    Column(modifier = Modifier.fillMaxSize()) {
                     TopNav(
                         tab = tab, onTab = { tab = it },
                         onPlayer = {
@@ -377,6 +385,7 @@ private fun PlayBoxApp() {
                             )
                             Tab.Settings -> SettingsScreen()
                         }
+                    }
                     }
                 }
             }
