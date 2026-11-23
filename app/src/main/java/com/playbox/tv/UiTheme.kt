@@ -16,10 +16,14 @@ import java.util.Calendar
 internal val Primary = Color(0xFF8B5CF6)
 internal val PrimaryContainer = Color(0xFF4C1D95)
 internal val SecondaryContainer = Color(0xFF2E1A5E)
+// 1.4.0 (Nocturne TV): ONE accent — the violet. Mint retired as a
+// second accent (the owner's one-accent rule from Xreader); the
+// value stays only so older call sites keep compiling while the
+// components now draw every "go" surface in violet.
 internal val Mint = Color(0xFF8EF3DB)
-internal val Bg = Color(0xFF07090E)
-internal val Surface = Color(0xFF0D1119)
-internal val SurfaceHigh = Color(0xFF141A28)
+internal val Bg = Color(0xFF000000)
+internal val Surface = Color(0xFF0C0D12)
+internal val SurfaceHigh = Color(0xFF161822)
 internal val White = Color.White
 internal val Ink = Color(0xFF101524)
 internal val Muted = Color(0xFF9AA3B2)
