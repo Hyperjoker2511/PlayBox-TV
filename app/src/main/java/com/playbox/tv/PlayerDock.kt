@@ -21,6 +21,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -80,31 +81,41 @@ private val Night = Color(0xFF101524)
 private val Orange = Color(0xFFFF7A1A)
 private val LightOrange = Color(0xFFFFB347)
 
-/** The four player UIs. NOVA is the default when the app design is
+/** The three player UIs. LUMEN is the default — it is the look 1.3.2
+ * ships, so a fresh install sees the assistant's own design. */
+/** The five player UIs. NOVA is the default when the app design is
  * Nova (a full-width solid bar); LUMEN is the default when the app
- * design is Qwen (the slim floating capsule). The user can pick any
- * of the four in Settings > Appearance > Player UI. */
-internal enum class PlayerUiStyle { LIQUID_GLASS, PRISM, LUMEN, NOVA }
+ * design is Qwen; AURA is the default when the app design is Aura
+ * (1.4.5 Patch 2 — the lavender bottom UI). */
+internal enum class PlayerUiStyle { LIQUID_GLASS, PRISM, LUMEN, NOVA, AURA }
 
-/** The stored name ("nova" / "liquid_glass" / "prism" / "lumen")
- * back to a style. Unknown or missing names fall back to LUMEN —
- * the design-aware default lives in playerUiStyle(context) below.
- * (unit-tested) */
+/** The stored name ("nova" / "liquid_glass" / "prism" / "lumen" /
+ * "aura") back to a style. Unknown or missing names fall back to
+ * LUMEN. (unit-tested) */
 internal fun playerUiStyleFromName(name: String?): PlayerUiStyle = when (name) {
-    "nova" -> PlayerUiStyle.NOVA
     "liquid_glass" -> PlayerUiStyle.LIQUID_GLASS
     "prism" -> PlayerUiStyle.PRISM
+    "nova" -> PlayerUiStyle.NOVA
+    "aura" -> PlayerUiStyle.AURA
     else -> PlayerUiStyle.LUMEN
 }
 
-/** The saved player UI, or the default for the current app design:
- * NOVA for the Nova design, LUMEN for Qwen. An explicit choice in
- * Settings always wins. */
+/** The stored player style, or the app design's default when the
+ * user never picked one: NOVA for the Nova design, AURA for the
+ * Aura design, LUMEN for Qwen. An explicit choice in Settings
+ * always wins. */
 internal fun playerUiStyle(context: Context): PlayerUiStyle {
-    val saved = context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
+    val stored = context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
         .getString("player_ui", null)
-    if (saved != null) return playerUiStyleFromName(saved)
-    return if (appDesign(context) == AppDesign.NOVA) PlayerUiStyle.NOVA else PlayerUiStyle.LUMEN
+    return if (stored == null) {
+        when (appDesign(context)) {
+            AppDesign.NOVA -> PlayerUiStyle.NOVA
+            AppDesign.AURA -> PlayerUiStyle.AURA
+            AppDesign.QWEN -> PlayerUiStyle.LUMEN
+        }
+    } else {
+        playerUiStyleFromName(stored)
+    }
 }
 
 internal fun savePlayerUiStyle(context: Context, style: PlayerUiStyle) {
@@ -114,8 +125,9 @@ internal fun savePlayerUiStyle(context: Context, style: PlayerUiStyle) {
             when (style) {
                 PlayerUiStyle.LIQUID_GLASS -> "liquid_glass"
                 PlayerUiStyle.PRISM -> "prism"
-                PlayerUiStyle.LUMEN -> "lumen"
                 PlayerUiStyle.NOVA -> "nova"
+                PlayerUiStyle.LUMEN -> "lumen"
+                PlayerUiStyle.AURA -> "aura"
             }
         )
         .apply()
@@ -153,8 +165,9 @@ internal fun PlayerTopBar(
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(200)) + slideInVertically(spring(dampingRatio = 0.82f, stiffness = 380f)) { -it },
-        exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it },
+        // 1.4.0: the top bar drops in on the shared Soft spring.
+        enter = fadeIn(Motion.soft()) + slideInVertically(Motion.soft()) { -it },
+        exit = fadeOut(Motion.soft()) + slideOutVertically(Motion.soft()) { -it },
         modifier = modifier
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -166,11 +179,7 @@ internal fun PlayerTopBar(
             ) {
                 Column(Modifier.weight(1f)) {
                     if (style != PlayerUiStyle.LIQUID_GLASS) {
-                        Text(
-                            "NOW PLAYING",
-                            color = if (style == PlayerUiStyle.NOVA) NovaMint else Mint,
-                            fontSize = 11.sp, letterSpacing = 2.sp
-                        )
+                        Text("NOW PLAYING", color = Primary, fontSize = 11.sp, letterSpacing = 2.sp)
                     }
                     Text(
                         title, color = Color.White, fontSize = 28.sp,
@@ -202,13 +211,19 @@ internal fun M3TonalButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+    // 1.4.1: the press is the feedback a finger actually feels.
+    // Focus scale only fires for a remote — on a phone the tap
+    // never focuses, so the button looked dead. Pressed dips to
+    // 0.94 on the same spring, so every tap is a smooth press-in
+    // and release, remote or touch.
+    val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (focused) 1.05f else 1f,
+        if (pressed) 0.94f else if (focused) 1.05f else 1f,
         spring(dampingRatio = 0.72f, stiffness = 420f), label = "scale"
     )
     Box(
         modifier = modifier
-            .height(48.dp)
+            .height(44.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(if (focused) Primary else Color(0x19FFFFFF))
@@ -233,13 +248,16 @@ internal fun M3PlayButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+    // 1.4.1: same press dip as the tonal buttons — the big play
+    // button must answer a tap, not only a remote focus.
+    val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (focused) 1.12f else 1f,
+        if (pressed) 0.94f else if (focused) 1.12f else 1f,
         spring(dampingRatio = 0.62f, stiffness = 520f), label = "scale"
     )
     Box(
         modifier = modifier
-            .size(58.dp)
+            .size(52.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(fill)
@@ -366,6 +384,35 @@ private fun DockTimeRow(positionMs: Long, durationMs: Long) {
  * the slim floating capsule with the full transport row (Prev / Next
  * included) and the rim-light glass; PRISM is the 1.3.0 capsule;
  * LIQUID_GLASS is the full-width bottom sheet with Prev / Next. */
+// 1.4.4 (full copy): Prev / Next keep the transport symmetric.
+// When there is no previous or next item, the button is replaced
+// by an invisible twin of the SAME size (same label, same padding,
+// zero alpha), so the play button stays dead centre. The old code
+// simply omitted the button, which shifted the play button off
+// centre whenever only one of Prev / Next existed — exactly the
+// asymmetry in the user's screenshot.
+@Composable
+private fun PrevNextButton(
+    onClick: (() -> Unit)?,
+    label: String,
+    modifier: Modifier = Modifier,
+    accent: Color = Mint
+) {
+    if (onClick != null) {
+        M3TonalButton(label, onClick = onClick, modifier = modifier, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+    } else {
+        Box(
+            modifier = modifier.height(44.dp)
+                .graphicsLayer { alpha = 0f }
+                .clip(CircleShape)
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, fontSize = 14.sp, color = Color.Transparent)
+        }
+    }
+}
+
 @Composable
 internal fun PlayerDock(
     positionMs: Long,
@@ -398,13 +445,18 @@ internal fun PlayerDock(
     val (gradient, thumbColor, accent) = when (style) {
         PlayerUiStyle.PRISM -> Triple(listOf(Lavender, Mint), Mint, Mint)
         PlayerUiStyle.LUMEN -> Triple(listOf(Lavender, Mint), Mint, Mint)
-        PlayerUiStyle.NOVA -> Triple(listOf(NovaViolet, NovaMint), NovaMint, NovaMint)
         PlayerUiStyle.LIQUID_GLASS -> Triple(listOf(Orange, LightOrange), Orange, Orange)
+        PlayerUiStyle.NOVA -> Triple(listOf(NovaViolet, NovaMint), NovaMint, NovaMint)
+        PlayerUiStyle.AURA -> Triple(listOf(AuraPrimary, AuraTertiary), AuraPrimary, AuraPrimary)
     }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(200)) + slideInVertically(tween(230)) { it / 2 },
-        exit = fadeOut(tween(140)) + slideOutVertically(tween(170)) { it / 2 },
+        // 1.4.0: the dock RISES on the shared Soft spring (and
+        // leaves by the same motion reversed, a touch quicker by
+        // the spring's own nature) — one motion language with the
+        // tab switch and the sheets.
+        enter = fadeIn(Motion.soft()) + slideInVertically(Motion.soft()) { it / 2 },
+        exit = fadeOut(Motion.soft()) + slideOutVertically(Motion.soft()) { it / 2 },
         modifier = modifier
     ) {
         when (style) {
@@ -430,10 +482,10 @@ internal fun PlayerDock(
                                 ),
                                 RoundedCornerShape(28.dp)
                             )
-                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
                         DockTimeRow(positionMs, durationMs)
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(4.dp))
                         GlassSeekBar(
                             positionMs = positionMs,
                             durationMs = durationMs,
@@ -446,29 +498,38 @@ internal fun PlayerDock(
                             thumbColor = thumbColor,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(8.dp))
                         Row(
                             Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            Spacer(Modifier.weight(1f))
-                            if (onPlayPrev != null) M3TonalButton("⏮", onClick = onPlayPrev, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3PlayButton(
-                                isPlaying = isPlaying,
-                                onClick = onPlayPause,
-                                modifier = upToSeek.focusRequester(playFocus),
-                                fill = Mint
-                            )
-                            M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            if (onPlayNext != null) M3TonalButton("⏭", onClick = onPlayNext, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            Spacer(Modifier.weight(1f))
-                            M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            // 1.4.1 symmetry: the left and right groups
+                            // take the SAME width (weight 1f each), so
+                            // the transport in the middle is exactly
+                            // centred. The old row had 2 buttons left
+                            // and 3 right, which pushed the play
+                            // button off-centre.
+                            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                PrevNextButton(onPlayPrev, "⏮", modifier = upToSeek, accent = accent)
+                                M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3PlayButton(
+                                    isPlaying = isPlaying,
+                                    onClick = onPlayPause,
+                                    modifier = upToSeek.focusRequester(playFocus),
+                                    fill = Mint
+                                )
+                                M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                PrevNextButton(onPlayNext, "⏭", modifier = upToSeek, accent = accent)
+                            }
+                            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
+                                M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            }
                         }
                         if (status.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
@@ -495,10 +556,10 @@ internal fun PlayerDock(
                                 ),
                                 RoundedCornerShape(28.dp)
                             )
-                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
                         DockTimeRow(positionMs, durationMs)
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(4.dp))
                         GlassSeekBar(
                             positionMs = positionMs,
                             durationMs = durationMs,
@@ -511,7 +572,7 @@ internal fun PlayerDock(
                             thumbColor = thumbColor,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(8.dp))
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -548,10 +609,10 @@ internal fun PlayerDock(
                             RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
                         )
                         .border(1.dp, GlassBorder, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-                        .padding(horizontal = 24.dp, vertical = 14.dp)
+                        .padding(horizontal = 24.dp, vertical = 10.dp)
                 ) {
                     DockTimeRow(positionMs, durationMs)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(4.dp))
                     GlassSeekBar(
                         positionMs = positionMs,
                         durationMs = durationMs,
@@ -564,28 +625,37 @@ internal fun PlayerDock(
                         thumbColor = thumbColor,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
                     Row(
                         Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                        M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                        Spacer(Modifier.weight(1f))
-                        if (onPlayPrev != null) M3TonalButton("⏮", onClick = onPlayPrev, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                        M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                        M3PlayButton(
-                            isPlaying = isPlaying,
-                            onClick = onPlayPause,
-                            modifier = upToSeek.focusRequester(playFocus),
-                            fill = Color.White
-                        )
-                        M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                        if (onPlayNext != null) M3TonalButton("⏭", onClick = onPlayNext, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                        Spacer(Modifier.weight(1f))
-                        M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                        M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        // 1.4.1 symmetry: same three-column split as
+                        // Lumen — equal side widths, so the play
+                        // button sits exactly in the centre. The old
+                        // row only looked balanced by count (2 and 2);
+                        // the wider left labels still pushed play
+                        // off-centre.
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            PrevNextButton(onPlayPrev, "⏮", modifier = upToSeek, accent = accent)
+                            M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3PlayButton(
+                                isPlaying = isPlaying,
+                                onClick = onPlayPause,
+                                modifier = upToSeek.focusRequester(playFocus),
+                                fill = Color.White
+                            )
+                            M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            PrevNextButton(onPlayNext, "⏭", modifier = upToSeek, accent = accent)
+                        }
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
+                            M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        }
                     }
                     if (status.isNotBlank()) {
                         Spacer(Modifier.height(8.dp))
@@ -600,13 +670,16 @@ internal fun PlayerDock(
                 // left, the transport in the centre, speed / aspect /
                 // gear on the right. The player screens give it 0dp
                 // bottom padding, so it sits flush with the screen.
+                // 1.4.2: the transport row uses the same three-column
+                // split as Lumen — equal side widths, so the play
+                // button is exactly centred.
                 Column(
                     Modifier.fillMaxWidth().background(NovaSurface)
                 ) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(NovaOutline))
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
                         DockTimeRow(positionMs, durationMs)
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(4.dp))
                         GlassSeekBar(
                             positionMs = positionMs,
                             durationMs = durationMs,
@@ -619,33 +692,98 @@ internal fun PlayerDock(
                             thumbColor = thumbColor,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(8.dp))
                         Row(
                             Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            Spacer(Modifier.weight(1f))
-                            if (onPlayPrev != null) M3TonalButton("⏮", onClick = onPlayPrev, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3PlayButton(
-                                isPlaying = isPlaying,
-                                onClick = onPlayPause,
-                                modifier = upToSeek.focusRequester(playFocus),
-                                fill = NovaViolet
-                            )
-                            M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            if (onPlayNext != null) M3TonalButton("⏭", onClick = onPlayNext, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            Spacer(Modifier.weight(1f))
-                            M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
-                            M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                PrevNextButton(onPlayPrev, "⏮", modifier = upToSeek, accent = accent)
+                                M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3PlayButton(
+                                    isPlaying = isPlaying,
+                                    onClick = onPlayPause,
+                                    modifier = upToSeek.focusRequester(playFocus),
+                                    fill = NovaViolet
+                                )
+                                M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                PrevNextButton(onPlayNext, "⏭", modifier = upToSeek, accent = accent)
+                            }
+                            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
+                                M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            }
                         }
                         if (status.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
                             Text(status, fontSize = 14.sp, color = NovaMuted)
+                        }
+                    }
+                }
+            }
+            PlayerUiStyle.AURA -> {
+                // Aura (1.4.5 Patch 2): the clean Aura file's player
+                // bottom UI — a full-width dark panel with a 4px
+                // lavender progress track and a symmetric transport.
+                // Same three-column split as Nova/Lumen (equal side
+                // widths + the Prev/Next invisible twin), so the play
+                // button is exactly centred — the fix for the user's
+                // asymmetric-dock screenshot. Compact: 10dp vertical
+                // padding, 52dp play button, 44dp tonal buttons.
+                Column(
+                    Modifier.fillMaxWidth().background(AuraSurface2)
+                ) {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(AuraOutlineVariant))
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                        DockTimeRow(positionMs, durationMs)
+                        Spacer(Modifier.height(4.dp))
+                        GlassSeekBar(
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            bufferedFraction = bufferedFraction,
+                            skipMs = skipMs,
+                            onSeekBy = onSeekBy,
+                            seekFocus = seekFocus,
+                            playFocus = playFocus,
+                            gradient = gradient,
+                            thumbColor = thumbColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                PrevNextButton(onPlayPrev, "⏮", modifier = upToSeek, accent = accent)
+                                M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3PlayButton(
+                                    isPlaying = isPlaying,
+                                    onClick = onPlayPause,
+                                    modifier = upToSeek.focusRequester(playFocus),
+                                    fill = AuraPrimary
+                                )
+                                M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                PrevNextButton(onPlayNext, "⏭", modifier = upToSeek, accent = accent)
+                            }
+                            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End)) {
+                                M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                                M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            }
+                        }
+                        if (status.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(status, fontSize = 14.sp, color = AuraOnSurfaceVariant)
                         }
                     }
                 }
