@@ -67,41 +67,30 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
-// ---------- Patch 1.3.0 (player restyle) ----------
-// The player look from the two pasted designs (liquid-glass tvplayer
-// + Prism TV), applied to PlayBox's own player — the system is unchanged
-// (Media3 + LibVLC, gear, FTP, PiP). The old panel was a full-width
-// sheet about half the phone screen tall; the new dock is a SLIM
-// floating capsule (90% wide, max 1160dp) with a gradient seek bar and
-// real Material 3 buttons: a big filled play/pause in the middle and
-// tonal buttons for everything else (Subtitles, Audio, speed, aspect,
-// gear). The focused button is obvious from across the room: it turns
-// violet, scales up with a spring and gets a mint border. Transform /
-// opacity only, so the 60fps rule still holds — the video surface is
-// never animated.
-//
-// ---------- Patch 1.3.1 (two player UIs) ----------
-// The two designs are now two switchable player UIs (design = UI, the
-// user's words): PRISM is the 1.3.0 look (floating capsule, lavender
-// to mint gradient, mint play button, compact row); LIQUID_GLASS is
-// the tvplayer design (full-width bottom sheet, orange gradient, white
-// play button, full row with Prev / Next). Same player underneath,
-// switched in Settings > Appearance ("Player UI").
+// ---------- LUMEN player (2026-11-23) — the assistant's own design ----------
+// Lumen is the default player UI: the slim floating capsule from
+// Prism, the full transport row from Liquid Glass (Prev / Next
+// included), the lavender-to-mint seek rail, a big mint play button,
+// and the Lumen glass — layered translucency with a bright rim of
+// light along the top edge. Prism and Liquid Glass stay as the two
+// other switchable looks. Same player underneath.
 
-private val Mint = Color(0xFF8EF3DB)
 private val Lavender = Color(0xFFC6B6FF)
 private val Night = Color(0xFF101524)
 private val Orange = Color(0xFFFF7A1A)
 private val LightOrange = Color(0xFFFFB347)
 
-/** The two player UIs. PRISM is the default — it is the look 1.3.0
- * shipped, so an upgrade does not change what the user sees. */
-internal enum class PlayerUiStyle { LIQUID_GLASS, PRISM }
+/** The three player UIs. LUMEN is the default — it is the look 1.3.2
+ * ships, so a fresh install sees the assistant's own design. */
+internal enum class PlayerUiStyle { LIQUID_GLASS, PRISM, LUMEN }
 
-/** The stored name ("liquid_glass" / "prism") back to a style.
- * Unknown or missing names fall back to PRISM. (unit-tested) */
-internal fun playerUiStyleFromName(name: String?): PlayerUiStyle =
-    if (name == "liquid_glass") PlayerUiStyle.LIQUID_GLASS else PlayerUiStyle.PRISM
+/** The stored name ("liquid_glass" / "prism" / "lumen") back to a
+ * style. Unknown or missing names fall back to LUMEN. (unit-tested) */
+internal fun playerUiStyleFromName(name: String?): PlayerUiStyle = when (name) {
+    "liquid_glass" -> PlayerUiStyle.LIQUID_GLASS
+    "prism" -> PlayerUiStyle.PRISM
+    else -> PlayerUiStyle.LUMEN
+}
 
 internal fun playerUiStyle(context: Context): PlayerUiStyle =
     playerUiStyleFromName(
@@ -111,7 +100,14 @@ internal fun playerUiStyle(context: Context): PlayerUiStyle =
 
 internal fun savePlayerUiStyle(context: Context, style: PlayerUiStyle) {
     context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE).edit()
-        .putString("player_ui", if (style == PlayerUiStyle.LIQUID_GLASS) "liquid_glass" else "prism")
+        .putString(
+            "player_ui",
+            when (style) {
+                PlayerUiStyle.LIQUID_GLASS -> "liquid_glass"
+                PlayerUiStyle.PRISM -> "prism"
+                PlayerUiStyle.LUMEN -> "lumen"
+            }
+        )
         .apply()
 }
 
@@ -134,15 +130,15 @@ internal fun videoInfoRows(
     "Subtitle tracks" to subCount.toString()
 )
 
-/** The top bar from the designs. PRISM shows the NOW PLAYING label;
- * LIQUID_GLASS shows just the title + badge. Slim, slides down with
- * the controls. */
+/** The top bar from the designs. LUMEN and PRISM show the NOW
+ * PLAYING label; LIQUID_GLASS shows just the title + badge. Slim,
+ * slides down with the controls. */
 @Composable
 internal fun PlayerTopBar(
     title: String,
     badge: String,
     visible: Boolean,
-    style: PlayerUiStyle = PlayerUiStyle.PRISM,
+    style: PlayerUiStyle = PlayerUiStyle.LUMEN,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -159,7 +155,7 @@ internal fun PlayerTopBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    if (style == PlayerUiStyle.PRISM) {
+                    if (style != PlayerUiStyle.LIQUID_GLASS) {
                         Text("NOW PLAYING", color = Mint, fontSize = 11.sp, letterSpacing = 2.sp)
                     }
                     Text(
@@ -352,9 +348,10 @@ private fun DockTimeRow(positionMs: Long, durationMs: Long) {
 
 /** The dock: time row, gradient seek bar, then one row of Material 3
  * buttons. Up from any button enters the timeline; Down from the
- * timeline returns to Play. Slides up with the controls. PRISM is the
- * slim floating capsule; LIQUID_GLASS is the full-width bottom sheet
- * with Prev / Next. */
+ * timeline returns to Play. Slides up with the controls. LUMEN is
+ * the slim floating capsule with the full transport row (Prev / Next
+ * included) and the rim-light glass; PRISM is the 1.3.0 capsule;
+ * LIQUID_GLASS is the full-width bottom sheet with Prev / Next. */
 @Composable
 internal fun PlayerDock(
     positionMs: Long,
@@ -377,7 +374,7 @@ internal fun PlayerDock(
     seekFocus: FocusRequester,
     visible: Boolean,
     status: String = "",
-    style: PlayerUiStyle = PlayerUiStyle.PRISM,
+    style: PlayerUiStyle = PlayerUiStyle.LUMEN,
     onPlayPrev: (() -> Unit)? = null,
     onPlayNext: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -386,6 +383,7 @@ internal fun PlayerDock(
     val upToSeek = Modifier.focusProperties { up = seekFocus }
     val (gradient, thumbColor, accent) = when (style) {
         PlayerUiStyle.PRISM -> Triple(listOf(Lavender, Mint), Mint, Mint)
+        PlayerUiStyle.LUMEN -> Triple(listOf(Lavender, Mint), Mint, Mint)
         PlayerUiStyle.LIQUID_GLASS -> Triple(listOf(Orange, LightOrange), Orange, Orange)
     }
     AnimatedVisibility(
@@ -395,6 +393,75 @@ internal fun PlayerDock(
         modifier = modifier
     ) {
         when (style) {
+            PlayerUiStyle.LUMEN -> {
+                // Lumen: the slim floating capsule, the full transport
+                // row (Prev / Next included, compact buttons so it
+                // fits a phone in landscape), and the Lumen glass —
+                // layered translucency with a bright rim along the
+                // top edge.
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val w = (maxWidth * 0.90f).coerceAtMost(1160.dp)
+                    Column(
+                        Modifier.width(w).align(Alignment.Center)
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(
+                                Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
+                                RoundedCornerShape(28.dp)
+                            )
+                            .border(
+                                1.dp,
+                                Brush.linearGradient(
+                                    listOf(Color(0xCCFFFFFF), Color(0x24FFFFFF), Color(0x8A8EF3DB))
+                                ),
+                                RoundedCornerShape(28.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                    ) {
+                        DockTimeRow(positionMs, durationMs)
+                        Spacer(Modifier.height(6.dp))
+                        GlassSeekBar(
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            bufferedFraction = bufferedFraction,
+                            skipMs = skipMs,
+                            onSeekBy = onSeekBy,
+                            seekFocus = seekFocus,
+                            playFocus = playFocus,
+                            gradient = gradient,
+                            thumbColor = thumbColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            M3TonalButton(subLabel, onClick = onSubtitles, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton(audioLabel, onClick = onAudio, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            Spacer(Modifier.weight(1f))
+                            if (onPlayPrev != null) M3TonalButton("⏮", onClick = onPlayPrev, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3PlayButton(
+                                isPlaying = isPlaying,
+                                onClick = onPlayPause,
+                                modifier = upToSeek.focusRequester(playFocus),
+                                fill = Mint
+                            )
+                            M3TonalButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            if (onPlayNext != null) M3TonalButton("⏭", onClick = onPlayNext, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            Spacer(Modifier.weight(1f))
+                            M3TonalButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton(aspectLabel, onClick = onAspect, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                            M3TonalButton("⚙", onClick = onGear, modifier = upToSeek, accent = accent, fontSize = 14.sp, hPadding = 12.dp)
+                        }
+                        if (status.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(status, fontSize = 14.sp, color = Muted)
+                        }
+                    }
+                }
+            }
             PlayerUiStyle.PRISM -> {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val w = (maxWidth * 0.90f).coerceAtMost(1160.dp)
