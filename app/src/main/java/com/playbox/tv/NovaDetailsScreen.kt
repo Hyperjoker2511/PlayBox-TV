@@ -72,6 +72,10 @@ internal fun NovaDetailsScreen(
     }
     var chosenAudio by remember { mutableStateOf(chosenAudioTrack(context, item.path)) }
     var chosenSub by remember { mutableStateOf(chosenSubtitleTrack(context, item.path)) }
+    // 1.4.2 (Nova in the 1.4.x line): this file's own player choice
+    // (null = Auto — the Settings default and the format rules
+    // decide), same pref as the Qwen Details page.
+    var engineChoice by remember { mutableStateOf(chosenEngine(context, item.path)) }
     val upNext = remember(list, item.path) {
         val idx = list.indexOfFirst { it.path == item.path }
         if (idx < 0) list.take(6)
@@ -130,6 +134,28 @@ internal fun NovaDetailsScreen(
                 Text(it, fontSize = 16.sp, color = NovaMint)
             }
             Spacer(modifier = Modifier.height(28.dp))
+        }
+        item {
+            // 1.4.2: the per-file player door — for the file that only
+            // plays right on one engine. Auto lets the Settings
+            // default and the format rules decide.
+            Text("PLAYER", fontSize = 13.sp, color = NovaMuted, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                NovaChip("Auto", active = engineChoice == null) {
+                    engineChoice = null
+                    chooseEngine(context, item.path, null)
+                }
+                NovaChip("Media3", active = engineChoice == PlayerEngine.MEDIA3) {
+                    engineChoice = PlayerEngine.MEDIA3
+                    chooseEngine(context, item.path, PlayerEngine.MEDIA3)
+                }
+                NovaChip("VLC", active = engineChoice == PlayerEngine.VLC) {
+                    engineChoice = PlayerEngine.VLC
+                    chooseEngine(context, item.path, PlayerEngine.VLC)
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
         item {
             Text("AUDIO", fontSize = 13.sp, color = NovaMuted, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
