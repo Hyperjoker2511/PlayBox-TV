@@ -212,7 +212,16 @@ internal fun VlcPlayerScreen(
     // the same file on Media3 instead. All engine effects are
     // unconditional hooks with a null guard inside, so the hook order
     // never changes whether the engine exists or not.
+    // Patch 1.3.3 (crash-guard hole fix): mark the attempt BEFORE
+    // constructing the engine. LibVLC() is a native call — a crash
+    // there kills the process before any effect runs, so the setup
+    // effect's mark never fired and the guard never engaged (the
+    // 1.3.2 bug: the user still crashed on every Play). Marking here
+    // covers construction, attach and play, and engine recreations
+    // (brightness / contrast / saturation). It is a plain boolean
+    // write, idempotent, so marking on every recreation is safe.
     val engine = remember(restartNonce) {
+        markVlcAttempt(context)
         runCatching {
             VlcEngine(context, adjustOptions(brightness, contrast, saturation)) { eventType ->
                 latestOnEvent.value(eventType)
@@ -281,14 +290,19 @@ internal fun VlcPlayerScreen(
     // changes. Deinterlace / rotation changes re-play through
     // replayAt() below, which bumps restartNonce only for adjust.
     // Patch 1.3.2: this effect sets the player up but does NOT play —
-    // play waits for the surface (the gated effect below), and the
-    // attempt is marked here so a crash before Playing leaves the
-    // guard set for the next cold start.
+    // play waits for the surface (the gated effect below).
+    // Patch 1.3.3: the attempt is marked in the remember block above
+    // (before construction), not here — a native crash in LibVLC()
+    // never reaches this effect. Here, a null engine means a Kotlin
+    // construction failure that was caught, not a native crash, so
+    // clear the marker before falling back — the next open may retry
+    // VLC instead of being forced to Media3 forever.
     LaunchedEffect(engine, item) {
         ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null; pendingSeekMs = 0L
         val e = engine
         if (e == null) {
             // The engine could not start — fall back to Media3.
+            clearVlcAttempt(context)
             onEngineFailed()
             return@LaunchedEffect
         }
@@ -314,7 +328,6 @@ internal fun VlcPlayerScreen(
                     pendingSeekMs = saved
                 }
             }
-            markVlcAttempt(context)
             pendingPlay = true
         }
     }
@@ -618,7 +631,7 @@ internal fun VlcPlayerScreen(
             onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
             onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS) 0.dp else 24.dp)
+                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS || uiStyle == PlayerUiStyle.NOVA) 0.dp else 24.dp)
         )
 
         if (panel == "gear") {
