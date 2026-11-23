@@ -99,7 +99,7 @@ internal fun VlcPlayerScreen(
     var aspectMode by remember { mutableStateOf(AspectMode.FIT) }
     var surfaceViewRef by remember { mutableStateOf<SurfaceView?>(null) }
     var trackChoiceApplied by remember(item) { mutableStateOf(false) }
-    var seekFocused by remember { mutableStateOf(false) }
+    // Patch 1.3.0: the seek bar's focus lives in the shared dock now.
     // Patch 7: VLC settings. Brightness / contrast / saturation live
     // in the LibVLC options, so changing one recreates the engine
     // (restartNonce); deinterlace and rotation are media options, so
@@ -127,6 +127,7 @@ internal fun VlcPlayerScreen(
 
     val rootFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
+    val seekFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     val endedFocus = remember { FocusRequester() }
     LaunchedEffect(showControls, panel, ended) {
@@ -446,56 +447,38 @@ internal fun VlcPlayerScreen(
                 }
         )
 
-        if (showControls && !ended) {
-            Column(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
-                        RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
-                    )
-                    .border(1.dp, GlassBorder, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-                    .padding(horizontal = 32.dp, vertical = 20.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(TimeFormatter.format(positionMs), fontSize = 20.sp, color = White)
-                    Text(remainingLabel(durationMs, positionMs), fontSize = 20.sp, color = Muted)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Box(
-                    modifier = Modifier.fillMaxWidth()
-                        .border(if (seekFocused) 2.dp else 0.dp, FocusBorder, RoundedCornerShape(12.dp))
-                        .focusable()
-                        .onFocusChanged { seekFocused = it.isFocused }
-                        .onKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                            when (event.key) {
-                                Key.DirectionLeft -> { seekBy(-skipMs); true }
-                                Key.DirectionRight -> { seekBy(skipMs); true }
-                                else -> false
-                            }
-                        }
-                ) {
-                    WaveProgress(progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f)
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TvButton("-${skipSec}s") { seekBy(-skipMs) }
-                    TvButton(if (isPlaying) "Pause" else "Play", Modifier.focusRequester(playPauseFocus)) {
-                        if (engine.player.isPlaying) engine.player.pause() else engine.player.play()
-                    }
-                    TvButton("+${skipSec}s") { seekBy(skipMs) }
-                    TvButton("${speed}x") { cycleSpeed() }
-                    TvButton(subLabel) { gearTab = "Subtitles"; panel = "gear" }
-                    TvButton(audioLabel) { cycleAudioTrack() }
-                    TvButton(aspectLabel) { aspectMode = nextAspect(aspectMode); pokeControls() }
-                    TvButton("⚙") { gearTab = "Playback"; panel = "gear" }
-                }
-                if (status.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(status, fontSize = 16.sp, color = Muted)
-                }
-            }
-        }
+        // Patch 1.3.0: the slim floating dock + top bar from the designs
+        // replace the old full-width panel. The dock hides while a gear
+        // panel is open, like the designs.
+        PlayerTopBar(
+            title = item.name,
+            badge = containerOf(item),
+            visible = showControls && panel == null && !ended,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+        )
+        PlayerDock(
+            positionMs = positionMs,
+            durationMs = durationMs,
+            bufferedFraction = 0f,
+            isPlaying = isPlaying,
+            speed = speed,
+            skipSec = skipSec,
+            subLabel = subLabel,
+            audioLabel = audioLabel,
+            aspectLabel = aspectLabel,
+            onSeekBy = ::seekBy,
+            onPlayPause = { if (engine.player.isPlaying) engine.player.pause() else engine.player.play() },
+            onCycleSpeed = ::cycleSpeed,
+            onSubtitles = { gearTab = "Subtitles"; panel = "gear" },
+            onAudio = ::cycleAudioTrack,
+            onAspect = { aspectMode = nextAspect(aspectMode); pokeControls() },
+            onGear = { gearTab = "Playback"; panel = "gear" },
+            playFocus = playPauseFocus,
+            seekFocus = seekFocus,
+            visible = showControls && panel == null && !ended,
+            status = status,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+        )
 
         if (panel == "gear") {
             Box(modifier = Modifier.align(Alignment.CenterEnd)) {
