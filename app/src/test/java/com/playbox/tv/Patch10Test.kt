@@ -45,4 +45,19 @@ class Patch10Test {
         assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName(""))
         assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("something-else"))
     }
+
+    @Test
+    fun surfaceStyle_liquidByName() {
+        // 1.4.3 (enhanced): the surface finish — LIQUID is the glass
+        // look, SOLID is the flat default.
+        assertEquals(SurfaceStyle.LIQUID, surfaceStyleFromName("liquid"))
+    }
+
+    @Test
+    fun surfaceStyle_solidIsTheDefault() {
+        assertEquals(SurfaceStyle.SOLID, surfaceStyleFromName(null))
+        assertEquals(SurfaceStyle.SOLID, surfaceStyleFromName(""))
+        assertEquals(SurfaceStyle.SOLID, surfaceStyleFromName("solid"))
+        assertEquals(SurfaceStyle.SOLID, surfaceStyleFromName("something-else"))
+    }
 }
