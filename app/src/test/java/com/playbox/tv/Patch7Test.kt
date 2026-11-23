@@ -9,9 +9,11 @@ import org.videolan.libvlc.MediaPlayer
 class Patch7Test {
 
     @Test
-    fun engineFor_defaultsToMedia3() {
+    fun engineFor_defaultsToVlc() {
+        // Patch 1.3.0: LibVLC is the default player — a plain local
+        // file plays on VLC, not Media3.
         val local = VideoItem(path = "/storage/Movies/film.mp4", name = "film.mp4")
-        assertEquals(PlayerEngine.MEDIA3, engineFor(local, null))
+        assertEquals(PlayerEngine.VLC, engineFor(local, null))
     }
 
     @Test
