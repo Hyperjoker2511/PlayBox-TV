@@ -169,10 +169,16 @@ internal fun VlcPlayerScreen(
     // only rebuilds when restartNonce changes — always calls the
     // latest one, with the current item, queue and loop mode.
     var engineRef by remember { mutableStateOf<VlcEngine?>(null) }
+    // Patch 1.3.2: play only once the surface is attached — the
+    // setup effect below sets this instead of playing directly.
+    var pendingPlay by remember(item) { mutableStateOf(false) }
     val latestOnEvent = rememberUpdatedState<(Int) -> Unit> { eventType ->
         when (eventType) {
             MediaPlayer.Event.Playing -> {
                 isPlaying = true
+                // Patch 1.3.2 (crash guard): VLC is really playing —
+                // the attempt survived, so clear the marker.
+                clearVlcAttempt(context)
                 tracksVersion++
                 if (pendingSeekMs > 0L) {
                     runCatching { engineRef?.player?.setTime(pendingSeekMs) }
@@ -274,6 +280,10 @@ internal fun VlcPlayerScreen(
     // Player setup — runs when the engine (re)starts or the file
     // changes. Deinterlace / rotation changes re-play through
     // replayAt() below, which bumps restartNonce only for adjust.
+    // Patch 1.3.2: this effect sets the player up but does NOT play —
+    // play waits for the surface (the gated effect below), and the
+    // attempt is marked here so a crash before Playing leaves the
+    // guard set for the next cold start.
     LaunchedEffect(engine, item) {
         ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null; pendingSeekMs = 0L
         val e = engine
@@ -304,7 +314,20 @@ internal fun VlcPlayerScreen(
                     pendingSeekMs = saved
                 }
             }
-            e.play(item.path, deinterlaceOn, deinterlaceMode, rotation)
+            markVlcAttempt(context)
+            pendingPlay = true
+        }
+    }
+
+    // Patch 1.3.2: play only once the surface is attached. Starting
+    // playback before the surface exists is a native crash on some
+    // devices — the 1.3.0 bug survived the 1.3.1 attach fix because
+    // play itself was never gated on the surface.
+    LaunchedEffect(engine, surfaceReady, pendingPlay) {
+        val e = engine
+        if (e != null && surfaceReady && pendingPlay) {
+            runCatching { e.play(item.path, deinterlaceOn, deinterlaceMode, rotation) }
+            pendingPlay = false
         }
     }
 
