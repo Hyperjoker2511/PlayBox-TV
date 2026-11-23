@@ -197,7 +197,7 @@ internal fun remainingLabel(durationMs: Long, positionMs: Long): String =
 
 @OptIn(UnstableApi::class)
 @Composable
-internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null) {
+internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null, onEngineFailed: () -> Unit = {}) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
     val skipSec = settings.getInt("skip_seconds", 10)
@@ -221,6 +221,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var subtitle by remember(item) { mutableStateOf<Pair<Uri, String>?>(null) }
     var subtitleReady by remember(item) { mutableStateOf(false) }
     var lastSavedMs by remember { mutableStateOf(0L) }
+    // 1.4.5 Patch B: Media3 failed to play this file — retry it on
+    // LibVLC instead of showing an error. Fires once per item, so a
+    // file neither engine can play does not ping-pong between them.
+    var fallbackFired by remember(item) { mutableStateOf(false) }
     // Batch 2: bumped when the player's track list arrives, so the
     // subtitle picker recomposes with the real embedded tracks.
     var tracksVersion by remember { mutableStateOf(0) }
@@ -299,7 +303,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) durationMs = c.duration
+                if (state == Player.STATE_READY) {
+                    durationMs = c.duration
+                    CrashLog.step(context, "media3: ready")
+                }
                 if (state == Player.STATE_ENDED) ended = true
             }
             override fun onTracksChanged(tracks: Tracks) { tracksVersion++ }
@@ -308,6 +315,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             override fun onPlayerError(error: PlaybackException) {
                 status = "Can't play this file (${error.errorCodeName})"
                 showControls = true
+                // 1.4.5 Patch B: Media3 cannot decode this file (a
+                // codec the device lacks, or an image subtitle in an
+                // MKV) — retry it on LibVLC, which can. Fires once
+                // per item; MainActivity also guards the return trip
+                // so the two engines cannot loop.
+                if (!fallbackFired) {
+                    fallbackFired = true
+                    CrashLog.step(context, "media3: error (${error.errorCodeName}) — falling back to VLC")
+                    onEngineFailed()
+                }
             }
         }
         c.addListener(listener)
@@ -446,6 +463,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             c.trackSelectionParameters = c.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
             c.play()
+            CrashLog.step(context, "media3: play called for ${item.name}")
             onDispose { }
         }
     }
