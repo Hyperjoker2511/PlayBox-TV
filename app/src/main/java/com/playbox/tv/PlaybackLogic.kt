@@ -35,7 +35,10 @@ object TimeFormatter {
 
 object VideoFilter {
     val VIDEO_EXTENSIONS = setOf(
-        "mp4", "mkv", "avi", "mov", "ts", "m2ts", "webm", "flv", "wmv", "mpg", "mpeg", "3gp", "m4v"
+        "mp4", "mkv", "avi", "mov", "ts", "m2ts", "webm", "flv", "wmv", "mpg", "mpeg", "3gp", "m4v",
+        // 1.4.3 Patch A: formats VLC plays that were never listed —
+        // they now show in the Library and route to LibVLC.
+        "vob", "rm", "rmvb", "divx", "m2v", "ogv", "f4v"
     )
     val AUDIO_EXTENSIONS = setOf("mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "opus")
 
@@ -44,8 +47,12 @@ object VideoFilter {
      * extractor, and AVI/FLV only play if the codecs inside are
      * device-decodable. They still LIST (hiding a user's file is worse),
      * but the UI badges them "May not play" until Batch 2 brings LibVLC.
+     * 1.4.3 Patch A: the new VLC-played extensions join this set so
+     * they route to LibVLC instead of failing on Media3.
      */
-    val LIKELY_UNSUPPORTED_EXTENSIONS = setOf("wmv", "asf", "avi", "flv")
+    val LIKELY_UNSUPPORTED_EXTENSIONS = setOf(
+        "wmv", "asf", "avi", "flv", "vob", "rm", "rmvb", "divx", "m2v", "ogv", "f4v"
+    )
 
     fun isVideoFile(name: String): Boolean =
         name.substringAfterLast('.', "").lowercase() in VIDEO_EXTENSIONS
