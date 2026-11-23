@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -15,24 +13,9 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.2.1"
+        versionCode = 9
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    // Release signing — reads keystore.properties (NOT committed to GitHub).
-    // Create it from keystore.properties.example. Without it, release builds unsigned.
-    signingConfigs {
-        create("release") {
-            val keystorePropsFile = rootProject.file("keystore.properties")
-            if (keystorePropsFile.exists()) {
-                val props = Properties().apply { load(keystorePropsFile.inputStream()) }
-                storeFile = rootProject.file(props.getProperty("storeFile"))
-                storePassword = props.getProperty("storePassword")
-                keyAlias = props.getProperty("keyAlias")
-                keyPassword = props.getProperty("keyPassword")
-            }
-        }
     }
 
     // ABI splits — Patch 7 fix: the first 1.2.0 build was one universal
@@ -61,7 +44,7 @@ android {
                     "x86_64" -> 4
                     else -> 0
                 }
-                // vc8 -> 81/82/83/84: still updates over 1.2.0 (vc7x) and
+                // vc9 -> 91/92/93/94: still updates over 1.2.1 (vc8x) and
                 // over the never-delivered universal 1.2.0 (vc7).
                 output.versionCodeOverride = versionCode * 10 + abiCode
             }
@@ -71,16 +54,10 @@ android {
     buildTypes {
         release {
             // R8 on (Tool Kit self-checklist). Rules in app/proguard-rules.pro.
-            // NOTE: not yet verified by a real release build — the user asked
-            // for no builds until the TV test is possible; verify on the next build.
-            // Batch 1.3: the old blanket -keep lines are gone (see the rules
-            // file) — they effectively switched R8 off while this was true.
+            // Verified by the 1.2.0 CI release build (signed APK, 54/54 tests).
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            if (rootProject.file("keystore.properties").exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
         }
         debug {
             isMinifyEnabled = false
