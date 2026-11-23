@@ -66,7 +66,7 @@ private fun appVersion(context: Context): Pair<String?, Long> = try {
 
 @Composable
 internal fun SettingsScreen(
-    currentDesign: AppDesign = AppDesign.QWEN,
+    currentDesign: AppDesign = AppDesign.NOVA,
     onDesignChange: (AppDesign) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -91,6 +91,10 @@ internal fun SettingsScreen(
     // Appearance
     var reduceMotion by remember { mutableStateOf(isReduceMotion(context)) }
     var uiStyle by remember { mutableStateOf(playerUiStyle(context)) }
+    // 1.4.3 (enhanced): the surface finish — Solid or Liquid.
+    var surface by remember { mutableStateOf(surfaceStyle(context)) }
+    // 1.4.0: the default player engine (Media3 unless changed).
+    var defaultEngine by remember { mutableStateOf(defaultEnginePref(context)) }
 
     fun save(block: android.content.SharedPreferences.Editor.() -> Unit) {
         prefs.edit().apply { block(); apply() }
@@ -104,11 +108,24 @@ internal fun SettingsScreen(
         ) {
             item { Text("Settings", fontSize = 36.sp, color = White) }
             item { Spacer(modifier = Modifier.height(8.dp)) }
-            listOf("Playback", "Subtitles", "Audio", "Network", "Appearance", "About").forEachIndexed { i, name ->
+            // 1.4.0 (Nocturne TV): the categories are list doors —
+            // icon tile, bold name, one-line description — the
+            // settings shape the owner picked. The selected door is
+            // the one whose value column names itself.
+            listOf(
+                Triple("▶", "Playback", "Player, speed, skip, resume"),
+                Triple("CC", "Subtitles", "Size, colour, background"),
+                Triple("♫", "Audio", "Equalizer, loudness"),
+                Triple("⌂", "Network", "SMB, FTP and SFTP servers"),
+                Triple("◐", "Appearance", "Motion and player style"),
+                Triple("ℹ", "About", "Version and storage")
+            ).forEachIndexed { i, (glyph, name, sub) ->
                 item {
-                    GlassButton(
-                        name,
-                        active = category == name,
+                    SettingsRow(
+                        glyph = glyph,
+                        title = name,
+                        sub = sub,
+                        value = if (category == name) "●" else null,
                         modifier = if (i == 0) Modifier.focusRequester(firstCategoryFocus) else Modifier
                     ) { category = name }
                 }
@@ -121,6 +138,30 @@ internal fun SettingsScreen(
         ) {
             when (category) {
                 "Playback" -> {
+                    item {
+                        SettingsSection("Player") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    GlassButton("Media3", active = defaultEngine == PlayerEngine.MEDIA3) {
+                                        defaultEngine = PlayerEngine.MEDIA3
+                                        save { putString("default_engine", "media3") }
+                                    }
+                                }
+                                item {
+                                    GlassButton("VLC", active = defaultEngine == PlayerEngine.VLC) {
+                                        defaultEngine = PlayerEngine.VLC
+                                        save { putString("default_engine", "vlc") }
+                                    }
+                                }
+                            }
+                            Text(
+                                "Media3 plays the common formats. VLC takes over on its own for " +
+                                    "FTP/SFTP files and formats Media3 cannot play — and any file " +
+                                    "can be given its own player on its Details page.",
+                                fontSize = 16.sp, color = Muted
+                            )
+                        }
+                    }
                     item {
                         SettingsSection("Default speed") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -259,7 +300,7 @@ internal fun SettingsScreen(
                     }
                     item {
                         SettingsSection("Play from URL") {
-                            Text("In Library → Network. HTTP, HTTPS, HLS and DASH links.", fontSize = 18.sp, color = Muted)
+                            Text("In Library → Network. HTTP, HTTPS, HLS, DASH, RTSP, RTMP and NFS links.", fontSize = 18.sp, color = Muted)
                         }
                     }
                 }
@@ -277,8 +318,32 @@ internal fun SettingsScreen(
                                         onDesignChange(AppDesign.QWEN)
                                     }
                                 }
+                                item {
+                                    GlassButton("Aura", active = currentDesign == AppDesign.AURA) {
+                                        onDesignChange(AppDesign.AURA)
+                                    }
+                                }
                             }
-                            Text("Nova is the new design, built from scratch — a left rail, lists instead of grids, flat solid surfaces. Qwen is the earlier glass design, kept as an option. Switching takes effect immediately.", fontSize = 16.sp, color = Muted)
+                            Text("Nova is the official design, built from scratch — a left rail, lists instead of grids, flat solid surfaces. Qwen is the earlier glass design, kept as an option. Aura is the Material 3 lavender design, the third option. Switching takes effect immediately.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        SettingsSection("Surface") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    GlassButton("Solid", active = surface == SurfaceStyle.SOLID) {
+                                        surface = SurfaceStyle.SOLID
+                                        saveSurfaceStyle(context, SurfaceStyle.SOLID)
+                                    }
+                                }
+                                item {
+                                    GlassButton("Liquid", active = surface == SurfaceStyle.LIQUID) {
+                                        surface = SurfaceStyle.LIQUID
+                                        saveSurfaceStyle(context, SurfaceStyle.LIQUID)
+                                    }
+                                }
+                            }
+                            Text("Solid is flat with no blur — the safe default for the 2 GB box. Liquid is a light glass look (translucent surfaces, no heavy blur). If Liquid ever lags, switch back to Solid.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
@@ -308,8 +373,14 @@ internal fun SettingsScreen(
                                         savePlayerUiStyle(context, PlayerUiStyle.PRISM)
                                     }
                                 }
+                                item {
+                                    GlassButton("Aura", active = uiStyle == PlayerUiStyle.AURA) {
+                                        uiStyle = PlayerUiStyle.AURA
+                                        savePlayerUiStyle(context, PlayerUiStyle.AURA)
+                                    }
+                                }
                             }
-                            Text("Four player looks, same player underneath. Nova is the full-width solid bar. Lumen is the slim floating capsule with the full transport row and a mint play button. Liquid Glass is the full-width sheet with an orange seek bar and Prev / Next; Prism TV is the floating capsule with a mint play button.", fontSize = 16.sp, color = Muted)
+                            Text("Five player looks, same player underneath. Nova is the full-width solid bar. Lumen is the slim floating capsule with the full transport row and a mint play button. Liquid Glass is the full-width sheet with an orange seek bar and Prev / Next; Prism TV is the floating capsule with a mint play button. Aura is the lavender bottom UI with a symmetric transport.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
