@@ -17,6 +17,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -143,6 +150,14 @@ private fun PermissionRationaleScreen(onAllow: () -> Unit, onNotNow: () -> Unit)
             TvButton("Not now", onClick = onNotNow)
         }
     }
+}
+
+/** Tab order for the slide direction: Home 0, Search 1, Library 2,
+ * Settings 3. Positive = forward (the new screen slides in from the
+ * right), negative = back, zero = same tab. (unit-tested) */
+internal fun tabSlideDirection(from: Tab, to: Tab): Int {
+    val order = listOf(Tab.Home, Tab.Search, Tab.Library, Tab.Settings)
+    return (order.indexOf(to) - order.indexOf(from)).coerceIn(-1, 1)
 }
 
 @Composable
@@ -276,11 +291,17 @@ private fun PlayBoxApp() {
                     }
                 )
             } else if (playing != null) {
+                // Patch 1.3.2 (crash guard): if the last VLC open
+                // killed the process, the stale marker is still set —
+                // force Media3 this time instead of crashing again.
+                // The gear's explicit engine choice still wins.
+                val vlcAvailable = !hasStaleVlcAttempt(context)
                 // Patch 1.3.0: LibVLC is the default player — the gear's
                 // override wins, otherwise every file plays on VLC.
                 val engine = engineFor(
                     playing!!,
-                    engineOverride?.takeIf { it.first == playing!!.path }?.second
+                    engineOverride?.takeIf { it.first == playing!!.path }?.second,
+                    vlcAvailable
                 )
                 if (engine == PlayerEngine.VLC) {
                     VlcPlayerScreen(
@@ -357,14 +378,34 @@ private fun PlayBoxApp() {
                         modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 24.dp)
                     )
                     Box(modifier = Modifier.weight(1f).fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
-                        when (tab) {
+                        // Lumen: switching tabs slides + fades (280ms,
+                        // transform + opacity only) — forward slides in
+                        // from the right, back from the left.
+                        AnimatedContent(
+                            targetState = tab,
+                            transitionSpec = {
+                                val dir = tabSlideDirection(initialState, targetState)
+                                val enter = if (dir >= 0) {
+                                    slideInHorizontally(tween(280)) { it / 4 } + fadeIn(tween(200))
+                                } else {
+                                    slideInHorizontally(tween(280)) { -it / 4 } + fadeIn(tween(200))
+                                }
+                                val exit = if (dir >= 0) {
+                                    slideOutHorizontally(tween(280)) { -it / 4 } + fadeOut(tween(200))
+                                } else {
+                                    slideOutHorizontally(tween(280)) { it / 4 } + fadeOut(tween(200))
+                                }
+                                enter togetherWith exit
+                            },
+                            label = "tabSwitch"
+                        ) { currentTab ->
+                        when (currentTab) {
                             Tab.Home -> HomeScreen(
                                 videos = videos, audio = audio,
                                 loading = !libraryLoaded, permissionDenied = permissionDenied,
                                 onOpen = { item, list -> details = item; detailList = list },
                                 onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                                 onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
-                                onSettings = { tab = Tab.Settings },
                                 onFolders = { tab = Tab.Library },
                                 onRefresh = { refreshNonce++ }
                             )
@@ -386,6 +427,7 @@ private fun PlayBoxApp() {
                                 onRefresh = { refreshNonce++ }
                             )
                             Tab.Settings -> SettingsScreen()
+                        }
                         }
                     }
                     }
