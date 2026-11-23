@@ -60,6 +60,12 @@ internal fun NovaSettingsScreen(
     var smbServers by remember { mutableStateOf(SmbNetwork.servers(context)) }
     var reduceMotion by remember { mutableStateOf(isReduceMotion(context)) }
     var uiStyle by remember { mutableStateOf(playerUiStyle(context)) }
+    // 1.4.2 (Nova in the 1.4.x line): the default player engine, same
+    // pref as the Qwen Settings — Media3 unless changed.
+    var defaultEngine by remember { mutableStateOf(defaultEnginePref(context)) }
+    // 1.4.3 (enhanced): the surface finish — Solid (flat, safe) or
+    // Liquid (light glass). Same pref the Nova cards read.
+    var surface by remember { mutableStateOf(surfaceStyle(context)) }
 
     fun save(block: android.content.SharedPreferences.Editor.() -> Unit) {
         prefs.edit().apply { block(); apply() }
@@ -101,6 +107,15 @@ internal fun NovaSettingsScreen(
             NovaButton(if (resumeOn) "Resume: On" else "Resume: Off", onClick = { resumeOn = !resumeOn; save { putBoolean("resume_on", resumeOn) } })
             Spacer(modifier = Modifier.height(8.dp))
             Text("When off, every video starts from the beginning.", fontSize = 15.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Player", fontSize = 18.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { NovaChip("Media3", active = defaultEngine == PlayerEngine.MEDIA3) { defaultEngine = PlayerEngine.MEDIA3; save { putString("default_engine", "media3") } } }
+                item { NovaChip("VLC", active = defaultEngine == PlayerEngine.VLC) { defaultEngine = PlayerEngine.VLC; save { putString("default_engine", "vlc") } } }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Media3 plays the common formats. VLC takes over on its own for FTP/SFTP files and formats Media3 cannot play — and any file can be given its own player on its Details page.", fontSize = 15.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(28.dp))
         }
         item {
@@ -198,7 +213,7 @@ internal fun NovaSettingsScreen(
             Spacer(modifier = Modifier.height(20.dp))
             Text("Play from URL", fontSize = 18.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("In Library → Network. HTTP, HTTPS, HLS and DASH links.", fontSize = 16.sp, color = NovaMuted)
+            Text("In Library → Network. HTTP, HTTPS, HLS, DASH, RTSP, RTMP and NFS links.", fontSize = 16.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(28.dp))
         }
         item {
@@ -213,9 +228,25 @@ internal fun NovaSettingsScreen(
                 item {
                     NovaChip("Qwen", active = currentDesign == AppDesign.QWEN) { onDesignChange(AppDesign.QWEN) }
                 }
+                item {
+                    NovaChip("Aura", active = currentDesign == AppDesign.AURA) { onDesignChange(AppDesign.AURA) }
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Nova is the new design, built from scratch — a left rail, lists instead of grids, flat solid surfaces. Qwen is the earlier glass design, kept as an option. Switching takes effect immediately.", fontSize = 15.sp, color = NovaMuted)
+            Text("Nova is the new design, built from scratch — a left rail, lists instead of grids, flat solid surfaces. Qwen is the earlier glass design, kept as an option. Aura is the Material 3 lavender design, the third option. Switching takes effect immediately.", fontSize = 15.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Surface", fontSize = 18.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    NovaChip("Solid", active = surface == SurfaceStyle.SOLID) { surface = SurfaceStyle.SOLID; saveSurfaceStyle(context, SurfaceStyle.SOLID) }
+                }
+                item {
+                    NovaChip("Liquid", active = surface == SurfaceStyle.LIQUID) { surface = SurfaceStyle.LIQUID; saveSurfaceStyle(context, SurfaceStyle.LIQUID) }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Solid is flat with no blur — the safe default for the 2 GB box. Liquid is a light glass look (translucent surfaces, no heavy blur). If Liquid ever lags, switch back to Solid.", fontSize = 15.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(20.dp))
             Text("Player UI", fontSize = 18.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(8.dp))
@@ -224,7 +255,8 @@ internal fun NovaSettingsScreen(
                     PlayerUiStyle.NOVA to "Nova",
                     PlayerUiStyle.LUMEN to "Lumen",
                     PlayerUiStyle.LIQUID_GLASS to "Liquid Glass",
-                    PlayerUiStyle.PRISM to "Prism TV"
+                    PlayerUiStyle.PRISM to "Prism TV",
+                    PlayerUiStyle.AURA to "Aura"
                 ).forEach { (style, label) ->
                     item {
                         NovaChip(label, active = uiStyle == style) {
@@ -235,7 +267,7 @@ internal fun NovaSettingsScreen(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Four player looks, same player underneath. Nova is the full-width solid bar. Lumen is the slim floating capsule with a mint play button. Liquid Glass is the full-width sheet with an orange seek bar. Prism TV is the floating capsule with a mint play button.", fontSize = 15.sp, color = NovaMuted)
+            Text("Five player looks, same player underneath. Nova is the full-width solid bar. Lumen is the slim floating capsule with a mint play button. Liquid Glass is the full-width sheet with an orange seek bar. Prism TV is the floating capsule with a mint play button. Aura is the lavender bottom UI with a symmetric transport.", fontSize = 15.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(20.dp))
             NovaButton(if (reduceMotion) "Reduce motion: On" else "Reduce motion: Off", onClick = { reduceMotion = !reduceMotion; save { putBoolean("reduce_motion", reduceMotion) } })
             Spacer(modifier = Modifier.height(8.dp))
