@@ -4,28 +4,36 @@ import android.content.Context
 import androidx.compose.ui.graphics.Color
 import java.util.Calendar
 
-// ---------- Batch 3 (Qwen design, approved 2026-11-22) ----------
-// Material 3 Expressive + liquid glass. Deep ink background, violet
-// focus glow, blue + periwinkle accents. Glass is a translucent solid,
-// NOT real-time blur — the 2 GB Android 11 box cannot blur over live
-// video cheaply, so beauty comes from colour, translucency, focus glow
-// and spring motion (transform + opacity only).
+// ---------- LUMEN (2026-11-23) — the assistant's own design, from scratch ----------
+// "Light on ink." The screen is deep ink; the light comes from the
+// content itself and from a thin rim of light on every glass edge —
+// no live blur anywhere (the 2 GB box and the phone cannot afford
+// it), so the glass is layered translucency + a bright top edge.
+// Two accents share the work: violet is the brand (focus, glow, the
+// selected tab) and mint is the "go" colour (Play, Resume, progress,
+// the selected track). Everything else is white or muted grey on ink.
+// Motion is transform + opacity only, springy, 60fps.
 internal val Primary = Color(0xFF8B5CF6)
 internal val PrimaryContainer = Color(0xFF4C1D95)
 internal val SecondaryContainer = Color(0xFF2E1A5E)
-internal val Bg = Color(0xFF05070C)
-internal val Surface = Color(0xFF0A0E18)
-internal val SurfaceHigh = Color(0xFF121828)
+internal val Mint = Color(0xFF8EF3DB)
+internal val Bg = Color(0xFF07090E)
+internal val Surface = Color(0xFF0D1119)
+internal val SurfaceHigh = Color(0xFF141A28)
 internal val White = Color.White
+internal val Ink = Color(0xFF101524)
 internal val Muted = Color(0xFF9AA3B2)
 internal val Blue = Color(0xFF60A5FA)
 internal val Periwinkle = Color(0xFFA5B4FC)
-// Frosted glass: translucent surface + thin luminous top edge.
-internal val Glass = Color(0x940A0E18)
-internal val GlassStrong = Color(0xCC0A0E18)
+// Layered glass: translucent surface + a bright rim on the top edge.
+internal val Glass = Color(0x940D1119)
+internal val GlassStrong = Color(0xCC0D1119)
 internal val GlassEdge = Color(0x14FFFFFF)
 internal val GlassBorder = Color(0x2B8B5CF6)
-// Focus: violet glow ring, scale 1.035–1.05, 240ms spring (Qwen).
+// The rim light: a thin white line along the top edge of a glass
+// surface — the one detail that makes glass read as glass.
+internal val GlassRim = Color(0x40FFFFFF)
+// Focus: violet ring + glow, scale 1.06, spring (Lumen).
 internal val FocusBorder = Color(0xBF8B5CF6)
 internal val FocusGlow = Color(0x408B5CF6)
 internal val AmbientGlow = Color(0x298B5CF6)
