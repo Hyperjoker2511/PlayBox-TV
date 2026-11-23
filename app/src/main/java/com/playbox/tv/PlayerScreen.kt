@@ -790,7 +790,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
             onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS) 0.dp else 24.dp)
+                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS || uiStyle == PlayerUiStyle.NOVA) 0.dp else 24.dp)
         )
 
         if (panel != null) {
