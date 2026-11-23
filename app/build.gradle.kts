@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,6 +20,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Release signing — reads keystore.properties (NOT committed to GitHub).
+    // Create it from keystore.properties.example. Without it, release builds unsigned.
     signingConfigs {
         create("release") {
             val keystorePropsFile = rootProject.file("keystore.properties")
