@@ -1,8 +1,6 @@
 package com.playbox.tv
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,10 +13,12 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -41,13 +41,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal enum class Tab { Home, Search, Library, Settings }
+internal enum class Tab { Home, Search, Explore, Library, Settings }
 
 /** Tile subtitle: duration plus a "May not play" badge for formats
  * Media3 cannot play yet (Batch 1.4 polish). Null when there is nothing
@@ -80,9 +81,12 @@ internal fun GlassSurface(
     // Patch 6: reduce motion skips the focus zoom.
     val surfaceContext = LocalContext.current
     val reduceMotion = remember(surfaceContext) { isReduceMotion(surfaceContext) }
+    // 1.4.0 (Nocturne TV): the focus growth is 1.08 on the shared
+    // Bouncy spring — fast D-pad travel makes the growth chase the
+    // focus from card to card instead of cutting.
     val scale by animateFloatAsState(
-        targetValue = if (focused && !reduceMotion) 1.06f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 420f),
+        targetValue = if (focused && !reduceMotion) 1.08f else 1f,
+        animationSpec = Motion.bouncy(),
         label = "focusScale"
     )
     Box(
@@ -112,8 +116,10 @@ internal fun GlassSurface(
 }
 
 /** A glass pill button (tabs, toolbar actions). Active = violet fill.
- * Primary = mint fill with ink text — the "go" button (Play, Resume).
- * Lumen: focus scales 1.06 on a spring with a violet ring. */
+ * Primary = the "go" button (Play, Resume) — 1.4.0: violet fill with
+ * white text, the app's one accent; it reads as primary by its fill
+ * and its glow, not by a second colour.
+ * Focus scales 1.08 on the Bouncy spring with a violet ring. */
 @Composable
 internal fun GlassButton(
     text: String,
@@ -124,9 +130,11 @@ internal fun GlassButton(
 ) {
     var focused by remember { mutableStateOf(false) }
     val req = remember { FocusRequester() }
+    val buttonContext = LocalContext.current
+    val reduceMotion = remember(buttonContext) { isReduceMotion(buttonContext) }
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.06f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 420f),
+        targetValue = if (focused && !reduceMotion) 1.08f else 1f,
+        animationSpec = Motion.bouncy(),
         label = "focusScale"
     )
     Box(
@@ -135,7 +143,7 @@ internal fun GlassButton(
             .shadow(if (focused) 12.dp else 0.dp, RoundedCornerShape(28.dp), ambientColor = FocusGlow, spotColor = FocusGlow)
             .then(
                 when {
-                    primary -> Modifier.background(Mint, RoundedCornerShape(28.dp))
+                    primary -> Modifier.background(Primary, RoundedCornerShape(28.dp))
                     active -> Modifier.background(Primary, RoundedCornerShape(28.dp))
                     else -> Modifier.background(
                         Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
@@ -143,13 +151,13 @@ internal fun GlassButton(
                     )
                 }
             )
-            .border(2.dp, if (focused) FocusBorder else GlassBorder, RoundedCornerShape(28.dp))
+            .border(3.dp, if (focused) FocusBorder else GlassBorder, RoundedCornerShape(28.dp))
             .focusRequester(req).onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
             .padding(horizontal = 28.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, fontSize = 20.sp, color = if (primary) Ink else White, maxLines = 1)
+        Text(text, fontSize = 20.sp, color = White, maxLines = 1)
     }
 }
 
@@ -195,7 +203,7 @@ internal fun QuickChip(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(glyph, fontSize = 26.sp, color = Mint)
+            Text(glyph, fontSize = 26.sp, color = Primary)
             Column {
                 Text(label, fontSize = 20.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(sub, fontSize = 15.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -236,8 +244,16 @@ internal fun TopNav(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("▶", fontSize = 26.sp, color = Mint)
-        Text("PlayBox", fontSize = 24.sp, color = White)
+        // 1.4.0: the logo mark — a violet rounded square with the
+        // play glyph, so the brand reads at TV distance.
+        Box(
+            modifier = Modifier.background(Primary, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("▶", fontSize = 22.sp, color = White)
+        }
+        Text("PlayBox", fontSize = 26.sp, color = White)
         Spacer(modifier = Modifier.width(28.dp))
         Row(
             modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
@@ -250,6 +266,42 @@ internal fun TopNav(
             }
         }
         GlassButton("▶  Player") { onPlayer() }
+    }
+}
+
+// 1.4.3 (enhanced): Qwen's TV rail — the left rail from the
+// enhanced Qwen file. On wide screens (TV) the top pill bar is
+// replaced by a fixed 112dp rail: the logo at the top, the four
+// nav pills stacked vertically, and the Player pill pinned at the
+// bottom. The selected pill is a violet glass fill. The phone
+// keeps the top pill bar (TopNav above).
+@Composable
+internal fun QwenRail(
+    tab: Tab,
+    onTab: (Tab) -> Unit,
+    onPlayer: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.width(112.dp).fillMaxHeight()
+            .background(Color(0xF2080910))
+            .padding(vertical = 28.dp, horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(46.dp).background(Primary, RoundedCornerShape(15.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("▶", fontSize = 20.sp, color = White)
+        }
+        Text("PlayBox", fontSize = 13.sp, color = White, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(14.dp))
+        listOf(Tab.Home to "Home", Tab.Search to "Search", Tab.Library to "Library", Tab.Settings to "Settings").forEach { (t, label) ->
+            GlassButton(label, active = tab == t, modifier = Modifier.fillMaxWidth()) { onTab(t) }
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        GlassButton("▶", active = true, modifier = Modifier.fillMaxWidth()) { onPlayer() }
     }
 }
 
@@ -319,8 +371,47 @@ internal fun ThumbTile(
             ) {
                 Box(
                     modifier = Modifier.fillMaxWidth(resumeFraction.coerceIn(0f, 1f)).height(4.dp)
-                        .background(Mint)
+                        .background(Primary)
                 )
+            }
+        }
+    }
+}
+
+/** 1.4.0 (Nocturne TV): the settings list-door row — a full-width
+ * glass card with a coloured icon tile, a bold title, a one-line
+ * grey description and the current value at the right edge. The
+ * shape the owner picked for settings lists: every door labelled,
+ * nothing hidden behind a bare toggle. */
+@Composable
+internal fun SettingsRow(
+    glyph: String,
+    title: String,
+    sub: String,
+    value: String? = null,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    GlassSurface(onClick = onClick, modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Box(
+                modifier = Modifier.background(SecondaryContainer, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(glyph, fontSize = 24.sp, color = Periwinkle)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontSize = 22.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(sub, fontSize = 16.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (value != null) {
+                Text(value, fontSize = 20.sp, color = Primary, maxLines = 1)
             }
         }
     }
