@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -45,10 +46,13 @@ internal fun containerOf(item: VideoItem): String {
     return ext.ifBlank { "FILE" }
 }
 
-// ---------- Patch 1 (Qwen Home) ----------
+// ---------- LUMEN Home (2026-11-23) ----------
 // Greeting, one large hero banner for the continue-watching video,
-// a dashboard row of big glass tiles, then the All videos grid.
-// No filter pills — the tiles are the navigation.
+// a single horizontal row of quick chips (Videos, Music, Folders,
+// Network) that scrolls instead of clipping, then the All videos
+// grid. Continue Watching IS the hero — no separate tile for it —
+// and Settings lives in the top nav, so the row never overflows a
+// phone in landscape. Everything scrolls vertically.
 
 @Composable
 internal fun HomeScreen(
@@ -59,7 +63,6 @@ internal fun HomeScreen(
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
     onPlay: (VideoItem, List<VideoItem>) -> Unit,
     onLibrary: (String) -> Unit,
-    onSettings: () -> Unit,
     onFolders: () -> Unit,
     onRefresh: () -> Unit
 ) {
@@ -128,15 +131,22 @@ internal fun HomeScreen(
                 }
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
-                    GlassTile("▶", "Continue Watching", if (continueWatching.isEmpty()) "Nothing yet" else "${continueWatching.size} items", modifier = Modifier.weight(1f)) {
-                        continueWatching.firstOrNull()?.let { onOpen(it, videos) }
+                // Lumen quick row: four chips in a horizontal scroll —
+                // on a TV they all fit, on a phone in landscape the row
+                // scrolls instead of clipping the last tile's label.
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    item {
+                        QuickChip("▣", "Videos", "${videos.size} videos") { onLibrary("Videos") }
                     }
-                    GlassTile("▣", "Videos", "${videos.size} videos", modifier = Modifier.weight(1f)) { onLibrary("Videos") }
-                    GlassTile("♫", "Music", "${audio.size} tracks", modifier = Modifier.weight(1f)) { onLibrary("Music") }
-                    GlassTile("▤", "Folders / USB", "Local • USB", modifier = Modifier.weight(1f)) { onLibrary("Folders / USB") }
-                    GlassTile("⌂", "Network", if (servers == 0) "No servers yet" else "$servers servers", modifier = Modifier.weight(1f)) { onLibrary("Network") }
-                    GlassTile("⚙", "Settings", "Playback • Audio", modifier = Modifier.weight(1f)) { onSettings() }
+                    item {
+                        QuickChip("♫", "Music", "${audio.size} tracks") { onLibrary("Music") }
+                    }
+                    item {
+                        QuickChip("▤", "Folders / USB", "Local • USB") { onLibrary("Folders / USB") }
+                    }
+                    item {
+                        QuickChip("⌂", "Network", if (servers == 0) "No servers yet" else "$servers servers") { onLibrary("Network") }
+                    }
                 }
                 Spacer(modifier = Modifier.height(28.dp))
             }
@@ -171,9 +181,10 @@ internal fun HomeScreen(
     }
 }
 
-/** Qwen hero: the video's thumbnail (or a glass gradient when there is
- * none yet), a dark gradient from the left, "CONTINUE WATCHING", the
- * title, honest metadata, Resume + Details, and a thin progress bar. */
+/** Lumen hero: the video's thumbnail (or a glass gradient when there
+ * is none yet), a dark gradient from the left, "CONTINUE WATCHING"
+ * in mint, the title, honest metadata, a mint Resume button +
+ * Details, and a thin mint progress bar. */
 @Composable
 private fun HeroBanner(
     item: VideoItem,
@@ -198,7 +209,7 @@ private fun HeroBanner(
             modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 36.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("CONTINUE WATCHING", fontSize = 16.sp, color = Primary)
+            Text("CONTINUE WATCHING", fontSize = 16.sp, color = Mint)
             Text(item.name, fontSize = 40.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val meta = listOfNotNull(
                 if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null,
@@ -223,8 +234,8 @@ private fun HeroBanner(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                TvButton(if (fraction > 0f) "Resume ${(fraction * 100).toInt()}%" else "Play") { onResume() }
-                TvButton("Details") { onDetails() }
+                GlassButton(if (fraction > 0f) "Resume ${(fraction * 100).toInt()}%" else "Play", primary = true) { onResume() }
+                GlassButton("Details") { onDetails() }
             }
         }
         if (fraction > 0f) {
@@ -234,7 +245,7 @@ private fun HeroBanner(
             ) {
                 Box(
                     modifier = Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(5.dp)
-                        .background(Primary)
+                        .background(Mint)
                 )
             }
         }
