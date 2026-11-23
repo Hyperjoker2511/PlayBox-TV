@@ -1,6 +1,7 @@
 package com.playbox.tv
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -21,8 +23,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,7 +90,10 @@ internal fun HomeScreen(
         // FIX (2026-11-23): the floor was 240.dp — on a phone in
         // landscape the content area is only ~300dp tall, so the hero
         // alone filled it and the tiles never showed without scrolling.
-        val heroHeight = (maxHeight * 0.42f).coerceIn(160.dp, 380.dp)
+        // 1.4.3 (enhanced): on a wide TV the hero is bigger — the
+        // enhanced Qwen file's hero runs 330–490px tall.
+        val heroCap = if (maxWidth >= 900.dp) 480.dp else 380.dp
+        val heroHeight = (maxHeight * 0.42f).coerceIn(160.dp, heroCap)
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
                 Text(greeting(), fontSize = 30.sp, color = White)
@@ -150,6 +158,39 @@ internal fun HomeScreen(
                 }
                 Spacer(modifier = Modifier.height(28.dp))
             }
+            // 1.4.0 (Nocturne TV rails): Continue watching and
+            // Recently added as horizontal rails between the quick
+            // row and the full grid — the TV browsing shape. The
+            // hero already carries the first continue item, so the
+            // rail starts from the second.
+            val continueRail = if (continueWatching.isNotEmpty()) continueWatching.drop(1) else emptyList()
+            if (continueRail.isNotEmpty()) {
+                item {
+                    Text("Continue watching", fontSize = 28.sp, color = White)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        items(continueRail, key = { it.path }) { railItem ->
+                            val resumeMs = resume[railItem.path] ?: 0L
+                            val fraction = if (railItem.durationMs > 0) resumeMs.toFloat() / railItem.durationMs else 0f
+                            ThumbTile(railItem, tileSub(railItem), resumeFraction = fraction) { onOpen(railItem, videos + audio) }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(28.dp))
+                }
+            }
+            val recentRail = videos.sortedByDescending { it.dateAddedSec }.take(10)
+            if (recentRail.size > 1) {
+                item {
+                    Text("Recently added", fontSize = 28.sp, color = White)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        items(recentRail, key = { it.path }) { railItem ->
+                            ThumbTile(railItem, tileSub(railItem)) { onOpen(railItem, videos + audio) }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(28.dp))
+                }
+            }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("All videos", fontSize = 28.sp, color = White)
@@ -184,7 +225,10 @@ internal fun HomeScreen(
 /** Lumen hero: the video's thumbnail (or a glass gradient when there
  * is none yet), a dark gradient from the left, "CONTINUE WATCHING"
  * in mint, the title, honest metadata, a mint Resume button +
- * Details, and a thin mint progress bar. */
+ * Details, and a thin mint progress bar.
+ * 1.4.4 (full copy): on a wide TV the enhanced Qwen file adds a
+ * big rotated glass play tile on the right (a rounded square,
+ * rotated -8deg, glass fill, large ▶) — the hero's signature. */
 @Composable
 private fun HeroBanner(
     item: VideoItem,
@@ -195,6 +239,8 @@ private fun HeroBanner(
     onDetails: () -> Unit
 ) {
     val fraction = if (resumeOn && item.durationMs > 0) resumeMs.toFloat() / item.durationMs else 0f
+    val screenW = LocalConfiguration.current.screenWidthDp.dp
+    val wide = screenW >= 900.dp
     GlassSurface(onClick = onDetails, modifier = Modifier.fillMaxWidth().height(height)) {
         if (item.isVideo) VideoThumb(item, Modifier.fillMaxSize())
         // Dark gradient from the left so the title stays readable.
@@ -205,11 +251,28 @@ private fun HeroBanner(
                 )
             )
         )
+        // The rotated glass play tile (TV only) — the enhanced file's
+        // hero signature. A large rounded square, rotated -8deg,
+        // translucent white fill, thin white border, big ▶.
+        if (wide) {
+            Box(
+                modifier = Modifier.align(Alignment.CenterEnd)
+                    .padding(end = 64.dp)
+                    .size(220.dp)
+                    .graphicsLayer { rotationZ = -8f }
+                    .clip(RoundedCornerShape(42.dp))
+                    .background(Color(0x2EFFFFFF))
+                    .border(1.dp, Color(0x38FFFFFF), RoundedCornerShape(42.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("▶", fontSize = 72.sp, color = Color(0xD2FFFFFF))
+            }
+        }
         Column(
             modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 36.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("CONTINUE WATCHING", fontSize = 16.sp, color = Mint)
+            Text("CONTINUE WATCHING", fontSize = 16.sp, color = Primary)
             Text(item.name, fontSize = 40.sp, color = White, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val meta = listOfNotNull(
                 if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null,
@@ -245,7 +308,7 @@ private fun HeroBanner(
             ) {
                 Box(
                     modifier = Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(5.dp)
-                        .background(Mint)
+                        .background(Primary)
                 )
             }
         }
