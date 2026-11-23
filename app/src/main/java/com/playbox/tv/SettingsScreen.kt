@@ -265,6 +265,12 @@ internal fun SettingsScreen() {
                         SettingsSection("Player UI") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 item {
+                                    GlassButton("Lumen", active = uiStyle == PlayerUiStyle.LUMEN) {
+                                        uiStyle = PlayerUiStyle.LUMEN
+                                        savePlayerUiStyle(context, PlayerUiStyle.LUMEN)
+                                    }
+                                }
+                                item {
                                     GlassButton("Liquid Glass", active = uiStyle == PlayerUiStyle.LIQUID_GLASS) {
                                         uiStyle = PlayerUiStyle.LIQUID_GLASS
                                         savePlayerUiStyle(context, PlayerUiStyle.LIQUID_GLASS)
@@ -277,7 +283,7 @@ internal fun SettingsScreen() {
                                     }
                                 }
                             }
-                            Text("Two player looks, same player underneath. Liquid Glass is the full-width sheet with an orange seek bar and Prev / Next; Prism TV is the floating capsule with a mint play button.", fontSize = 16.sp, color = Muted)
+                            Text("Three player looks, same player underneath. Lumen is the default — the slim floating capsule with the full transport row and a mint play button. Liquid Glass is the full-width sheet with an orange seek bar and Prev / Next; Prism TV is the floating capsule with a mint play button.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
