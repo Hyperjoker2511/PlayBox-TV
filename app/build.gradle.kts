@@ -15,8 +15,8 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.2.0"
+        versionCode = 8
+        versionName = "1.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -61,7 +61,7 @@ android {
                     "x86_64" -> 4
                     else -> 0
                 }
-                // vc7 -> 71/72/73/74: still updates over 1.1.0 (vc6) and
+                // vc8 -> 81/82/83/84: still updates over 1.2.0 (vc7x) and
                 // over the never-delivered universal 1.2.0 (vc7).
                 output.versionCodeOverride = versionCode * 10 + abiCode
             }
