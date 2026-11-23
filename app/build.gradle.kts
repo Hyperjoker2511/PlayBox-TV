@@ -6,6 +6,18 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Patch 1.3.2 (libvlc 3.7.7): the 3.7.7 POM requires kotlin-stdlib
+// 2.2.10, but this project compiles with Kotlin 2.0.21 — the 2.0.21
+// compiler cannot read 2.2.10's metadata ("binary version 2.2.0,
+// expected 2.0.0"). LibVLC only uses basic stdlib APIs, so pin the
+// stdlib to the project's own 2.0.21. Without this the build fails
+// on the VM and in CI with the same metadata error.
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+    }
+}
+
 android {
     namespace = "com.playbox.tv"
     compileSdk = 36
@@ -15,8 +27,8 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.3.1"
+        versionCode = 11
+        versionName = "1.3.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -126,7 +138,7 @@ dependencies {
     // Patch 7: LibVLC — the second engine, for formats Media3 cannot
     // play, and for audio/subtitle delay, deinterlace, video adjust,
     // volume above 100% and chapters.
-    implementation("org.videolan.android:libvlc-all:3.6.1")
+    implementation("org.videolan.android:libvlc-all:3.7.7")
     // Patch 7: FTP (Apache Commons Net — its group is commons-net,
     // not org.apache.commons) and SFTP (JSch fork) browsing.
     implementation("commons-net:commons-net:3.10.0")
