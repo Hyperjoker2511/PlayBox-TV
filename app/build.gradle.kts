@@ -76,6 +76,12 @@ android {
                 // vc9 -> 91/92/93/94: still updates over 1.2.1 (vc8x) and
                 // over the never-delivered universal 1.2.0 (vc7).
                 output.versionCodeOverride = versionCode * 10 + abiCode
+                // File name: "ZephPlayer-1.5.2-arm64-v8a.apk", not
+                // "app-arm64-v8a-release.apk". The module is called
+                // "app" by default, so Gradle named the file "app…"
+                // — that looks generic on GitHub. This names it after
+                // the app + version + ABI instead.
+                output.outputFileName = "ZephPlayer-$versionName-${abi ?: "universal"}.apk"
             }
         }
     }
