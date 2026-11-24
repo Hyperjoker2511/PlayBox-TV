@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +70,8 @@ internal fun HomeScreen(
     onPlay: (VideoItem, List<VideoItem>) -> Unit,
     onLibrary: (String) -> Unit,
     onFolders: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    palette: DesignPalette = QwenPalette
 ) {
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
@@ -80,6 +82,13 @@ internal fun HomeScreen(
         .sortedByDescending { resumeTime[it.path] ?: 0L }
     val hero = continueWatching.firstOrNull() ?: videos.firstOrNull()
     val servers = remember { SmbNetwork.servers(context).size }
+    // P3: the hero folds to one line once it has scrolled off.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val heroVisible by androidx.compose.runtime.remember {
+        androidx.compose.runtime.derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.any { it.key == "stageHero" }
+        }
+    }
 
     // Adaptive columns (Batch 1.3, Round 2): a fixed chunked(3) of 220dp
     // tiles clips or wastes space on boxes with odd densities. The column
@@ -87,14 +96,7 @@ internal fun HomeScreen(
     // nest inside this LazyColumn, so the grid stays chunked rows.)
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val cols = (maxWidth / 240.dp).toInt().coerceIn(1, 6)
-        // FIX (2026-11-23): the floor was 240.dp — on a phone in
-        // landscape the content area is only ~300dp tall, so the hero
-        // alone filled it and the tiles never showed without scrolling.
-        // 1.4.3 (enhanced): on a wide TV the hero is bigger — the
-        // enhanced Qwen file's hero runs 330–490px tall.
-        val heroCap = if (maxWidth >= 900.dp) 480.dp else 380.dp
-        val heroHeight = (maxHeight * 0.42f).coerceIn(160.dp, heroCap)
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             item {
                 Text(greeting(), fontSize = 30.sp, color = White)
                 if (permissionDenied) {
@@ -108,16 +110,29 @@ internal fun HomeScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
             if (hero != null) {
-                item {
-                    HeroBanner(
+                val heroResumeMs = resume[hero.path] ?: 0L
+                item(key = "stageHero") {
+                    val heroFraction = if (hero.durationMs > 0) heroResumeMs.toFloat() / hero.durationMs else 0f
+                    // P3: the full-bleed hero — the featured video's
+                    // cover fills the hero behind its details, with
+                    // the Continue pill + live clock top-right.
+                    StageHero(
                         item = hero,
-                        resumeMs = resume[hero.path] ?: 0L,
-                        resumeOn = isResumeOn(context),
-                        height = heroHeight,
-                        onResume = { onPlay(hero, videos + audio) },
+                        resumeFraction = heroFraction,
+                        resumeMs = heroResumeMs,
+                        palette = palette,
+                        onPlay = { onPlay(hero, videos + audio) },
                         onDetails = { onOpen(hero, videos + audio) }
                     )
                     Spacer(modifier = Modifier.height(24.dp))
+                }
+                // The folded hero: one line, sticky at the top, only
+                // once the full hero has scrolled off.
+                stickyHeader(key = "foldedHero") {
+                    if (!heroVisible) {
+                        HeroFoldedBar(item = hero, resumeMs = heroResumeMs, palette = palette)
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
                 }
             } else {
                 item {
