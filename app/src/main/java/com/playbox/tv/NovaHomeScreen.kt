@@ -1,5 +1,6 @@
 package com.playbox.tv
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.sp
 // Screen padding matches the file: 46px top / 34–88px sides / 56px
 // bottom on wide screens, 22px / 18px / 40px on a phone.
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun NovaHomeScreen(
     videos: List<VideoItem>,
