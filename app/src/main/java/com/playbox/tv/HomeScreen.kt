@@ -1,5 +1,6 @@
 package com.playbox.tv
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ internal fun containerOf(item: VideoItem): String {
 // and Settings lives in the top nav, so the row never overflows a
 // phone in landscape. Everything scrolls vertically.
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun HomeScreen(
     videos: List<VideoItem>,
