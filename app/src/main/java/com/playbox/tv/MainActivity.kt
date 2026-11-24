@@ -493,7 +493,8 @@ private fun PlayBoxApp() {
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                             onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
                             onFolders = { tab = Tab.Library },
-                            onRefresh = { refreshNonce++ }
+                            onRefresh = { refreshNonce++ },
+                            palette = paletteFor(appDesign)
                         )
                         Tab.Search -> NovaSearchScreen(
                             items = all, search = search, onSearch = { search = it },
@@ -597,7 +598,8 @@ private fun PlayBoxApp() {
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                             onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
                             onFolders = { tab = Tab.Library },
-                            onRefresh = { refreshNonce++ }
+                            onRefresh = { refreshNonce++ },
+                            palette = paletteFor(appDesign)
                         )
                         Tab.Search -> AuraSearchScreen(
                             items = all, search = search, onSearch = { search = it },
@@ -720,7 +722,8 @@ private fun PlayBoxApp() {
                                 onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                                 onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
                                 onFolders = { tab = Tab.Library },
-                                onRefresh = { refreshNonce++ }
+                                onRefresh = { refreshNonce++ },
+                                palette = paletteFor(appDesign)
                             )
                             Tab.Search -> SearchScreen(
                                 items = all, search = search, onSearch = { search = it },
