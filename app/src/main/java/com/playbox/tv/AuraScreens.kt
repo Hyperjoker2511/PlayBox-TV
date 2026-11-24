@@ -672,7 +672,11 @@ private fun AuraListRow(item: VideoItem, resumeFraction: Float, onClick: () -> U
 @Composable
 internal fun AuraSettingsScreen(
     currentDesign: AppDesign,
-    onDesignChange: (AppDesign) -> Unit
+    onDesignChange: (AppDesign) -> Unit,
+    railMode: RailMode = RailMode.DOCKED,
+    onRailModeChange: (RailMode) -> Unit = {},
+    labelMode: RailLabelMode = RailLabelMode.FOCUSED,
+    onLabelModeChange: (RailLabelMode) -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -849,6 +853,25 @@ internal fun AuraSettingsScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text("Solid is flat with no blur — the safe default for the 2 GB box. Liquid is a light glass look (translucent surfaces, no heavy blur). If Liquid ever lags, switch back to Solid.", fontSize = 15.sp, color = AuraOnSurfaceVariant)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Navigation rail", fontSize = 18.sp, color = AuraOnSurfaceVariant)
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { AuraChip("Docked", active = railMode == RailMode.DOCKED) { onRailModeChange(RailMode.DOCKED) } }
+                item { AuraChip("Floating", active = railMode == RailMode.FLOATING) { onRailModeChange(RailMode.FLOATING) } }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Docked is always there and the content sits beside it. Floating is a capsule over the content — press ◀ to open it, it hides a few seconds after you leave it. Applies on wide screens (TV, landscape); narrow screens keep the top tabs.", fontSize = 15.sp, color = AuraOnSurfaceVariant)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Menu labels", fontSize = 18.sp, color = AuraOnSurfaceVariant)
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { AuraChip("Off", active = labelMode == RailLabelMode.OFF) { onLabelModeChange(RailLabelMode.OFF) } }
+                item { AuraChip("When focused", active = labelMode == RailLabelMode.FOCUSED) { onLabelModeChange(RailLabelMode.FOCUSED) } }
+                item { AuraChip("Always", active = labelMode == RailLabelMode.ALWAYS) { onLabelModeChange(RailLabelMode.ALWAYS) } }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Off shows icons only. When focused shows the label on the item you are on. Always shows every label and keeps the rail expanded.", fontSize = 15.sp, color = AuraOnSurfaceVariant)
             Spacer(modifier = Modifier.height(20.dp))
             Text("Player UI", fontSize = 18.sp, color = AuraOnSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
