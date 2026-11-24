@@ -441,81 +441,6 @@ internal fun NovaFolderRow(
     }
 }
 
-// ---------- Nova navigation ----------
-// The left rail (wide screens): the logo at the top, four nav items
-// stacked vertically with a big icon + label, and the Player button
-// pinned at the bottom. The selected item is a solid violet fill.
-// This is the Nova nav — Qwen uses a top pill bar instead.
-// 1.4.3 (enhanced): the rail is COLLAPSIBLE — icon-only (72dp)
-// by default, and it expands to 208dp to show the labels when it
-// has focus (D-pad) or the pointer hovers it. This is the
-// collapsible rail from the enhanced Nova file.
-@Composable
-internal fun NovaRail(
-    tab: Tab,
-    onTab: (Tab) -> Unit,
-    onPlayer: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val width by animateDpAsState(
-        if (expanded) 208.dp else 76.dp,
-        spring(dampingRatio = 0.85f, stiffness = 300f), label = "novaRailWidth"
-    )
-    Column(
-        modifier = modifier.width(width).fillMaxHeight()
-            .background(NovaSurface)
-            .onFocusChanged { expanded = it.hasFocus }
-            .padding(vertical = 24.dp, horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
-            Text("▶", fontSize = 24.sp, color = NovaMint)
-            if (expanded) {
-                Spacer(modifier = Modifier.width(10.dp))
-                Text("PlayBox", fontSize = 22.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
-            }
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-        listOf(
-            Tab.Home to ("⌂" to "Home"),
-            Tab.Search to ("⌕" to "Search"),
-            Tab.Library to ("▣" to "Library"),
-            Tab.Settings to ("⚙" to "Settings")
-        ).forEach { (t, pair) ->
-            val (icon, label) = pair
-            val selected = tab == t
-            Box(
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (selected) NovaViolet else NovaSurface)
-                    .border(if (selected) 2.dp else 1.dp, if (selected) NovaViolet else NovaOutline, RoundedCornerShape(14.dp))
-                    .clickable { onTab(t) }
-                    .padding(horizontal = 12.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(icon, fontSize = 20.sp, color = NovaWhite)
-                    if (expanded) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(label, fontSize = 18.sp, color = NovaWhite, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        if (expanded) {
-            NovaButton("▶  Player", onClick = onPlayer, primary = true, modifier = Modifier.fillMaxWidth())
-        } else {
-            Box(
-                modifier = Modifier.size(52.dp).clip(CircleShape).background(NovaViolet)
-                    .clickable { onPlayer() },
-                contentAlignment = Alignment.Center
-            ) { Text("▶", fontSize = 20.sp, color = NovaWhite) }
-        }
-    }
-}
-
 // The top tab strip (narrow screens): four equal tabs with a solid
 // violet underline under the selected one, and a play button at the
 // end. Same four tabs as the rail, laid out horizontally.
@@ -530,7 +455,7 @@ internal fun NovaTabStrip(
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("▶", fontSize = 22.sp, color = NovaMint)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("PlayBox", fontSize = 20.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
+            Text("Zeph", fontSize = 20.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
             Box(
                 modifier = Modifier.size(44.dp).clip(CircleShape).background(NovaViolet)
