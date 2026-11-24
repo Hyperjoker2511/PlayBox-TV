@@ -272,7 +272,7 @@ internal fun NetworkScreen(
                 } else {
                     TvButton("Add a server") { showAddForm = true }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Share a folder on your PC or NAS, then add it here once — PlayBox remembers it.", fontSize = 18.sp, color = Muted)
+                    Text("Share a folder on your PC or NAS, then add it here once — Zeph remembers it.", fontSize = 18.sp, color = Muted)
                 }
             }
         }
