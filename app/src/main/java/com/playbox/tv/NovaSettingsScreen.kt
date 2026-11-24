@@ -280,7 +280,7 @@ internal fun NovaSettingsScreen(
             NovaSectionHeader("About")
             Spacer(modifier = Modifier.height(12.dp))
             val (versionName, versionCode) = novaAppVersion(context)
-            Text("PlayBox TV", fontSize = 24.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
+            Text("Zeph Player", fontSize = 24.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             Text("Version ${settingsVersionLabel(versionName, versionCode)}", fontSize = 18.sp, color = NovaWhite)
             Spacer(modifier = Modifier.height(8.dp))
