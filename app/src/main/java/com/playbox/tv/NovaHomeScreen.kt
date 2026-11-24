@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,7 +38,8 @@ internal fun NovaHomeScreen(
     onPlay: (VideoItem, List<VideoItem>) -> Unit,
     onLibrary: (String) -> Unit,
     onFolders: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    palette: DesignPalette = NovaPalette
 ) {
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
@@ -46,13 +48,22 @@ internal fun NovaHomeScreen(
         .sortedByDescending { resumeTime[it.path] ?: 0L }
     val all = videos + audio
     val servers = remember { SmbNetwork.servers(context).size }
+    // P3: the hero folds to one line once it has scrolled off.
+    // The folded bar is a sticky header that only renders then;
+    // ▲ from the first row scrolls back to the full hero.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val heroVisible by androidx.compose.runtime.remember {
+        androidx.compose.runtime.derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.any { it.key == "stageHero" }
+        }
+    }
 
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wide = maxWidth >= 700.dp
         val hPad = if (wide) (maxWidth * 0.05f).coerceIn(34.dp, 88.dp) else 18.dp
         val topPad = if (wide) 46.dp else 22.dp
         val bottomPad = if (wide) 56.dp else 40.dp
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = hPad)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = hPad)) {
         item {
             Spacer(modifier = Modifier.height(topPad))
             Text(greeting(), fontSize = 28.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
@@ -72,22 +83,32 @@ internal fun NovaHomeScreen(
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
-        // 1.4.3 (enhanced): the feature hero — the most recently
-        // resumed video (or the first video) as a big banner with
-        // Resume + Details. It sits above Continue watching.
+        // P3: the full-bleed hero — the featured video's cover fills
+        // the hero behind its details, with the Continue pill + live
+        // clock top-right. It folds to one line (sticky bar below)
+        // once it has scrolled off.
         val hero = continueWatching.firstOrNull() ?: videos.firstOrNull()
         if (hero != null) {
-            item {
-                val heroResumeMs = resume[hero.path] ?: 0L
+            val heroResumeMs = resume[hero.path] ?: 0L
+            item(key = "stageHero") {
                 val heroFraction = if (hero.durationMs > 0) heroResumeMs.toFloat() / hero.durationMs else 0f
-                NovaHero(
+                StageHero(
                     item = hero,
                     resumeFraction = heroFraction,
                     resumeMs = heroResumeMs,
-                    onResume = { onPlay(hero, all) },
+                    palette = palette,
+                    onPlay = { onPlay(hero, all) },
                     onDetails = { onOpen(hero, all) }
                 )
                 Spacer(modifier = Modifier.height(28.dp))
+            }
+            // The folded hero: one line, sticky at the top, only
+            // once the full hero has scrolled off.
+            stickyHeader(key = "foldedHero") {
+                if (!heroVisible) {
+                    HeroFoldedBar(item = hero, resumeMs = heroResumeMs, palette = palette)
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
             }
         }
         if (continueWatching.isNotEmpty()) {
