@@ -205,7 +205,7 @@ object DlnaServer {
             "DATE: ${httpDate()}\r\n" +
             "EXT:\r\n" +
             "LOCATION: $location\r\n" +
-            "SERVER: PlayBox/1.1 UPnP/1.0\r\n" +
+            "SERVER: Zeph/1.5 UPnP/1.0\r\n" +
             "ST: $st\r\n" +
             "USN: uuid:$udn${if (st == "upnp:rootdevice") "" else "::urn:schemas-upnp-org:device:MediaRenderer:1"}\r\n" +
             "\r\n"
@@ -231,7 +231,7 @@ object DlnaServer {
                 "LOCATION: $location\r\n" +
                 "NT: $nt\r\n" +
                 "NTS: ssdp:alive\r\n" +
-                "SERVER: PlayBox/1.1 UPnP/1.0\r\n" +
+                "SERVER: Zeph/1.5 UPnP/1.0\r\n" +
                 "USN: $usn\r\n" +
                 "\r\n"
             sendSsdp(body)
@@ -335,9 +335,9 @@ object DlnaServer {
 <specVersion><major>1</major><minor>0</minor></specVersion>
 <device>
 <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
-<friendlyName>PlayBox TV</friendlyName>
-<manufacturer>PlayBox</manufacturer>
-<modelName>PlayBox TV</modelName>
+<friendlyName>Zeph Player</friendlyName>
+<manufacturer>Zeph</manufacturer>
+<modelName>Zeph Player</modelName>
 <modelNumber>1.1</modelNumber>
 <UDN>uuid:$udn</UDN>
 <presentationURL>http://$ip:$httpPort/device.xml</presentationURL>
