@@ -1,6 +1,29 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp"
-    android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#8B5CF6" android:pathData="M0,0h108v108h-108z"/>
-    <path android:fillColor="#FFFFFF" android:pathData="M40,32l36,22 -36,22z"/>
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- PlayBox TV — Material 3 Expressive icon.
+         Vibrant violet gradient, expressive rounded play glyph, soft depth shadow.
+         Drop-in replacement for app/src/main/res/drawable/ic_launcher.xml -->
+    <!-- background: diagonal violet gradient -->
+    <path android:pathData="M0,0h108v108H0z">
+        <gradient
+            android:type="linear"
+            android:startX="0"
+            android:startY="0"
+            android:endX="108"
+            android:endY="108"
+            android:startColor="#A78BFA"
+            android:endColor="#6D28D9" />
+    </path>
+    <!-- soft shadow under the play glyph -->
+    <path
+        android:fillColor="#5B21B6"
+        android:fillAlpha="0.35"
+        android:pathData="M42,42 Q42,34 48.7,38.4 L71.3,53.6 Q78,58 71.3,62.4 L48.7,77.6 Q42,82 42,74 Z" />
+    <!-- expressive rounded play triangle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,38 Q42,30 48.7,34.4 L71.3,49.6 Q78,54 71.3,58.4 L48.7,73.6 Q42,78 42,70 Z" />
 </vector>
