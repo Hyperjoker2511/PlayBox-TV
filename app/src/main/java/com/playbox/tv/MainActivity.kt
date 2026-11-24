@@ -267,6 +267,11 @@ private fun PlayBoxApp() {
     // so switching it in Settings re-renders the scaffold
     // immediately; saved to prefs so it survives a restart.
     var appDesign by remember { mutableStateOf(appDesign(context)) }
+    // P2: rail mode (docked / floating) + menu labels (off / focused /
+    // always). Kept in state so changing them in Settings re-renders
+    // the rail immediately; saved to prefs so they survive a restart.
+    var railMode by remember { mutableStateOf(railMode(context)) }
+    var railLabelMode by remember { mutableStateOf(railLabelMode(context)) }
     // Patch 7 (PiP): MainActivity's onUserLeaveHint reads this.
     LaunchedEffect(playing) { pipPlaying.value = playing != null }
     val activity = LocalContext.current as? Activity
@@ -525,25 +530,30 @@ private fun PlayBoxApp() {
                         )
                         Tab.Settings -> NovaSettingsScreen(
                             currentDesign = appDesign,
-                            onDesignChange = { appDesign = it; saveAppDesign(context, it) }
+                            onDesignChange = { appDesign = it; saveAppDesign(context, it) },
+                            railMode = railMode,
+                            onRailModeChange = { railMode = it; saveRailMode(context, it) },
+                            labelMode = railLabelMode,
+                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) }
                         )
                     }
                 }
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(NovaBg)) {
                     if (maxWidth >= 700.dp) {
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            // P1: one shared rail for all three designs.
-                            DesignRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer, palette = paletteFor(appDesign))
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                AnimatedContent(
-                                    targetState = tab,
-                                    transitionSpec = {
-                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
-                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
-                                    },
-                                    label = "novaTabSwitch"
-                                ) { currentTab -> novaContent(currentTab) }
-                            }
+                        // P2: rail mode (docked / floating) + menu labels.
+                        RailLayout(
+                            railMode = railMode, labelMode = railLabelMode,
+                            tab = tab, onTab = { tab = it }, onPlayer = onPlayer,
+                            palette = paletteFor(appDesign)
+                        ) {
+                            AnimatedContent(
+                                targetState = tab,
+                                transitionSpec = {
+                                    (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
+                                        (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                },
+                                label = "novaTabSwitch"
+                            ) { currentTab -> novaContent(currentTab) }
                         }
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
@@ -612,25 +622,30 @@ private fun PlayBoxApp() {
                         )
                         Tab.Settings -> AuraSettingsScreen(
                             currentDesign = appDesign,
-                            onDesignChange = { appDesign = it; saveAppDesign(context, it) }
+                            onDesignChange = { appDesign = it; saveAppDesign(context, it) },
+                            railMode = railMode,
+                            onRailModeChange = { railMode = it; saveRailMode(context, it) },
+                            labelMode = railLabelMode,
+                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) }
                         )
                     }
                 }
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(AuraSurface)) {
                     if (maxWidth >= 700.dp) {
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            // P1: one shared rail for all three designs.
-                            DesignRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer, palette = paletteFor(appDesign))
-                            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                AnimatedContent(
-                                    targetState = tab,
-                                    transitionSpec = {
-                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
-                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
-                                    },
-                                    label = "auraTabSwitch"
-                                ) { currentTab -> auraContent(currentTab) }
-                            }
+                        // P2: rail mode (docked / floating) + menu labels.
+                        RailLayout(
+                            railMode = railMode, labelMode = railLabelMode,
+                            tab = tab, onTab = { tab = it }, onPlayer = onPlayer,
+                            palette = paletteFor(appDesign)
+                        ) {
+                            AnimatedContent(
+                                targetState = tab,
+                                transitionSpec = {
+                                    (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
+                                        (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                },
+                                label = "auraTabSwitch"
+                            ) { currentTab -> auraContent(currentTab) }
                         }
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
@@ -743,7 +758,11 @@ private fun PlayBoxApp() {
                             )
                             Tab.Settings -> SettingsScreen(
                                 currentDesign = appDesign,
-                                onDesignChange = { appDesign = it; saveAppDesign(context, it) }
+                                onDesignChange = { appDesign = it; saveAppDesign(context, it) },
+                                railMode = railMode,
+                                onRailModeChange = { railMode = it; saveRailMode(context, it) },
+                                labelMode = railLabelMode,
+                                onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) }
                             )
                         }
                         }
@@ -760,10 +779,13 @@ private fun PlayBoxApp() {
                                 )
                         ) {}
                         if (wide) {
-                            Row(modifier = Modifier.fillMaxSize()) {
-                                // P1: one shared rail for all three designs.
-                                DesignRail(tab = tab, onTab = { tab = it }, onPlayer = qwenPlayer, palette = paletteFor(appDesign))
-                                Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 32.dp, vertical = 24.dp)) {
+                            // P2: rail mode (docked / floating) + menu labels.
+                            RailLayout(
+                                railMode = railMode, labelMode = railLabelMode,
+                                tab = tab, onTab = { tab = it }, onPlayer = qwenPlayer,
+                                palette = paletteFor(appDesign)
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
                                     qwenContent()
                                 }
                             }
