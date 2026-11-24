@@ -97,7 +97,7 @@ class CastService : Service(), DlnaHandler {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID, "Cast", NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "Shows while PlayBox TV can receive videos from your phone" }
+            ).apply { description = "Shows while Zeph Player can receive videos from your phone" }
             manager?.createNotificationChannel(channel)
         }
         val openApp = PendingIntent.getActivity(
@@ -106,7 +106,7 @@ class CastService : Service(), DlnaHandler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("PlayBox TV")
+            .setContentTitle("Zeph Player")
             .setContentText("Ready to receive videos from your phone")
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(openApp)
