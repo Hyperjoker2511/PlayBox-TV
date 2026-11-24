@@ -43,7 +43,11 @@ private fun novaAppVersion(context: Context): Pair<String?, Long> = try {
 @Composable
 internal fun NovaSettingsScreen(
     currentDesign: AppDesign,
-    onDesignChange: (AppDesign) -> Unit
+    onDesignChange: (AppDesign) -> Unit,
+    railMode: RailMode = RailMode.DOCKED,
+    onRailModeChange: (RailMode) -> Unit = {},
+    labelMode: RailLabelMode = RailLabelMode.FOCUSED,
+    onLabelModeChange: (RailLabelMode) -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -247,6 +251,35 @@ internal fun NovaSettingsScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text("Solid is flat with no blur — the safe default for the 2 GB box. Liquid is a light glass look (translucent surfaces, no heavy blur). If Liquid ever lags, switch back to Solid.", fontSize = 15.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Navigation rail", fontSize = 18.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    NovaChip("Docked", active = railMode == RailMode.DOCKED) { onRailModeChange(RailMode.DOCKED) }
+                }
+                item {
+                    NovaChip("Floating", active = railMode == RailMode.FLOATING) { onRailModeChange(RailMode.FLOATING) }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Docked is always there and the content sits beside it. Floating is a capsule over the content — press ◀ to open it, it hides a few seconds after you leave it. Applies on wide screens (TV, landscape); narrow screens keep the top tabs.", fontSize = 15.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Menu labels", fontSize = 18.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    NovaChip("Off", active = labelMode == RailLabelMode.OFF) { onLabelModeChange(RailLabelMode.OFF) }
+                }
+                item {
+                    NovaChip("When focused", active = labelMode == RailLabelMode.FOCUSED) { onLabelModeChange(RailLabelMode.FOCUSED) }
+                }
+                item {
+                    NovaChip("Always", active = labelMode == RailLabelMode.ALWAYS) { onLabelModeChange(RailLabelMode.ALWAYS) }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Off shows icons only. When focused shows the label on the item you are on. Always shows every label and keeps the rail expanded.", fontSize = 15.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(20.dp))
             Text("Player UI", fontSize = 18.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(8.dp))
