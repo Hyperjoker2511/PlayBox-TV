@@ -331,7 +331,7 @@ internal fun VlcGearSheet(
                         }
                     }
                     item {
-                        Text("VLC draws the subtitles on the video itself, so size and colour follow the video's own subtitle style.", fontSize = 16.sp, color = Muted)
+                        Text("Size, colour and background follow Settings → Subtitles, and apply the next time a video starts.", fontSize = 16.sp, color = Muted)
                     }
                 }
                 "Audio" -> {
