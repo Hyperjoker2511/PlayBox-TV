@@ -226,7 +226,7 @@ internal fun LibraryScreen(
                                             }
                                         }
                                         Spacer(modifier = Modifier.height(12.dp))
-                                        Text("Pick a USB drive or folder once — PlayBox remembers it, even after a restart.", fontSize = 18.sp, color = Muted)
+                                        Text("Pick a USB drive or folder once — Zeph remembers it, even after a restart.", fontSize = 18.sp, color = Muted)
                                         safPickerError?.let { Spacer(modifier = Modifier.height(12.dp)); Text(it, fontSize = 18.sp, color = Muted) }
                                     }
                                     if (roots.isEmpty() && safFolders.isEmpty()) item { Text("No storage found. Plug in a USB drive and open this screen again, or add a folder above.", fontSize = 20.sp, color = Muted) }
