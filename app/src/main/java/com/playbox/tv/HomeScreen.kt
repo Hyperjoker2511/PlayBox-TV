@@ -100,7 +100,7 @@ internal fun HomeScreen(
                 if (permissionDenied) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "PlayBox can't see your videos yet — media permission was not allowed. " +
+                        "Zeph can't see your videos yet — media permission was not allowed. " +
                             "You can still browse Folders / USB, or allow it in Settings.",
                         fontSize = 20.sp, color = Muted
                     )
