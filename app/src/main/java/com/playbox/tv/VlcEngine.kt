@@ -9,6 +9,7 @@ import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import java.io.File
+import kotlin.math.roundToInt
 
 // ---------- Patch 7 (LibVLC engine) ----------
 // The second engine, for the files Media3 cannot play and for the
@@ -230,11 +231,44 @@ internal fun adjustOptions(brightness: Float, contrast: Float, saturation: Float
     )
 }
 
+/** Subtitle style as LibVLC media options, from the same
+ * playbox_sub_style prefs the Settings screen and the Media3
+ * player read — so the Subtitle Size / Colour / Background buttons
+ * work on VLC too. VLC draws subtitles itself on the video surface,
+ * so without these the Settings buttons did nothing on VLC (the
+ * engine for HDR files, for files Media3 cannot play, and for any
+ * file the user switched to VLC). The freetype options are the ones
+ * the official VLC Android app uses (VLCOptions): rel-fontsize
+ * (default 16), color as a DECIMAL integer (hex does not work),
+ * background-opacity 128 for a black box, 0 for none. They are
+ * media options (":" prefix), so they are read fresh on every
+ * play() — a style changed in Settings applies the next time a
+ * video starts. */
+internal fun subtitleStyleOptions(context: Context): List<String> {
+    val style = subStyle(context)
+    // rel-fontsize: M (24sp) stays the default 16; S/L/XL scale
+    // proportionally (18→12, 32→21, 40→27).
+    val relSize = (style.sizeSp / 24f * 16f).roundToInt().coerceIn(8, 32)
+    val color = when (style.color) {
+        androidx.compose.ui.graphics.Color.Yellow -> 16776960 // 0xFFFF00
+        androidx.compose.ui.graphics.Color.Cyan -> 65535 // 0x00FFFF
+        androidx.compose.ui.graphics.Color.Green -> 65280 // 0x00FF00
+        else -> 16777215 // 0xFFFFFF white
+    }
+    val bgOpacity = if (style.background != null) 128 else 0
+    return listOf(
+        ":freetype-rel-fontsize=$relSize",
+        ":freetype-color=$color",
+        ":freetype-background-opacity=$bgOpacity",
+        ":freetype-background-color=0"
+    )
+}
+
 /** A thin wrapper around one LibVLC + MediaPlayer pair. The events
  * arrive on VLC's own thread, so they are posted to the main thread
  * before the callback runs — Compose state must only change there. */
 internal class VlcEngine(
-    context: Context,
+    private val context: Context,
     options: List<String> = emptyList(),
     private val onEvent: (Int) -> Unit = {}
 ) {
@@ -273,6 +307,10 @@ internal class VlcEngine(
             media.addOption(":video-filter=transform")
             media.addOption(":transform-type=$rotation")
         }
+        // Subtitle style (Size / Colour / Background) — read fresh
+        // on every play, so a style changed in Settings applies to
+        // the next video without recreating the engine.
+        subtitleStyleOptions(context).forEach { media.addOption(it) }
         player.media = media
         media.release()
         player.play()
