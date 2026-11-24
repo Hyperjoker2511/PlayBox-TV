@@ -67,7 +67,11 @@ private fun appVersion(context: Context): Pair<String?, Long> = try {
 @Composable
 internal fun SettingsScreen(
     currentDesign: AppDesign = AppDesign.NOVA,
-    onDesignChange: (AppDesign) -> Unit = {}
+    onDesignChange: (AppDesign) -> Unit = {},
+    railMode: RailMode = RailMode.DOCKED,
+    onRailModeChange: (RailMode) -> Unit = {},
+    labelMode: RailLabelMode = RailLabelMode.FOCUSED,
+    onLabelModeChange: (RailLabelMode) -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
@@ -344,6 +348,45 @@ internal fun SettingsScreen(
                                 }
                             }
                             Text("Solid is flat with no blur — the safe default for the 2 GB box. Liquid is a light glass look (translucent surfaces, no heavy blur). If Liquid ever lags, switch back to Solid.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        SettingsSection("Navigation rail") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    GlassButton("Docked", active = railMode == RailMode.DOCKED) {
+                                        onRailModeChange(RailMode.DOCKED)
+                                    }
+                                }
+                                item {
+                                    GlassButton("Floating", active = railMode == RailMode.FLOATING) {
+                                        onRailModeChange(RailMode.FLOATING)
+                                    }
+                                }
+                            }
+                            Text("Docked is always there and the content sits beside it. Floating is a capsule over the content — press ◀ to open it, it hides a few seconds after you leave it. Applies on wide screens (TV, landscape); narrow screens keep the top tabs.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        SettingsSection("Menu labels") {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                item {
+                                    GlassButton("Off", active = labelMode == RailLabelMode.OFF) {
+                                        onLabelModeChange(RailLabelMode.OFF)
+                                    }
+                                }
+                                item {
+                                    GlassButton("When focused", active = labelMode == RailLabelMode.FOCUSED) {
+                                        onLabelModeChange(RailLabelMode.FOCUSED)
+                                    }
+                                }
+                                item {
+                                    GlassButton("Always", active = labelMode == RailLabelMode.ALWAYS) {
+                                        onLabelModeChange(RailLabelMode.ALWAYS)
+                                    }
+                                }
+                            }
+                            Text("Off shows icons only. When focused shows the label on the item you are on. Always shows every label and keeps the rail expanded.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
