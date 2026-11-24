@@ -39,10 +39,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -90,7 +93,14 @@ class MainActivity : ComponentActivity() {
         startService(Intent(this, CastService::class.java))
         // The permission request itself lives in PlayBoxApp (rememberLauncherForActivityResult),
         // behind a plain-words rationale shown on first launch — no silent system prompt.
-        setContent { PlayBoxApp() }
+        // P1 (one design system): one font across the whole app —
+        // Plus Jakarta Sans, via LocalTextStyle, so every Text that
+        // does not name its own font uses AppFont.
+        setContent {
+            CompositionLocalProvider(LocalTextStyle provides TextStyle(fontFamily = AppFont)) {
+                PlayBoxApp()
+            }
+        }
     }
 
     // Patch 7 (PiP): leaving the app with the Home key while a video
@@ -143,11 +153,11 @@ private fun PermissionRationaleScreen(onAllow: () -> Unit, onNotNow: () -> Unit)
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.Start
     ) {
-        Text("PlayBox needs to see your videos", fontSize = 36.sp, color = White)
+        Text("Zeph needs to see your videos", fontSize = 36.sp, color = White)
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             "Allow media access so the Videos and Music tabs can list your files. " +
-                "PlayBox only reads file names and lengths — nothing leaves your TV. " +
+                "Zeph only reads file names and lengths — nothing leaves your TV. " +
                 "You can still browse folders and USB without it.",
             fontSize = 22.sp, color = Muted
         )
@@ -522,7 +532,8 @@ private fun PlayBoxApp() {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(NovaBg)) {
                     if (maxWidth >= 700.dp) {
                         Row(modifier = Modifier.fillMaxSize()) {
-                            NovaRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
+                            // P1: one shared rail for all three designs.
+                            DesignRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer, palette = paletteFor(appDesign))
                             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                                 AnimatedContent(
                                     targetState = tab,
@@ -608,7 +619,8 @@ private fun PlayBoxApp() {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(AuraSurface)) {
                     if (maxWidth >= 700.dp) {
                         Row(modifier = Modifier.fillMaxSize()) {
-                            AuraRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
+                            // P1: one shared rail for all three designs.
+                            DesignRail(tab = tab, onTab = { tab = it }, onPlayer = onPlayer, palette = paletteFor(appDesign))
                             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                                 AnimatedContent(
                                     targetState = tab,
@@ -749,7 +761,8 @@ private fun PlayBoxApp() {
                         ) {}
                         if (wide) {
                             Row(modifier = Modifier.fillMaxSize()) {
-                                QwenRail(tab = tab, onTab = { tab = it }, onPlayer = qwenPlayer)
+                                // P1: one shared rail for all three designs.
+                                DesignRail(tab = tab, onTab = { tab = it }, onPlayer = qwenPlayer, palette = paletteFor(appDesign))
                                 Box(modifier = Modifier.weight(1f).fillMaxHeight().padding(horizontal = 32.dp, vertical = 24.dp)) {
                                     qwenContent()
                                 }
