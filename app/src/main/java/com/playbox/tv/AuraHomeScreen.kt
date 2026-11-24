@@ -1,5 +1,6 @@
 package com.playbox.tv
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.sp
 // local files with honest extension-only format badges. The
 // chips filter the rows (All / Videos / Audio / Recent / Resume).
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun AuraHomeScreen(
     videos: List<VideoItem>,
