@@ -19,7 +19,7 @@
         android:allowBackup="true"
         android:banner="@drawable/banner"
         android:icon="@drawable/ic_launcher"
-        android:label="PlayBox TV"
+        android:label="Zeph Player"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
