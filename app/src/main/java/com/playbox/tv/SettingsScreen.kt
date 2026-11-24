@@ -398,7 +398,7 @@ internal fun SettingsScreen(
                 "About" -> {
                     item {
                         val (versionName, versionCode) = appVersion(context)
-                        Text("PlayBox TV", fontSize = 28.sp, color = White)
+                        Text("Zeph Player", fontSize = 28.sp, color = White)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Version ${settingsVersionLabel(versionName, versionCode)}", fontSize = 20.sp, color = White)
                         Spacer(modifier = Modifier.height(8.dp))
