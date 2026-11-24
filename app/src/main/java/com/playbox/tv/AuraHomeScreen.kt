@@ -43,7 +43,8 @@ internal fun AuraHomeScreen(
     onPlay: (VideoItem, List<VideoItem>) -> Unit,
     onLibrary: (String) -> Unit,
     onFolders: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    palette: DesignPalette = AuraPalette
 ) {
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
@@ -54,12 +55,19 @@ internal fun AuraHomeScreen(
     val servers = remember { SmbNetwork.servers(context).size }
     var chip by remember { mutableStateOf("All") }
     val chips = listOf("All", "Videos", "Audio", "Recent", "Resume")
+    // P3: the hero folds to one line once it has scrolled off.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val heroVisible by androidx.compose.runtime.remember {
+        androidx.compose.runtime.derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.any { it.key == "stageHero" }
+        }
+    }
 
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wide = maxWidth >= 700.dp
         val hPad = if (wide) 40.dp else 16.dp
         val topPad = if (wide) 32.dp else 16.dp
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = hPad)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = hPad)) {
             item {
                 Spacer(modifier = Modifier.height(topPad))
                 AuraTopBar()
@@ -73,29 +81,29 @@ internal fun AuraHomeScreen(
             }
             val hero = continueWatching.firstOrNull() ?: videos.firstOrNull()
             if (hero != null && (chip == "All" || chip == "Videos" || chip == "Recent" || chip == "Resume")) {
-                item {
-                    val heroResumeMs = resume[hero.path] ?: 0L
+                val heroResumeMs = resume[hero.path] ?: 0L
+                item(key = "stageHero") {
                     val heroFraction = if (hero.durationMs > 0) heroResumeMs.toFloat() / hero.durationMs else 0f
-                    if (wide) {
-                        AuraHero(
-                            item = hero,
-                            resumeFraction = heroFraction,
-                            resumeMs = heroResumeMs,
-                            onPlay = { onPlay(hero, all) },
-                            onDetails = { onOpen(hero, all) }
-                        )
-                    } else {
-                        // Phone: the hero stacks vertically (the file's
-                        // <=1024px rule) — title 28sp, poster below.
-                        AuraHeroPhone(
-                            item = hero,
-                            resumeFraction = heroFraction,
-                            resumeMs = heroResumeMs,
-                            onPlay = { onPlay(hero, all) },
-                            onDetails = { onOpen(hero, all) }
-                        )
-                    }
+                    // P3: the full-bleed hero — the featured video's
+                    // cover fills the hero behind its details, with
+                    // the Continue pill + live clock top-right.
+                    StageHero(
+                        item = hero,
+                        resumeFraction = heroFraction,
+                        resumeMs = heroResumeMs,
+                        palette = palette,
+                        onPlay = { onPlay(hero, all) },
+                        onDetails = { onOpen(hero, all) }
+                    )
                     Spacer(modifier = Modifier.height(36.dp))
+                }
+                // The folded hero: one line, sticky at the top, only
+                // once the full hero has scrolled off.
+                stickyHeader(key = "foldedHero") {
+                    if (!heroVisible) {
+                        HeroFoldedBar(item = hero, resumeMs = heroResumeMs, palette = palette)
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
                 }
             }
             if (continueWatching.isNotEmpty() && (chip == "All" || chip == "Resume")) {
