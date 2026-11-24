@@ -253,7 +253,7 @@ internal fun TopNav(
         ) {
             Text("▶", fontSize = 22.sp, color = White)
         }
-        Text("PlayBox", fontSize = 26.sp, color = White)
+        Text("Zeph", fontSize = 26.sp, color = White)
         Spacer(modifier = Modifier.width(28.dp))
         Row(
             modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
@@ -266,42 +266,6 @@ internal fun TopNav(
             }
         }
         GlassButton("▶  Player") { onPlayer() }
-    }
-}
-
-// 1.4.3 (enhanced): Qwen's TV rail — the left rail from the
-// enhanced Qwen file. On wide screens (TV) the top pill bar is
-// replaced by a fixed 112dp rail: the logo at the top, the four
-// nav pills stacked vertically, and the Player pill pinned at the
-// bottom. The selected pill is a violet glass fill. The phone
-// keeps the top pill bar (TopNav above).
-@Composable
-internal fun QwenRail(
-    tab: Tab,
-    onTab: (Tab) -> Unit,
-    onPlayer: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.width(112.dp).fillMaxHeight()
-            .background(Color(0xF2080910))
-            .padding(vertical = 28.dp, horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier.size(46.dp).background(Primary, RoundedCornerShape(15.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("▶", fontSize = 20.sp, color = White)
-        }
-        Text("PlayBox", fontSize = 13.sp, color = White, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(14.dp))
-        listOf(Tab.Home to "Home", Tab.Search to "Search", Tab.Library to "Library", Tab.Settings to "Settings").forEach { (t, label) ->
-            GlassButton(label, active = tab == t, modifier = Modifier.fillMaxWidth()) { onTab(t) }
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        GlassButton("▶", active = true, modifier = Modifier.fillMaxWidth()) { onPlayer() }
     }
 }
 
