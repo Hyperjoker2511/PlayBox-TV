@@ -86,10 +86,11 @@ private fun PrivacySection(title: String, body: String) {
 }
 
 /** One open-source library in the app: its name, what it does, and
- * its licence. Only libraries actually in the build are listed. */
-private data class OssLibrary(val name: String, val use: String, val licence: String)
+ * its licence. Only libraries actually in the build are listed.
+ * Shared with the M3 Licences screen. */
+internal data class OssLibrary(val name: String, val use: String, val licence: String)
 
-private val OssLibraries = listOf(
+internal val OssLibraries = listOf(
     OssLibrary(
         "LibVLC 3.7.7", "The second playback engine — formats Media3 cannot play, HDR tone mapping, audio/subtitle delay, deinterlace, video adjust, volume above 100%, chapters.",
         "GNU Lesser General Public License v2.1 (LGPL 2.1) — VideoLAN"
