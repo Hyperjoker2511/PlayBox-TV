@@ -87,9 +87,26 @@ class CastService : Service(), DlnaHandler {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // START_STICKY: if the system kills us, bring the renderer back —
-        // a TV that stops being castable is a broken feature.
-        return START_STICKY
+        // Patch 4 (battery fix): START_NOT_STICKY — if the system kills
+        // us, do NOT bring the renderer back on its own. The old
+        // START_STICKY kept Zeph Player "active" for hours after the
+        // user closed it (Android Active apps showed 9 hr). The
+        // renderer now lives only while the app is open, unless the
+        // user turns on "Keep discoverable when closed" in Settings.
+        return START_NOT_STICKY
+    }
+
+    // Patch 4 (battery fix): swiping the app away stops the renderer.
+    // The old service had no onTaskRemoved, so it ran forever after
+    // the app was closed. When "Keep discoverable when closed" is on,
+    // the service survives a swipe-away (TV users who cast often);
+    // otherwise it stops, and the app leaves no background behind.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (!keepDiscoverable(this)) {
+            Log.i(TAG, "App removed from recents — stopping cast service")
+            stopSelf()
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun notification(): Notification {
