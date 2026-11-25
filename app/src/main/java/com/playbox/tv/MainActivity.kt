@@ -543,7 +543,7 @@ private fun PlayBoxApp() {
                             onFolders = { tab = Tab.Library },
                             onRefresh = { refreshNonce++ }
                         )
-                        Tab.Search -> NovaSearchScreen(
+                        Tab.Search -> M3SearchScreen(
                             items = all, search = search, onSearch = { search = it },
                             onOpen = { item, list -> details = item; detailList = list }
                         )
@@ -652,7 +652,7 @@ private fun PlayBoxApp() {
                             onFolders = { tab = Tab.Library },
                             onRefresh = { refreshNonce++ }
                         )
-                        Tab.Search -> AuraSearchScreen(
+                        Tab.Search -> M3SearchScreen(
                             items = all, search = search, onSearch = { search = it },
                             onOpen = { item, list -> details = item; detailList = list }
                         )
@@ -780,7 +780,7 @@ private fun PlayBoxApp() {
                                 onFolders = { tab = Tab.Library },
                                 onRefresh = { refreshNonce++ }
                             )
-                            Tab.Search -> SearchScreen(
+                            Tab.Search -> M3SearchScreen(
                                 items = all, search = search, onSearch = { search = it },
                                 onOpen = { item, list -> details = item; detailList = list }
                             )
