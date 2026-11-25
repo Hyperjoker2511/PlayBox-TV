@@ -785,7 +785,7 @@ private fun M3CinematicHero(
                 Text(
                     tileSub(item) ?: "",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFD6DAE2),
+                    color = Color.White.copy(alpha = 0.85f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
