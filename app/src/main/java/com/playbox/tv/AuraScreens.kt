@@ -62,6 +62,13 @@ internal fun AuraSearchScreen(
     val focusManager = LocalFocusManager.current
     var recent by remember { mutableStateOf(recentSearches(context)) }
     var fieldFocused by remember { mutableStateOf(false) }
+    // Patch 4 (Jio): voice search — mic button only when the box has
+    // a voice recognizer (see VoiceSearch.kt).
+    val onVoice = rememberVoiceSearch(context) { spoken ->
+        onSearch(spoken)
+        saveRecentSearch(context, spoken)
+        recent = recentSearches(context)
+    }
     val shown = searchFilter(items, search)
     val resume = remember { resumePositions(context) }
 
@@ -105,6 +112,12 @@ internal fun AuraSearchScreen(
                         Text(
                             "×", fontSize = 26.sp, color = AuraOnSurfaceVariant,
                             modifier = Modifier.clickable { onSearch("") }.padding(8.dp)
+                        )
+                    }
+                    if (onVoice != null) {
+                        Text(
+                            "🎙", fontSize = 22.sp, color = AuraPrimary,
+                            modifier = Modifier.clickable { onVoice() }.padding(8.dp)
                         )
                     }
                 }
@@ -676,7 +689,10 @@ internal fun AuraSettingsScreen(
     railMode: RailMode = RailMode.DOCKED,
     onRailModeChange: (RailMode) -> Unit = {},
     labelMode: RailLabelMode = RailLabelMode.FOCUSED,
-    onLabelModeChange: (RailLabelMode) -> Unit = {}
+    onLabelModeChange: (RailLabelMode) -> Unit = {},
+    // Patch 4 (Jio): open the in-app Privacy Policy and Licences screens.
+    onPrivacy: () -> Unit = {},
+    onLicences: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -905,11 +921,24 @@ internal fun AuraSettingsScreen(
         item {
             AuraSectionHeader("About")
             Spacer(modifier = Modifier.height(12.dp))
-            Text("PlayBox TV 1.4.6 — Patch 2: Aura, plus VLC Patches B, C and D (HDR).", fontSize = 16.sp, color = AuraOnSurface)
+            val (auraVersionName, auraVersionCode) = try {
+                val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                info.versionName to info.longVersionCode
+            } catch (_: Exception) {
+                null to 0L
+            }
+            Text("Zeph Player", fontSize = 20.sp, color = AuraOnSurface, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Version ${settingsVersionLabel(auraVersionName, auraVersionCode)}", fontSize = 16.sp, color = AuraOnSurface)
             Spacer(modifier = Modifier.height(8.dp))
             Text("Local and USB video and audio. Seek, fast-forward, rewind, speed, subtitles and audio tracks.", fontSize = 16.sp, color = AuraOnSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
             Text("Player: Media3 / ExoPlayer 1.6.1 and LibVLC. DLNA cast from your phone. SMB / NAS folders.", fontSize = 16.sp, color = AuraOnSurfaceVariant)
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvButton("Privacy policy", onClick = onPrivacy)
+                TvButton("Open-source licences", onClick = onLicences)
+            }
             Spacer(modifier = Modifier.height(56.dp))
         }
     }
