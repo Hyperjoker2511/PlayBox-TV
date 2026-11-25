@@ -94,7 +94,7 @@ androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
             val abi = output.filters
-                .find { it.filterType == com.android.build.api.variant.FilterType.ABI }
+                .find { it.filterType.name == "ABI" }
                 ?.identifier
             val abiCode = when (abi) {
                 "armeabi-v7a" -> 1
@@ -103,9 +103,9 @@ androidComponents {
                 "x86_64" -> 4
                 else -> 0
             }
-            output.versionCode.set(variant.versionCode.get() * 10 + abiCode)
+            output.versionCode.set(output.versionCode.get() * 10 + abiCode)
             output.outputFileName.set(
-                "ZephPlayer-${variant.versionName.get()}-${abi ?: "universal"}.apk"
+                "ZephPlayer-${output.versionName.get()}-${abi ?: "universal"}.apk"
             )
         }
     }
