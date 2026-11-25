@@ -118,7 +118,7 @@ internal fun M3PlayerHud(
                         Text(
                             streamInfo,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFD6DAE2),
+                            color = Color.White.copy(alpha = 0.85f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
