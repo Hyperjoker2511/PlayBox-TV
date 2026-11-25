@@ -127,8 +127,8 @@ internal fun M3HomeScreen(
                                     Brush.verticalGradient(
                                         listOf(
                                             Color.Transparent,
-                                            Color(0x400B0D12),
-                                            Color(0xE60B0D12)
+                                            Color(0x400F1513),
+                                            Color(0xE60F1513)
                                         )
                                     )
                                 )
@@ -309,7 +309,7 @@ private fun M3ContinueCard(
                 Box(
                     modifier = Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0x800B0D12))
+                            listOf(Color.Transparent, Color(0x800F1513))
                         )
                     )
                 )
