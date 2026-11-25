@@ -214,7 +214,7 @@ internal fun M3HomeScreen(
                                         containerOf(hero)
                                     ).filter { it.isNotBlank() }.joinToString("  •  "),
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFD6DAE2)
+                                    color = Color.White.copy(alpha = 0.85f)
                                 )
                                 if (heroResumeMs > 0L) {
                                     Spacer(modifier = Modifier.height(12.dp))
@@ -223,7 +223,7 @@ internal fun M3HomeScreen(
                                     Text(
                                         "Resume at ${TimeFormatter.format(heroResumeMs)}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFFD6DAE2)
+                                        color = Color.White.copy(alpha = 0.85f)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(16.dp))
