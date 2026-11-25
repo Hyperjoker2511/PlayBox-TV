@@ -341,6 +341,7 @@ internal fun NovaLibraryScreen(
                                                 favourites = LibraryStores.favourites(context)
                                             },
                                             onOpen = onOpen,
+                                            onPlay = onPlay,
                                             emptyText = emptyText,
                                             focusedItem = cinematicFocus ?: shown.firstOrNull(),
                                             onFocusItem = { cinematicFocus = it })
@@ -426,6 +427,7 @@ private fun LazyListScope.cinematicMediaRows(
     favourites: Set<String>,
     onToggleFav: (String) -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
+    onPlay: (VideoItem, List<VideoItem>) -> Unit,
     emptyText: String,
     focusedItem: VideoItem?,
     onFocusItem: (VideoItem) -> Unit
