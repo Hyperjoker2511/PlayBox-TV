@@ -55,6 +55,13 @@ internal fun NovaSearchScreen(
     val focusManager = LocalFocusManager.current
     var recent by remember { mutableStateOf(recentSearches(context)) }
     var fieldFocused by remember { mutableStateOf(false) }
+    // Patch 4 (Jio): voice search — the mic button only shows when
+    // the box has a voice recognizer (see VoiceSearch.kt).
+    val onVoice = rememberVoiceSearch(context) { spoken ->
+        onSearch(spoken)
+        saveRecentSearch(context, spoken)
+        recent = recentSearches(context)
+    }
     val shown = searchFilter(items, search)
     val resume = remember { resumePositions(context) }
 
@@ -98,6 +105,12 @@ internal fun NovaSearchScreen(
                         Text(
                             "×", fontSize = 26.sp, color = NovaMuted,
                             modifier = Modifier.clickable { onSearch("") }.padding(8.dp)
+                        )
+                    }
+                    if (onVoice != null) {
+                        Text(
+                            "🎙", fontSize = 22.sp, color = NovaMint,
+                            modifier = Modifier.clickable { onVoice() }.padding(8.dp)
                         )
                     }
                 }
