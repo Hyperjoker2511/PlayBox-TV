@@ -53,31 +53,6 @@ android {
         }
     }
 
-    applicationVariants.all {
-        outputs.all {
-            val output = this as? com.android.build.gradle.api.ApkVariantOutput
-            if (output != null) {
-                val abi = output.filters.find { it.filterType == "ABI" }?.identifier
-                val abiCode = when (abi) {
-                    "armeabi-v7a" -> 1
-                    "arm64-v8a" -> 2
-                    "x86" -> 3
-                    "x86_64" -> 4
-                    else -> 0
-                }
-                // vc9 -> 91/92/93/94: still updates over 1.2.1 (vc8x) and
-                // over the never-delivered universal 1.2.0 (vc7).
-                output.versionCodeOverride = versionCode * 10 + abiCode
-                // File name: "ZephPlayer-1.5.2-arm64-v8a.apk", not
-                // "app-arm64-v8a-release.apk". The module is called
-                // "app" by default, so Gradle named the file "app…"
-                // — that looks generic on GitHub. This names it after
-                // the app + version + ABI instead.
-                output.outputFileName = "ZephPlayer-$versionName-${abi ?: "universal"}.apk"
-            }
-        }
-    }
-
     buildTypes {
         release {
             // R8 on (Tool Kit self-checklist). Rules in app/proguard-rules.pro.
@@ -104,6 +79,31 @@ android {
 
     buildFeatures {
         compose = true
+    }
+}
+
+// AGP 9: applicationVariants is removed — the per-ABI version code and
+// the ZephPlayer file name now live here, in the androidComponents API.
+// One output per ABI (splits above, no universal APK): vc24 becomes
+// 241/242/243/244, and the file is "ZephPlayer-1.5.4-arm64-v8a.apk".
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters
+                .find { it.filterType == com.android.build.api.variant.FilterType.ABI }
+                ?.identifier
+            val abiCode = when (abi) {
+                "armeabi-v7a" -> 1
+                "arm64-v8a" -> 2
+                "x86" -> 3
+                "x86_64" -> 4
+                else -> 0
+            }
+            output.versionCode.set(variant.versionCode.get() * 10 + abiCode)
+            output.outputFileName.set(
+                "ZephPlayer-${variant.versionName.get()}-${abi ?: "universal"}.apk"
+            )
+        }
     }
 }
 
