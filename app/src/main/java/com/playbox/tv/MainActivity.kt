@@ -458,56 +458,22 @@ private fun PlayBoxApp() {
                     )
                 }
             } else if (details != null) {
-                // 1.4.2 (Nova, now official): the Details screen
-                // follows the app design — Nova's stacked actions and
-                // list rows, Aura's backdrop + More Like This row, or
-                // Qwen's glass chips and tile strip.
-                if (appDesign == AppDesign.NOVA) {
-                    NovaDetailsScreen(
-                        item = details!!,
-                        list = detailList.ifEmpty { all },
-                        onBack = { details = null },
-                        onPlay = { item, fromStart ->
-                            playing = item
-                            playList = mergeQueue(detailList.ifEmpty { all }, queued)
-                            queued = emptyList()
-                            playFromStart = fromStart
-                            details = null
-                        },
-                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
-                        onOpen = { item -> details = item }
-                    )
-                } else if (appDesign == AppDesign.AURA) {
-                    AuraDetailsScreen(
-                        item = details!!,
-                        list = detailList.ifEmpty { all },
-                        onBack = { details = null },
-                        onPlay = { item, fromStart ->
-                            playing = item
-                            playList = mergeQueue(detailList.ifEmpty { all }, queued)
-                            queued = emptyList()
-                            playFromStart = fromStart
-                            details = null
-                        },
-                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
-                        onOpen = { item -> details = item }
-                    )
-                } else {
-                    DetailsScreen(
-                        item = details!!,
-                        list = detailList.ifEmpty { all },
-                        onBack = { details = null },
-                        onPlay = { item, fromStart ->
-                            playing = item
-                            playList = mergeQueue(detailList.ifEmpty { all }, queued)
-                            queued = emptyList()
-                            playFromStart = fromStart
-                            details = null
-                        },
-                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
-                        onOpen = { item -> details = item }
-                    )
-                }
+                // M3 redesign Phase 5: Details is the new M3 screen —
+                // one design, no per-design branches.
+                M3DetailsScreen(
+                    item = details!!,
+                    list = detailList.ifEmpty { all },
+                    onBack = { details = null },
+                    onPlay = { item, fromStart ->
+                        playing = item
+                        playList = mergeQueue(detailList.ifEmpty { all }, queued)
+                        queued = emptyList()
+                        playFromStart = fromStart
+                        details = null
+                    },
+                    onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                    onOpen = { item -> details = item }
+                )
             } else if (settingsPage == "privacy") {
                 // Patch 4 (Jio): Privacy Policy, opened from Settings → About.
                 PrivacyPolicyScreen(onBack = { settingsPage = null })
