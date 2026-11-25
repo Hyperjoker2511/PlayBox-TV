@@ -104,7 +104,7 @@ internal fun ZephButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = MaterialTheme.shapes.large,
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -136,7 +136,7 @@ internal fun ZephTonalButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = MaterialTheme.shapes.large,
+        shape = CircleShape,
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -168,7 +168,7 @@ internal fun ZephOutlinedButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = MaterialTheme.shapes.large,
+        shape = CircleShape,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = 24.dp, vertical = 14.dp
@@ -195,7 +195,7 @@ internal fun ZephTextButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        shape = MaterialTheme.shapes.large
+        shape = CircleShape
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -222,7 +222,7 @@ internal fun ZephCard(
                     .clickable(interactionSource = interaction, indication = null) { onClick() }
             } else Modifier
         ),
-        shape = MaterialTheme.shapes.large,
+        shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurface
@@ -253,7 +253,7 @@ internal fun ZephFilterChip(
         } else null,
         modifier = modifier.zephFocus(interaction),
         interactionSource = interaction,
-        shape = MaterialTheme.shapes.small,
+        shape = CircleShape,
         colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = MaterialTheme.colorScheme.primary,
             selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -465,17 +465,17 @@ internal fun M3TvButton(
     androidx.compose.foundation.layout.Box(
         modifier = modifier
             .zephFocus(interaction)
-            .clip(RoundedCornerShape(28.dp))
+            .clip(CircleShape)
             .background(
                 if (active) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.surfaceContainerHigh,
-                RoundedCornerShape(28.dp)
+                CircleShape
             )
             .border(
                 1.dp,
                 if (active) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outline,
-                RoundedCornerShape(28.dp)
+                CircleShape
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 28.dp, vertical = 14.dp),
