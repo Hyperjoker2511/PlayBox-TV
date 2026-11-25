@@ -151,7 +151,8 @@ internal fun ZephOutlinedButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    icon: ImageVector? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
     OutlinedButton(
@@ -165,6 +166,10 @@ internal fun ZephOutlinedButton(
             horizontal = 24.dp, vertical = 14.dp
         )
     ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
@@ -175,7 +180,8 @@ internal fun ZephTextButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    icon: ImageVector? = null
 ) {
     TextButton(
         onClick = onClick,
@@ -183,6 +189,10 @@ internal fun ZephTextButton(
         modifier = modifier,
         shape = MaterialTheme.shapes.large
     ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
