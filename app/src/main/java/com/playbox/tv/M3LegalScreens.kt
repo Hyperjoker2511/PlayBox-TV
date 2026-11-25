@@ -21,6 +21,49 @@ import androidx.compose.ui.unit.dp
 // Zeph Player collects nothing, so the policy is short and plain.
 // Same words as the old Legal screens — only the look is M3.
 
+/** The contact address for privacy questions — the same address the
+ * Jio developer account is registered under. */
+internal const val PrivacyContactEmail = "eldenring25112001@gmail.com"
+
+/** One open-source library in the app: its name, what it does, and
+ * its licence. Only libraries actually in the build are listed. */
+internal data class OssLibrary(val name: String, val use: String, val licence: String)
+
+internal val OssLibraries = listOf(
+    OssLibrary(
+        "LibVLC 3.7.7", "The second playback engine — formats Media3 cannot play, HDR tone mapping, audio/subtitle delay, deinterlace, video adjust, volume above 100%, chapters.",
+        "GNU Lesser General Public License v2.1 (LGPL 2.1) — VideoLAN"
+    ),
+    OssLibrary(
+        "Media3 / ExoPlayer 1.6.1", "The main playback engine, plus DASH/HLS streaming and the media session for background audio.",
+        "Apache License 2.0 — Google"
+    ),
+    OssLibrary(
+        "Jetpack Compose + AndroidX", "The user interface, lifecycle, and document-file (storage access) support.",
+        "Apache License 2.0 — Google"
+    ),
+    OssLibrary(
+        "Kotlin", "The programming language the app is written in.",
+        "Apache License 2.0 — JetBrains"
+    ),
+    OssLibrary(
+        "jcifs-ng 2.1.9", "SMB / NAS folder browsing (SMB1/2/3).",
+        "GNU Lesser General Public License v2.1 (LGPL 2.1)"
+    ),
+    OssLibrary(
+        "Apache Commons Net 3.10.0", "FTP folder browsing.",
+        "Apache License 2.0 — Apache Software Foundation"
+    ),
+    OssLibrary(
+        "JSch 0.2.18 (mwiede fork)", "SFTP folder browsing.",
+        "BSD-style licence — JCraft / mwiede"
+    ),
+    OssLibrary(
+        "Plus Jakarta Sans", "The app's font.",
+        "SIL Open Font License 1.1 — Tokotype"
+    )
+)
+
 @Composable
 internal fun M3PrivacyPolicyScreen(onBack: () -> Unit) {
     BackHandler { onBack() }
