@@ -4,43 +4,35 @@ import android.content.Context
 import androidx.compose.ui.graphics.Color
 import java.util.Calendar
 
-// ---------- LUMEN (2026-11-23) — the assistant's own design, from scratch ----------
-// "Light on ink." The screen is deep ink; the light comes from the
-// content itself and from a thin rim of light on every glass edge —
-// no live blur anywhere (the 2 GB box and the phone cannot afford
-// it), so the glass is layered translucency + a bright top edge.
-// Two accents share the work: violet is the brand (focus, glow, the
-// selected tab) and mint is the "go" colour (Play, Resume, progress,
-// the selected track). Everything else is white or muted grey on ink.
+// ---------- ZEPH M3 Expressive (1.7.0) — shared colour constants ----------
+// The Material 3 Expressive scheme (teal seed) as plain constants,
+// for the places that draw outside MaterialTheme (gear sheets, the
+// crash note, the player). Values match ZephColorScheme in M3Theme.kt.
 // Motion is transform + opacity only, springy, 60fps.
-internal val Primary = Color(0xFF8B5CF6)
-internal val PrimaryContainer = Color(0xFF4C1D95)
-internal val SecondaryContainer = Color(0xFF2E1A5E)
-// 1.4.0 (Nocturne TV): ONE accent — the violet. Mint retired as a
-// second accent (the owner's one-accent rule from Xreader); the
-// value stays only so older call sites keep compiling while the
-// components now draw every "go" surface in violet.
-internal val Mint = Color(0xFF8EF3DB)
-internal val Bg = Color(0xFF000000)
-internal val Surface = Color(0xFF0C0D12)
-internal val SurfaceHigh = Color(0xFF161822)
+internal val Primary = Color(0xFF4DD0C4)
+internal val PrimaryContainer = Color(0xFF00504B)
+internal val SecondaryContainer = Color(0xFF324B47)
+internal val Mint = Color(0xFF7DF1E4)
+internal val Bg = Color(0xFF0F1513)
+internal val Surface = Color(0xFF1B2120)
+internal val SurfaceHigh = Color(0xFF262D2B)
 internal val White = Color.White
-internal val Ink = Color(0xFF101524)
-internal val Muted = Color(0xFF9AA3B2)
-internal val Blue = Color(0xFF60A5FA)
-internal val Periwinkle = Color(0xFFA5B4FC)
+internal val Ink = Color(0xFF0A0F0E)
+internal val Muted = Color(0xFFBFC9C5)
+internal val Blue = Color(0xFF7DF1E4)
+internal val Periwinkle = Color(0xFFE8B48C)
 // Layered glass: translucent surface + a bright rim on the top edge.
-internal val Glass = Color(0x940D1119)
-internal val GlassStrong = Color(0xCC0D1119)
+internal val Glass = Color(0x941B2120)
+internal val GlassStrong = Color(0xCC1B2120)
 internal val GlassEdge = Color(0x14FFFFFF)
-internal val GlassBorder = Color(0x2B8B5CF6)
+internal val GlassBorder = Color(0x2B4DD0C4)
 // The rim light: a thin white line along the top edge of a glass
 // surface — the one detail that makes glass read as glass.
 internal val GlassRim = Color(0x40FFFFFF)
-// Focus: violet ring + glow, scale 1.06, spring (Lumen).
-internal val FocusBorder = Color(0xBF8B5CF6)
-internal val FocusGlow = Color(0x408B5CF6)
-internal val AmbientGlow = Color(0x298B5CF6)
+// Focus: teal ring + glow, scale 1.06, spring.
+internal val FocusBorder = Color(0xBF4DD0C4)
+internal val FocusGlow = Color(0x404DD0C4)
+internal val AmbientGlow = Color(0x294DD0C4)
 
 internal fun greeting(): String {
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
