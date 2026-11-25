@@ -8,9 +8,10 @@ plugins {
 // Toolchain upgrade (2026-11-25): AGP 9.5.2 / Kotlin 2.4.21 / Gradle 9.6.0.
 // AGP 9 has built-in Kotlin, so org.jetbrains.kotlin.android is gone.
 // The old kotlin-stdlib force (2.0.21) is also gone: Kotlin 2.4.21 reads
-// libvlc 3.7.7's stdlib 2.2.10 metadata fine, so no pin is needed.
-// NOTE: compileSdk stays 36 and the Compose BOM stays 2024.12.01 — the
-// new BOM 2026.11.01 needs compileSdk 37, but Google has not published
+// libvlc 3.7.8's stdlib 2.2.10 metadata fine, so no pin is needed.
+// NOTE: compileSdk stays 36 and the Compose BOM is 2026.06.01 — the
+// latest that works on API 36 (Compose 1.11.4, Material 3 1.4.0). The
+// newer BOM 2026.11.01 needs compileSdk 37, but Google has not published
 // the API 37 platform (repository tops out at android-36). When API 37
 // ships, bump compileSdk/targetSdk to 37 and the BOM to 2026.11.01.
 
@@ -112,38 +113,38 @@ androidComponents {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.activity:activity-compose:1.12.4")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     // DocumentFile — SAF folder browsing (Batch 1.2)
-    implementation("androidx.documentfile:documentfile:1.0.0")
+    implementation("androidx.documentfile:documentfile:1.1.0")
     // Media3 / ExoPlayer — Batch 1 playback engine (Google Maven, verified 2026-11-22)
-    implementation("androidx.media3:media3-exoplayer:1.6.1")
-    implementation("androidx.media3:media3-ui:1.6.1")
-    implementation("androidx.media3:media3-common:1.6.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.6.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.6.1")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-ui:1.11.1")
+    implementation("androidx.media3:media3-common:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
     // MediaSession — Batch 2: background audio + system media controls
-    implementation("androidx.media3:media3-session:1.6.1")
+    implementation("androidx.media3:media3-session:1.11.1")
     // jcifs-ng — Batch 2: SMB/NAS browsing (SMB1/2/3, pure Java)
-    implementation("eu.agno3.jcifs:jcifs-ng:2.1.9")
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
     // Patch 7: LibVLC — the second engine, for formats Media3 cannot
     // play, and for audio/subtitle delay, deinterlace, video adjust,
     // volume above 100% and chapters.
-    implementation("org.videolan.android:libvlc-all:3.7.7")
+    implementation("org.videolan.android:libvlc-all:3.7.8")
     // Patch 7: FTP (Apache Commons Net — its group is commons-net,
     // not org.apache.commons) and SFTP (JSch fork) browsing.
-    implementation("commons-net:commons-net:3.10.0")
-    implementation("com.github.mwiede:jsch:0.2.18")
+    implementation("commons-net:commons-net:3.13.0")
+    implementation("com.github.mwiede:jsch:0.2.26")
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
