@@ -31,13 +31,26 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android platform 36 + build-tools 36.1.0
+      - name: Install Android platform 37.1 + build-tools 37.0.0
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.1.0"
+          # platform-37.1 lives in Google's repository2-3.xml; an older
+          # sdkmanager (reading repository2-1.xml) cannot see it. Fall back
+          # to the direct zip if sdkmanager cannot find the package.
+          yes | "$SDKMANAGER" "platforms;android-37.1" "build-tools;37.0.0" || {
+            echo "sdkmanager could not find android-37.1; installing from the direct zip"
+            curl -sL -o /tmp/platform-37.1_r01.zip "https://dl.google.com/android/repository/platform-37.1_r01.zip"
+            mkdir -p "$ANDROID_HOME/platforms/android-37.1"
+            unzip -qo /tmp/platform-37.1_r01.zip -d "$ANDROID_HOME/platforms/android-37.1"
+            if [ -d "$ANDROID_HOME/platforms/android-37.1/android-37.1" ]; then
+              mv "$ANDROID_HOME/platforms/android-37.1/android-37.1/"* "$ANDROID_HOME/platforms/android-37.1/"
+              rmdir "$ANDROID_HOME/platforms/android-37.1/android-37.1"
+            fi
+            yes | "$SDKMANAGER" "build-tools;37.0.0"
+          }
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
@@ -64,13 +77,26 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android platform 36 + build-tools 36.1.0
+      - name: Install Android platform 37.1 + build-tools 37.0.0
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.1.0"
+          # platform-37.1 lives in Google's repository2-3.xml; an older
+          # sdkmanager (reading repository2-1.xml) cannot see it. Fall back
+          # to the direct zip if sdkmanager cannot find the package.
+          yes | "$SDKMANAGER" "platforms;android-37.1" "build-tools;37.0.0" || {
+            echo "sdkmanager could not find android-37.1; installing from the direct zip"
+            curl -sL -o /tmp/platform-37.1_r01.zip "https://dl.google.com/android/repository/platform-37.1_r01.zip"
+            mkdir -p "$ANDROID_HOME/platforms/android-37.1"
+            unzip -qo /tmp/platform-37.1_r01.zip -d "$ANDROID_HOME/platforms/android-37.1"
+            if [ -d "$ANDROID_HOME/platforms/android-37.1/android-37.1" ]; then
+              mv "$ANDROID_HOME/platforms/android-37.1/android-37.1/"* "$ANDROID_HOME/platforms/android-37.1/"
+              rmdir "$ANDROID_HOME/platforms/android-37.1/android-37.1"
+            fi
+            yes | "$SDKMANAGER" "build-tools;37.0.0"
+          }
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
