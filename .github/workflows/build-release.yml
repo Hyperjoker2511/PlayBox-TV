@@ -37,7 +37,7 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
+          yes | "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
@@ -70,7 +70,7 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
+          yes | "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
