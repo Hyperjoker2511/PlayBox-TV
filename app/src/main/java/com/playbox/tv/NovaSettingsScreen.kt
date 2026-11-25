@@ -47,7 +47,10 @@ internal fun NovaSettingsScreen(
     railMode: RailMode = RailMode.DOCKED,
     onRailModeChange: (RailMode) -> Unit = {},
     labelMode: RailLabelMode = RailLabelMode.FOCUSED,
-    onLabelModeChange: (RailLabelMode) -> Unit = {}
+    onLabelModeChange: (RailLabelMode) -> Unit = {},
+    // Patch 4 (Jio): open the in-app Privacy Policy and Licences screens.
+    onPrivacy: () -> Unit = {},
+    onLicences: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -62,6 +65,8 @@ internal fun NovaSettingsScreen(
     var eqOn by remember { mutableStateOf(prefs.getBoolean("eq_on", false)) }
     var loudness by remember { mutableStateOf(prefs.getInt("loudness_pct", 0)) }
     var smbServers by remember { mutableStateOf(SmbNetwork.servers(context)) }
+    // Patch 4 (Jio): "Keep discoverable when closed" — OFF by default.
+    var keepDisc by remember { mutableStateOf(keepDiscoverable(context)) }
     var reduceMotion by remember { mutableStateOf(isReduceMotion(context)) }
     var uiStyle by remember { mutableStateOf(playerUiStyle(context)) }
     // 1.4.2 (Nova in the 1.4.x line): the default player engine, same
@@ -213,7 +218,14 @@ internal fun NovaSettingsScreen(
             Spacer(modifier = Modifier.height(20.dp))
             Text("DLNA cast", fontSize = 18.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("On — your phone can cast videos to PlayBox TV. The receiver starts with the app.", fontSize = 16.sp, color = NovaWhite)
+            Text("On — your phone can cast videos to Zeph Player. The receiver starts with the app.", fontSize = 16.sp, color = NovaWhite)
+            Spacer(modifier = Modifier.height(12.dp))
+            NovaButton(if (keepDisc) "Keep discoverable when closed: On" else "Keep discoverable when closed: Off", onClick = {
+                keepDisc = !keepDisc
+                saveKeepDiscoverable(context, keepDisc)
+            })
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Off (recommended): the cast receiver stops when the app closes, so nothing runs in the background. On: your phone can still find this TV after the app is closed.", fontSize = 15.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(20.dp))
             Text("Play from URL", fontSize = 18.sp, color = NovaMuted)
             Spacer(modifier = Modifier.height(8.dp))
@@ -320,6 +332,11 @@ internal fun NovaSettingsScreen(
             Text("Local and USB video and audio. Seek, fast-forward, rewind, speed, subtitles and audio tracks.", fontSize = 16.sp, color = NovaMuted)
             Text("Player: Media3 / ExoPlayer 1.6.1 and LibVLC. DLNA cast from your phone. SMB / NAS folders.", fontSize = 16.sp, color = NovaMuted)
             Text("No sign-in. No ads. No Google Play Services.", fontSize = 16.sp, color = NovaMuted)
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                NovaButton("Privacy policy", onClick = onPrivacy)
+                NovaButton("Open-source licences", onClick = onLicences)
+            }
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
