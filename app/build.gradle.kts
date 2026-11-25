@@ -2,31 +2,23 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Patch 1.3.2 (libvlc 3.7.7): the 3.7.7 POM requires kotlin-stdlib
-// 2.2.10, but this project compiles with Kotlin 2.0.21 — the 2.0.21
-// compiler cannot read 2.2.10's metadata ("binary version 2.2.0,
-// expected 2.0.0"). LibVLC only uses basic stdlib APIs, so pin the
-// stdlib to the project's own 2.0.21. Without this the build fails
-// on the VM and in CI with the same metadata error.
-configurations.all {
-    resolutionStrategy {
-        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
-    }
-}
+// Toolchain upgrade (2026-11-25): AGP 9.5.2 / Kotlin 2.4.21 / Gradle 9.6.0.
+// AGP 9 has built-in Kotlin, so org.jetbrains.kotlin.android is gone.
+// The old kotlin-stdlib force (2.0.21) is also gone: Kotlin 2.4.21 reads
+// libvlc 3.7.7's stdlib 2.2.10 metadata fine, so no pin is needed.
 
 android {
     namespace = "com.playbox.tv"
-    compileSdk = 36
+    compileSdk = 37
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
         applicationId = "com.playbox.tv"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 24
         versionName = "1.5.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -107,9 +99,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    // No kotlinOptions block: with AGP 9 built-in Kotlin the Kotlin JVM
+    // target follows compileOptions.targetCompatibility (17) above.
 
     buildFeatures {
         compose = true
@@ -117,7 +108,7 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     implementation("androidx.core:core-ktx:1.15.0")
