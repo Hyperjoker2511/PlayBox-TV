@@ -8,7 +8,8 @@ plugins {
 // plugin is REMOVED — applying it is a build error on AGP 9. The Compose
 // compiler plugin version IS the Kotlin version: applying it at 2.4.21
 // makes AGP compile with Kotlin 2.4.21 (AGP 9.5 defaults to 2.2.10).
-// NOTE: Compose BOM stays at 2024.12.01 and compileSdk at 36 — the new
+// NOTE: Compose BOM is 2026.06.01 in app/build.gradle.kts — the latest
+// that works on API 36 (Compose 1.11.4, Material 3 1.4.0). The newer
 // BOM 2026.11.01 needs compileSdk 37, but Google has not published the
 // API 37 platform (repository tops out at android-36), so it cannot be
 // installed in CI. When API 37 ships, bump compileSdk/targetSdk to 37
