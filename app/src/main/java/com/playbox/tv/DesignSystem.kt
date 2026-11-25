@@ -125,24 +125,23 @@ internal data class DesignPalette(
     val glassRim: Color
 )
 
-/** Zeph — the M3 redesign's one palette. The M3 expressive dark
- * scheme (violet #8B5CF6 on near-black #0B0D12) as a DesignPalette,
- * so the shared RailLayout keeps working unchanged. The three old
- * palettes (Nova/Qwen/Aura) were removed in Phase 8. */
+/** Zeph — the M3 Expressive palette (teal seed). The M3 expressive
+ * dark scheme as a DesignPalette, so the shared RailLayout keeps
+ * working unchanged. */
 internal val ZephPalette = DesignPalette(
-    bg = Color(0xFF0B0D12),
-    surface = Color(0xFF171B26),
-    surfaceHigh = Color(0xFF262B38),
-    onSurface = Color(0xFFF2F4F8),
-    muted = Color(0xFF9AA3B2),
-    outline = Color(0xFF2A2F3D),
-    primary = Color(0xFF8B5CF6),
-    primaryContainer = Color(0xFF4C1D95),
-    onPrimary = Color(0xFFFFFFFF),
-    focusBorder = Color(0xFF8B5CF6),
-    focusGlow = Color(0xFF8B5CF6).copy(alpha = 0.25f),
-    glass = Color(0xFF1F2433).copy(alpha = 0.88f),
-    glassStrong = Color(0xFF1F2433).copy(alpha = 0.96f),
+    bg = Color(0xFF0F1513),
+    surface = Color(0xFF1B2120),
+    surfaceHigh = Color(0xFF262D2B),
+    onSurface = Color(0xFFE0E3E1),
+    muted = Color(0xFFBFC9C5),
+    outline = Color(0xFF3F4946),
+    primary = Color(0xFF4DD0C4),
+    primaryContainer = Color(0xFF00504B),
+    onPrimary = Color(0xFF003735),
+    focusBorder = Color(0xFF4DD0C4),
+    focusGlow = Color(0xFF4DD0C4).copy(alpha = 0.25f),
+    glass = Color(0xFF1B2120).copy(alpha = 0.88f),
+    glassStrong = Color(0xFF1B2120).copy(alpha = 0.96f),
     glassEdge = Color(0x14FFFFFF),
     glassRim = Color(0x40FFFFFF)
 )
