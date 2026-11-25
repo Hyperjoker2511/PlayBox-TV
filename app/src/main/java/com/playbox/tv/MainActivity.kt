@@ -550,7 +550,7 @@ private fun PlayBoxApp() {
                         // Explore is Aura's browse view (1.4.5). Nova has
                         // no Explore tab, so it falls back to Library if
                         // the design is switched while on Explore.
-                        Tab.Explore -> NovaLibraryScreen(
+                        Tab.Explore -> M3LibraryScreen(
                             videos = videos, audio = audio, loading = !libraryLoaded,
                             mode = libraryMode, onMode = { libraryMode = it },
                             folder = libraryFolder, onFolder = { libraryFolder = it },
@@ -564,7 +564,7 @@ private fun PlayBoxApp() {
                             onRefresh = { refreshNonce++ },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                         )
-                        Tab.Library -> NovaLibraryScreen(
+                        Tab.Library -> M3LibraryScreen(
                             videos = videos, audio = audio, loading = !libraryLoaded,
                             mode = libraryMode, onMode = { libraryMode = it },
                             folder = libraryFolder, onFolder = { libraryFolder = it },
@@ -660,7 +660,8 @@ private fun PlayBoxApp() {
                             videos = videos, audio = audio,
                             onOpen = { item, list -> details = item; detailList = list }
                         )
-                        Tab.Library -> AuraLibraryScreen(
+                        // M3 redesign Phase 3: Library is the new M3 screen.
+                        Tab.Library -> M3LibraryScreen(
                             videos = videos, audio = audio, loading = !libraryLoaded,
                             mode = libraryMode, onMode = { libraryMode = it },
                             folder = libraryFolder, onFolder = { libraryFolder = it },
@@ -671,7 +672,8 @@ private fun PlayBoxApp() {
                             ftpServer = ftpServer, onFtpServer = { ftpServer = it },
                             ftpPath = ftpPath, onFtpPath = { ftpPath = it },
                             onOpen = { item, list -> details = item; detailList = list },
-                            onRefresh = { refreshNonce++ }
+                            onRefresh = { refreshNonce++ },
+                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                         )
                         Tab.Settings -> AuraSettingsScreen(
                             currentDesign = appDesign,
@@ -786,7 +788,7 @@ private fun PlayBoxApp() {
                             // has no Explore tab, so it falls back to
                             // Library if the design is switched while on
                             // Explore.
-                            Tab.Explore -> LibraryScreen(
+                            Tab.Explore -> M3LibraryScreen(
                                 videos = videos, audio = audio, loading = !libraryLoaded,
                                 mode = libraryMode, onMode = { libraryMode = it },
                                 folder = libraryFolder, onFolder = { libraryFolder = it },
@@ -797,9 +799,10 @@ private fun PlayBoxApp() {
                                 ftpServer = ftpServer, onFtpServer = { ftpServer = it },
                                 ftpPath = ftpPath, onFtpPath = { ftpPath = it },
                                 onOpen = { item, list -> details = item; detailList = list },
-                                onRefresh = { refreshNonce++ }
+                                onRefresh = { refreshNonce++ },
+                                onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                             )
-                            Tab.Library -> LibraryScreen(
+                            Tab.Library -> M3LibraryScreen(
                                 videos = videos, audio = audio, loading = !libraryLoaded,
                                 mode = libraryMode, onMode = { libraryMode = it },
                                 folder = libraryFolder, onFolder = { libraryFolder = it },
@@ -810,7 +813,8 @@ private fun PlayBoxApp() {
                                 ftpServer = ftpServer, onFtpServer = { ftpServer = it },
                                 ftpPath = ftpPath, onFtpPath = { ftpPath = it },
                                 onOpen = { item, list -> details = item; detailList = list },
-                                onRefresh = { refreshNonce++ }
+                                onRefresh = { refreshNonce++ },
+                                onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                             )
                             Tab.Settings -> SettingsScreen(
                                 currentDesign = appDesign,
