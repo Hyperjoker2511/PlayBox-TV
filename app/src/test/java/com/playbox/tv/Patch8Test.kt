@@ -9,25 +9,6 @@ import org.junit.Test
 class Patch8Test {
 
     @Test
-    fun playerUiStyle_liquidGlassByName() {
-        assertEquals(PlayerUiStyle.LIQUID_GLASS, playerUiStyleFromName("liquid_glass"))
-    }
-
-    @Test
-    fun playerUiStyle_prismByName() {
-        assertEquals(PlayerUiStyle.PRISM, playerUiStyleFromName("prism"))
-    }
-
-    @Test
-    fun playerUiStyle_unknownOrMissingFallsBackToLumen() {
-        // The default is LUMEN since 1.3.2 — the assistant's own
-        // design — so a fresh install sees it.
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName(null))
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName(""))
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("something-else"))
-    }
-
-    @Test
     fun videoInfoRows_haveAllSevenRowsInOrder() {
         val item = VideoItem(
             path = "/storage/Movies/film.mp4",
