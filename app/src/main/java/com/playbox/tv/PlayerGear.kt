@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -175,21 +176,21 @@ internal fun GearSheet(
     Column(
         modifier = Modifier.width(680.dp).fillMaxHeight()
             .background(
-                Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
+                MaterialTheme.colorScheme.surfaceContainer,
                 RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp)
             )
-            .border(1.dp, GlassBorder, RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp))
             .padding(24.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Player settings", fontSize = 28.sp, color = White)
-            GlassButton("Close") { onClose() }
+            Text("Player settings", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
+            M3GearButton("Close") { onClose() }
         }
         Spacer(modifier = Modifier.height(16.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             listOf("Playback", "Subtitles", "Audio", "Video", "Info").forEachIndexed { i, name ->
                 item {
-                    GlassButton(
+                    M3GearButton(
                         name,
                         active = tab == name,
                         modifier = if (i == 0) Modifier.focusRequester(focusRequester) else Modifier
@@ -202,30 +203,30 @@ internal fun GearSheet(
             when (tab) {
                 "Playback" -> {
                     item {
-                        GearSection("Speed") {
+                        M3GearSection("Speed") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 4f).forEach { s ->
-                                    item { GlassButton("${s}x", active = speed == s) { onSpeed(s) } }
+                                    item { M3GearButton("${s}x", active = speed == s) { onSpeed(s) } }
                                 }
                             }
                         }
                     }
                     item {
-                        GearSection("Loop") {
+                        M3GearSection("Loop") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf("Off" to 0, "One" to 1, "All" to 2).forEach { (label, mode) ->
-                                    item { GlassButton(label, active = loopMode == mode) { onLoop(mode) } }
+                                    item { M3GearButton(label, active = loopMode == mode) { onLoop(mode) } }
                                 }
                             }
                         }
                     }
                     item {
-                        GearSection("Shuffle") {
-                            GlassButton(if (shuffleOn) "Shuffle: On" else "Shuffle: Off") { onShuffle(!shuffleOn) }
+                        M3GearSection("Shuffle") {
+                            M3GearButton(if (shuffleOn) "Shuffle: On" else "Shuffle: Off") { onShuffle(!shuffleOn) }
                         }
                     }
                     item {
-                        GearSection("A–B repeat") {
+                        M3GearSection("A–B repeat") {
                             Text(
                                 when {
                                     ab != null -> "Repeating ${TimeFormatter.format(ab.first)} – ${TimeFormatter.format(ab.second)}"
@@ -236,19 +237,19 @@ internal fun GearSheet(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                GlassButton("Set A") { onSetA() }
-                                GlassButton("Set B") { onSetB() }
-                                GlassButton("Clear") { onClearAB() }
+                                M3GearButton("Set A") { onSetA() }
+                                M3GearButton("Set B") { onSetB() }
+                                M3GearButton("Clear") { onClearAB() }
                             }
                         }
                     }
                     item {
-                        GearSection("Jump to time") {
+                        M3GearSection("Jump to time") {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Box(
                                     modifier = Modifier.width(200.dp).height(56.dp)
-                                        .background(Color(0x14FFFFFF), RoundedCornerShape(28.dp))
-                                        .border(1.dp, GlassBorder, RoundedCornerShape(28.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(28.dp))
+                                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(28.dp))
                                         .padding(horizontal = 20.dp),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
@@ -266,7 +267,7 @@ internal fun GearSheet(
                                         }
                                     )
                                 }
-                                GlassButton("Go") {
+                                M3GearButton("Go") {
                                     val ms = parseTimeToMs(jumpText)
                                     if (ms == null) onStatus("Time like 1:23:45 or 90")
                                     else { onSeekTo(ms); onStatus("Jumped to ${TimeFormatter.format(ms)}") }
@@ -274,19 +275,19 @@ internal fun GearSheet(
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                GlassButton("−5 min") { onSeekTo(positionMs - 5 * 60_000L) }
-                                GlassButton("−1 min") { onSeekTo(positionMs - 60_000L) }
-                                GlassButton("+1 min") { onSeekTo(positionMs + 60_000L) }
-                                GlassButton("+5 min") { onSeekTo(positionMs + 5 * 60_000L) }
+                                M3GearButton("−5 min") { onSeekTo(positionMs - 5 * 60_000L) }
+                                M3GearButton("−1 min") { onSeekTo(positionMs - 60_000L) }
+                                M3GearButton("+1 min") { onSeekTo(positionMs + 60_000L) }
+                                M3GearButton("+5 min") { onSeekTo(positionMs + 5 * 60_000L) }
                             }
                         }
                     }
                     item {
-                        GearSection("Sleep timer") {
+                        M3GearSection("Sleep timer") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf(0, 15, 30, 60, 90).forEach { mins ->
                                     item {
-                                        GlassButton(if (mins == 0) "Off" else "$mins min", active = sleepMin == mins) { onSleep(mins) }
+                                        M3GearButton(if (mins == 0) "Off" else "$mins min", active = sleepMin == mins) { onSleep(mins) }
                                     }
                                 }
                             }
@@ -297,15 +298,15 @@ internal fun GearSheet(
                         }
                     }
                     item {
-                        GearSection("Frame by frame") {
-                            GlassButton("Step one frame") { onStepFrame() }
+                        M3GearSection("Frame by frame") {
+                            M3GearButton("Step one frame") { onStepFrame() }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Steps 1/30 of a second. Pause first for a still frame.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
-                        GearSection("Bookmarks") {
-                            GlassButton("Save bookmark at ${TimeFormatter.format(positionMs)}") {
+                        M3GearSection("Bookmarks") {
+                            M3GearButton("Save bookmark at ${TimeFormatter.format(positionMs)}") {
                                 addBookmark(context, item.path, positionMs)
                                 marks = bookmarks(context, item.path)
                                 onStatus("Bookmark saved at ${TimeFormatter.format(positionMs)}")
@@ -314,13 +315,13 @@ internal fun GearSheet(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     items(marks, key = { it }) { ms ->
-                                        GlassButton(TimeFormatter.format(ms)) { onSeekTo(ms) }
+                                        M3GearButton(TimeFormatter.format(ms)) { onSeekTo(ms) }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     items(marks, key = { "del$it" }) { ms ->
-                                        GlassButton("✕ ${TimeFormatter.format(ms)}") {
+                                        M3GearButton("✕ ${TimeFormatter.format(ms)}") {
                                             removeBookmark(context, item.path, ms)
                                             marks = bookmarks(context, item.path)
                                         }
@@ -330,36 +331,36 @@ internal fun GearSheet(
                         }
                     }
                     item {
-                        GearSection("Engine") {
-                            GlassButton("Switch to LibVLC") { onSwitchEngine?.invoke() }
+                        M3GearSection("Engine") {
+                            M3GearButton("Switch to LibVLC") { onSwitchEngine?.invoke() }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("LibVLC plays the formats Media3 cannot, and adds subtitle / audio delay, deinterlace, brightness / contrast / saturation, volume to 200% and chapters.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
-                        GearSection("Picture in picture") {
-                            GlassButton("Picture in picture") { onEnterPip?.invoke() }
+                        M3GearSection("Picture in picture") {
+                            M3GearButton("Picture in picture") { onEnterPip?.invoke() }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Shrinks the video to a small window so you can browse while it plays. Pressing Home does the same while a video is playing.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
-                        GearSection("Lock") {
-                            GlassButton("Lock player") { onLock() }
+                        M3GearSection("Lock") {
+                            M3GearButton("Lock player") { onLock() }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Locks the controls so accidental touches do nothing. Press Back to unlock.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
-                        GearSection("Save playlist") {
-                            GlassButton("Save playlist") { onSavePlaylist() }
+                        M3GearSection("Save playlist") {
+                            M3GearButton("Save playlist") { onSavePlaylist() }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Saves the videos in this queue as a playlist in the Library.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
-                        GearSection("Play as audio") {
-                            GlassButton(if (playAsAudio) "Play as audio: On" else "Play as audio: Off") { onPlayAsAudio(!playAsAudio) }
+                        M3GearSection("Play as audio") {
+                            M3GearButton(if (playAsAudio) "Play as audio: On" else "Play as audio: Off") { onPlayAsAudio(!playAsAudio) }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Hides the picture and keeps the sound playing.", fontSize = 16.sp, color = Muted)
                         }
@@ -367,9 +368,9 @@ internal fun GearSheet(
                 }
                 "Subtitles" -> {
                     item {
-                        GearSection("Track") {
+                        M3GearSection("Track") {
                             subOptions.forEach { opt ->
-                                GlassButton(
+                                M3GearButton(
                                     (if (opt.id == selectedSubId) "● " else "") + opt.label,
                                     active = opt.id == selectedSubId
                                 ) { onSubOption(opt) }
@@ -379,11 +380,11 @@ internal fun GearSheet(
                         }
                     }
                     item {
-                        GearSection("Size") {
+                        M3GearSection("Size") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf("S" to 18f, "M" to 24f, "L" to 32f, "XL" to 40f).forEach { (label, size) ->
                                     item {
-                                        GlassButton(label, active = subSize == size) {
+                                        M3GearButton(label, active = subSize == size) {
                                             subSize = size
                                             setSubStyle(context, "size_sp", size)
                                         }
@@ -393,11 +394,11 @@ internal fun GearSheet(
                         }
                     }
                     item {
-                        GearSection("Colour") {
+                        M3GearSection("Colour") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf("white", "yellow", "cyan", "green").forEach { c ->
                                     item {
-                                        GlassButton(c.replaceFirstChar { it.uppercase() }, active = subColor == c) {
+                                        M3GearButton(c.replaceFirstChar { it.uppercase() }, active = subColor == c) {
                                             subColor = c
                                             setSubStyle(context, "color", c)
                                         }
@@ -407,11 +408,11 @@ internal fun GearSheet(
                         }
                     }
                     item {
-                        GearSection("Background") {
+                        M3GearSection("Background") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf("black", "none").forEach { b ->
                                     item {
-                                        GlassButton(b.replaceFirstChar { it.uppercase() }, active = subBg == b) {
+                                        M3GearButton(b.replaceFirstChar { it.uppercase() }, active = subBg == b) {
                                             subBg = b
                                             setSubStyle(context, "background", b)
                                         }
@@ -426,26 +427,26 @@ internal fun GearSheet(
                 }
                 "Audio" -> {
                     item {
-                        GearSection("Track") {
-                            GlassButton(audioLabel) { onCycleAudio() }
+                        M3GearSection("Track") {
+                            M3GearButton(audioLabel) { onCycleAudio() }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Cycles the audio tracks in this file.", fontSize = 16.sp, color = Muted)
                         }
                     }
                     item {
-                        GearSection("Equalizer") {
+                        M3GearSection("Equalizer") {
                             val eq = audioFx?.eq
                             if (eq == null) {
                                 Text("Equalizer is not available for this playback yet.", fontSize = 18.sp, color = Muted)
                             } else {
-                                GlassButton(if (eqEnabled) "Equalizer: On" else "Equalizer: Off") { onEqEnabled(!eqEnabled) }
+                                M3GearButton(if (eqEnabled) "Equalizer: On" else "Equalizer: Off") { onEqEnabled(!eqEnabled) }
                                 if (eqEnabled) {
                                     Spacer(modifier = Modifier.height(12.dp))
                                     val presets = (0 until eq.numberOfPresets).map { it.toShort() to eq.getPresetName(it.toShort()) }
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        item { GlassButton("Flat") { (0 until eq.numberOfBands).forEach { eq.setBandLevel(it.toShort(), 0) } } }
+                                        item { M3GearButton("Flat") { (0 until eq.numberOfBands).forEach { eq.setBandLevel(it.toShort(), 0) } } }
                                         items(presets, key = { it.first }) { (idx, name) ->
-                                            GlassButton(name) { runCatching { eq.usePreset(idx) } }
+                                            M3GearButton(name) { runCatching { eq.usePreset(idx) } }
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(12.dp))
@@ -455,7 +456,7 @@ internal fun GearSheet(
                                         val freqLabel = if (freq >= 1000) "${freq / 1000}k Hz" else "$freq Hz"
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                             Text(freqLabel, fontSize = 18.sp, color = White, modifier = Modifier.width(90.dp))
-                                            GlassButton("−") {
+                                            M3GearButton("−") {
                                                 val cur = eq.getBandLevel(band.toShort())
                                                 eq.setBandLevel(band.toShort(), (cur - 200).coerceAtLeast(minLevel).toShort())
                                             }
@@ -463,7 +464,7 @@ internal fun GearSheet(
                                                 "${eq.getBandLevel(band.toShort()) / 100} dB",
                                                 fontSize = 18.sp, color = Muted, modifier = Modifier.width(80.dp)
                                             )
-                                            GlassButton("+") {
+                                            M3GearButton("+") {
                                                 val cur = eq.getBandLevel(band.toShort())
                                                 eq.setBandLevel(band.toShort(), (cur + 200).coerceAtMost(maxLevel).toShort())
                                             }
@@ -475,11 +476,11 @@ internal fun GearSheet(
                         }
                     }
                     item {
-                        GearSection("Loudness") {
+                        M3GearSection("Loudness") {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                GlassButton("−") { onLoudness((loudnessPct - 10).coerceAtLeast(0)) }
+                                M3GearButton("−") { onLoudness((loudnessPct - 10).coerceAtLeast(0)) }
                                 Text("$loudnessPct%", fontSize = 20.sp, color = White, modifier = Modifier.width(70.dp))
-                                GlassButton("+") { onLoudness((loudnessPct + 10).coerceAtMost(100)) }
+                                M3GearButton("+") { onLoudness((loudnessPct + 10).coerceAtMost(100)) }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Boosts quiet audio. 0% is off — this is the night-mode control.", fontSize = 16.sp, color = Muted)
@@ -491,19 +492,19 @@ internal fun GearSheet(
                 }
                 "Video" -> {
                     item {
-                        GearSection("Aspect") {
+                        M3GearSection("Aspect") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf(AspectMode.FIT to "Fit", AspectMode.FILL to "Fill", AspectMode.ZOOM to "Zoom").forEach { (mode, label) ->
-                                    item { GlassButton(label, active = aspectMode == mode) { onAspect(mode) } }
+                                    item { M3GearButton(label, active = aspectMode == mode) { onAspect(mode) } }
                                 }
                             }
                         }
                     }
                     item {
-                        GearSection("Rotation") {
+                        M3GearSection("Rotation") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 listOf(0, 90, 180, 270).forEach { deg ->
-                                    item { GlassButton("$deg°", active = rotation == deg) { onRotation(deg) } }
+                                    item { M3GearButton("$deg°", active = rotation == deg) { onRotation(deg) } }
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
@@ -516,7 +517,7 @@ internal fun GearSheet(
                 }
                 "Info" -> {
                     item {
-                        GearSection("Video information") {
+                        M3GearSection("Video information") {
                             videoInfo.forEach { (label, value) ->
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(label, fontSize = 18.sp, color = Muted, modifier = Modifier.width(170.dp))
@@ -532,11 +533,3 @@ internal fun GearSheet(
     }
 }
 
-@Composable
-private fun GearSection(title: String, content: @Composable () -> Unit) {
-    Column {
-        Text(title, fontSize = 20.sp, color = Muted)
-        Spacer(modifier = Modifier.height(8.dp))
-        content()
-    }
-}
