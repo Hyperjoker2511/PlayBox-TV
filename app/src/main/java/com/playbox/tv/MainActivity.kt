@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,8 +89,10 @@ class MainActivity : ComponentActivity() {
         // leaves behind (see CrashNote.kt).
         CrashLog.install(this)
         handleViewIntent(intent)
-        // Batch 2 (DLNA): keep the renderer discoverable while the app
-        // is installed — the service itself stays alive in the background.
+        // Patch 4: the DLNA renderer starts with the app and stops
+        // when it closes (unless "Keep discoverable when closed" is
+        // on in Settings). It no longer stays alive in the background
+        // after the app is gone — that was the "active 9 hr" bug.
         startService(Intent(this, CastService::class.java))
         // The permission request itself lives in PlayBoxApp (rememberLauncherForActivityResult),
         // behind a plain-words rationale shown on first launch — no silent system prompt.
@@ -196,6 +199,12 @@ private fun PlayBoxApp() {
     // speed, not the user's default. Null = use the saved default.
     var playStartSpeed by remember { mutableStateOf<Float?>(null) }
     var search by remember { mutableStateOf("") }
+    // Patch 4 (exit confirm): Back on Home asks "Exit Zeph Player?"
+    // instead of leaving the app half-alive in the background.
+    var showExitDialog by remember { mutableStateOf(false) }
+    // Patch 4 (Jio): which legal screen is open from Settings —
+    // null = none, "privacy" or "licences".
+    var settingsPage by remember { mutableStateOf<String?>(null) }
 
     // Batch 1.3 (B4): Library navigation state lives here, not inside
     // LibraryScreen — opening a video no longer resets mode/folder/scroll.
@@ -316,9 +325,37 @@ private fun PlayBoxApp() {
     var crashGateDone by remember { mutableStateOf(false) }
     val showCrashGate = !crashGateDone && (crashNote != null || staleVlcDeath)
 
+    // Patch 4 (clean exit): Exit means fully exit — stop the DLNA
+    // renderer and the playback service, then finish the activity.
+    // No background, no restart. When "Keep discoverable when
+    // closed" is on, the renderer is left running on purpose.
+    val exitApp: () -> Unit = {
+        if (!keepDiscoverable(context)) {
+            context.stopService(Intent(context, CastService::class.java))
+        }
+        context.stopService(Intent(context, PlaybackService::class.java))
+        activity?.finish()
+    }
+    // Patch 4 (exit confirm): Back only asks on Home. Back from
+    // Details, the player, Library or Settings just goes back to
+    // Home — the player and details screens have their own
+    // BackHandlers, and this one is only enabled on a tab screen.
+    BackHandler(enabled = playing == null && details == null && settingsPage == null && !showCrashGate && !showRationale) {
+        if (tab != Tab.Home) {
+            tab = Tab.Home
+        } else {
+            showExitDialog = true
+        }
+    }
+
     MaterialTheme(colorScheme = darkColorScheme(primary = Primary, surface = Bg, background = Bg)) {
         Box(modifier = Modifier.fillMaxSize().background(Bg)) {
-            if (showCrashGate) {
+            if (showExitDialog) {
+                ExitConfirmDialog(
+                    onExit = { showExitDialog = false; exitApp() },
+                    onStay = { showExitDialog = false }
+                )
+            } else if (showCrashGate) {
                 CrashNoteScreen(
                     note = crashNote,
                     lastStep = CrashLog.lastStep(context),
@@ -469,6 +506,12 @@ private fun PlayBoxApp() {
                         onOpen = { item -> details = item }
                     )
                 }
+            } else if (settingsPage == "privacy") {
+                // Patch 4 (Jio): Privacy Policy, opened from Settings → About.
+                PrivacyPolicyScreen(onBack = { settingsPage = null })
+            } else if (settingsPage == "licences") {
+                // Patch 4 (Jio): open-source licences, opened from Settings → About.
+                LicencesScreen(onBack = { settingsPage = null })
             } else if (appDesign == AppDesign.NOVA) {
                 // 1.4.2 (Nova, now official): the rail on wide screens
                 // (TV, phone landscape), the tab strip on narrow ones
@@ -514,7 +557,8 @@ private fun PlayBoxApp() {
                             ftpServer = ftpServer, onFtpServer = { ftpServer = it },
                             ftpPath = ftpPath, onFtpPath = { ftpPath = it },
                             onOpen = { item, list -> details = item; detailList = list },
-                            onRefresh = { refreshNonce++ }
+                            onRefresh = { refreshNonce++ },
+                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                         )
                         Tab.Library -> NovaLibraryScreen(
                             videos = videos, audio = audio, loading = !libraryLoaded,
@@ -527,7 +571,8 @@ private fun PlayBoxApp() {
                             ftpServer = ftpServer, onFtpServer = { ftpServer = it },
                             ftpPath = ftpPath, onFtpPath = { ftpPath = it },
                             onOpen = { item, list -> details = item; detailList = list },
-                            onRefresh = { refreshNonce++ }
+                            onRefresh = { refreshNonce++ },
+                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                         )
                         Tab.Settings -> NovaSettingsScreen(
                             currentDesign = appDesign,
@@ -535,7 +580,9 @@ private fun PlayBoxApp() {
                             railMode = railMode,
                             onRailModeChange = { railMode = it; saveRailMode(context, it) },
                             labelMode = railLabelMode,
-                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) }
+                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
+                            onPrivacy = { settingsPage = "privacy" },
+                            onLicences = { settingsPage = "licences" }
                         )
                     }
                 }
@@ -628,7 +675,9 @@ private fun PlayBoxApp() {
                             railMode = railMode,
                             onRailModeChange = { railMode = it; saveRailMode(context, it) },
                             labelMode = railLabelMode,
-                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) }
+                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
+                            onPrivacy = { settingsPage = "privacy" },
+                            onLicences = { settingsPage = "licences" }
                         )
                     }
                 }
@@ -765,7 +814,9 @@ private fun PlayBoxApp() {
                                 railMode = railMode,
                                 onRailModeChange = { railMode = it; saveRailMode(context, it) },
                                 labelMode = railLabelMode,
-                                onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) }
+                                onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
+                                onPrivacy = { settingsPage = "privacy" },
+                                onLicences = { settingsPage = "licences" }
                             )
                         }
                         }
@@ -806,6 +857,38 @@ private fun PlayBoxApp() {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Patch 4 (exit confirm): "Exit Zeph Player?" — shown only when
+ * Back is pressed on Home. Exit closes the app fully: the DLNA
+ * renderer and the playback service stop, nothing stays in the
+ * background. Stay just closes this dialog. Back while the dialog
+ * is open also means Stay. */
+@Composable
+private fun ExitConfirmDialog(onExit: () -> Unit, onStay: () -> Unit) {
+    BackHandler { onStay() }
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color(0xCC000000)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.background(Bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Exit Zeph Player?", fontSize = 28.sp, color = White)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "The app closes fully — no background, no cast receiver left running.",
+                fontSize = 18.sp, color = Muted
+            )
+            Spacer(modifier = Modifier.height(28.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TvButton("Exit", onClick = onExit)
+                TvButton("Stay", onClick = onStay)
             }
         }
     }
