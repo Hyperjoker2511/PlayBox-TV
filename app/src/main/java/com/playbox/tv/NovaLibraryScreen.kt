@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +33,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,12 +78,24 @@ internal fun NovaLibraryScreen(
     ftpPath: String?,
     onFtpPath: (String?) -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    // Patch 4 (cinematic): play a video straight from the hero.
+    onPlay: (VideoItem, List<VideoItem>) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val sortPrefs = remember { context.getSharedPreferences("playbox_sort", Context.MODE_PRIVATE) }
     var sortOrder by remember { mutableStateOf(VideoSorter.fromName(sortPrefs.getString("order", "DATE_ADDED") ?: "DATE_ADDED")) }
-    var viewGrid by remember { mutableStateOf(sortPrefs.getBoolean("view_grid", false)) }
+    // Patch 4 (cinematic browse): List / Grid / Cinematic. Migrates
+    // from the old view_grid boolean (true = grid, false = list).
+    var browseLayout by remember {
+        mutableStateOf(
+            sortPrefs.getString("browse_layout", null)
+                ?: if (sortPrefs.getBoolean("view_grid", false)) "grid" else "list"
+        )
+    }
+    // Patch 4: the item the cinematic hero shows — the focused grid
+    // card drives it; null = the first item in the list.
+    var cinematicFocus by remember { mutableStateOf<VideoItem?>(null) }
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var openPlaylist by remember { mutableStateOf<String?>(null) }
     var favourites by remember { mutableStateOf(LibraryStores.favourites(context)) }
@@ -140,7 +160,7 @@ internal fun NovaLibraryScreen(
             listOf("Videos", "Music", "Folders / USB", "Network").forEach { m ->
                 NovaChip(m, active = mode == m) {
                     onMode(m); onFolder(null); onSafFolder(null)
-                    filter = LibraryFilter.ALL; openPlaylist = null
+                    filter = LibraryFilter.ALL; openPlaylist = null; cinematicFocus = null
                 }
             }
         }
@@ -151,9 +171,9 @@ internal fun NovaLibraryScreen(
                     sortOrder = VideoSorter.next(sortOrder)
                     sortPrefs.edit().putString("order", sortOrder.name).apply()
                 }, modifier = Modifier.height(44.dp))
-                NovaButton(if (viewGrid) "Grid" else "List", onClick = {
-                    viewGrid = !viewGrid
-                    sortPrefs.edit().putBoolean("view_grid", viewGrid).apply()
+                NovaButton("Layout: ${browseLayoutLabel(browseLayout)}", onClick = {
+                    browseLayout = nextBrowseLayout(browseLayout)
+                    sortPrefs.edit().putString("browse_layout", browseLayout).apply()
                 }, modifier = Modifier.height(44.dp))
                 NovaButton("Refresh", onClick = onRefresh, modifier = Modifier.height(44.dp))
             }
@@ -167,7 +187,7 @@ internal fun NovaLibraryScreen(
                         LibraryFilter.FAVOURITES to "Favourites",
                         LibraryFilter.PLAYLISTS to "Playlists"
                     ).forEach { (f, label) ->
-                        NovaChip(label, active = filter == f) { filter = f; openPlaylist = null }
+                        NovaChip(label, active = filter == f) { filter = f; openPlaylist = null; cinematicFocus = null }
                     }
                 }
             }
@@ -294,7 +314,7 @@ internal fun NovaLibraryScreen(
                                             Text(open, fontSize = 24.sp, color = NovaWhite, fontWeight = FontWeight.Bold)
                                             Spacer(modifier = Modifier.height(12.dp))
                                         }
-                                        novaMediaRows(inPlaylist, viewGrid, cols, resume, favourites,
+                                        novaMediaRows(inPlaylist, browseLayout == "grid", cols, resume, favourites,
                                             onToggleFav = { path ->
                                                 LibraryStores.toggleFavourite(context, path)
                                                 favourites = LibraryStores.favourites(context)
@@ -311,13 +331,28 @@ internal fun NovaLibraryScreen(
                                         LibraryFilter.FAVOURITES -> "No favourites yet — tap ☆ on a list row, or mark one from a video's Details page."
                                         LibraryFilter.PLAYLISTS -> ""
                                     }
-                                    novaMediaRows(shown, viewGrid, cols, resume, favourites,
-                                        onToggleFav = { path ->
-                                            LibraryStores.toggleFavourite(context, path)
-                                            favourites = LibraryStores.favourites(context)
-                                        },
-                                        onOpen = onOpen,
-                                        emptyText = emptyText)
+                                    if (browseLayout == "cinematic" && (mode == "Videos" || mode == "Music")) {
+                                        // Patch 4: cinematic browse — the
+                                        // focused video's backdrop fills
+                                        // a hero above a poster grid.
+                                        cinematicMediaRows(shown, cols, resume, favourites,
+                                            onToggleFav = { path ->
+                                                LibraryStores.toggleFavourite(context, path)
+                                                favourites = LibraryStores.favourites(context)
+                                            },
+                                            onOpen = onOpen,
+                                            emptyText = emptyText,
+                                            focusedItem = cinematicFocus ?: shown.firstOrNull(),
+                                            onFocusItem = { cinematicFocus = it })
+                                    } else {
+                                        novaMediaRows(shown, browseLayout == "grid", cols, resume, favourites,
+                                            onToggleFav = { path ->
+                                                LibraryStores.toggleFavourite(context, path)
+                                                favourites = LibraryStores.favourites(context)
+                                            },
+                                            onOpen = onOpen,
+                                            emptyText = emptyText)
+                                    }
                                 }
                             }
                         }
@@ -326,6 +361,21 @@ internal fun NovaLibraryScreen(
             }
         }
     }
+}
+
+/** Patch 4 (cinematic browse): the three browse layouts. List is
+ * the Nova default, Grid is posters in rows, Cinematic is a hero
+ * above a poster grid. */
+private fun browseLayoutLabel(layout: String): String = when (layout) {
+    "grid" -> "Grid"
+    "cinematic" -> "Cinematic"
+    else -> "List"
+}
+
+private fun nextBrowseLayout(layout: String): String = when (layout) {
+    "list" -> "grid"
+    "grid" -> "cinematic"
+    else -> "list"
 }
 
 /** Grid or list rows for a media list, Nova style. The grid uses
@@ -361,6 +411,114 @@ private fun LazyListScope.novaMediaRows(
             val fraction = if (item.durationMs > 0) resumeMs.toFloat() / item.durationMs else 0f
             NovaRow(item, resumeFraction = fraction, isFav = favourites.contains(item.path), onToggleFav = { onToggleFav(item.path) }) { onOpen(item, shown) }
             Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+/** Patch 4 (cinematic browse): the focused video's backdrop fills a
+ * hero (title, meta, Play / Details) above a poster grid. Focusing
+ * a poster updates the hero. The mode chips at the top of the
+ * Library are the categories — D-pad up from the grid reaches them. */
+private fun LazyListScope.cinematicMediaRows(
+    shown: List<VideoItem>,
+    cols: Int,
+    resume: Map<String, Long>,
+    favourites: Set<String>,
+    onToggleFav: (String) -> Unit,
+    onOpen: (VideoItem, List<VideoItem>) -> Unit,
+    emptyText: String,
+    focusedItem: VideoItem?,
+    onFocusItem: (VideoItem) -> Unit
+) {
+    if (shown.isEmpty()) {
+        item { Text(emptyText, fontSize = 16.sp, color = NovaMuted) }
+        return
+    }
+    // The focused item drives the hero — but only if it is still in
+    // this list (mode/filter may have changed since it was focused).
+    val hero = if (focusedItem != null && shown.any { it.path == focusedItem.path }) focusedItem else shown.first()
+    item {
+        CinematicHero(
+            item = hero,
+            resumeMs = resume[hero.path] ?: 0L,
+            onPlay = { onPlay(hero, shown) },
+            onDetails = { onOpen(hero, shown) }
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+    }
+    items(shown.chunked(cols), key = { row -> row.firstOrNull()?.path ?: "row" }) { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            row.forEach { item ->
+                val resumeMs = resume[item.path] ?: 0L
+                val fraction = if (item.durationMs > 0) resumeMs.toFloat() / item.durationMs else 0f
+                NovaGridCard(
+                    item, resumeFraction = fraction,
+                    modifier = Modifier.weight(1f).onFocusChanged { state ->
+                        if (state.hasFocus) onFocusItem(item)
+                    }
+                ) { onOpen(item, shown) }
+            }
+            repeat((cols - row.size).coerceAtLeast(0)) { Spacer(modifier = Modifier.weight(1f)) }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+/** The cinematic hero: the video's cover fills the hero (thumbnail
+ * when there is one, Nova gradient when there is not), with a dark
+ * fade at the bottom for the title, meta and actions. Read-only —
+ * Play opens the video, Details opens its page. */
+@Composable
+private fun CinematicHero(
+    item: VideoItem,
+    resumeMs: Long,
+    onPlay: () -> Unit,
+    onDetails: () -> Unit
+) {
+    val context = LocalContext.current
+    var bitmap by remember(item.path) { mutableStateOf(MediaLibrary.ThumbnailCache.get(item.path)) }
+    LaunchedEffect(item.path) {
+        if (bitmap == null && item.isVideo) {
+            bitmap = withContext(Dispatchers.IO) { MediaLibrary.loadVideoThumbnail(context, item) }
+        }
+    }
+    val bmp = bitmap
+    Box(
+        modifier = Modifier.fillMaxWidth().height(300.dp)
+            .clip(RoundedCornerShape(20.dp))
+    ) {
+        if (bmp != null) {
+            Image(
+                bmp.asImageBitmap(), contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.linearGradient(listOf(NovaViolet, NovaSurface, NovaBg))
+                ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!item.isVideo) Text("♫", fontSize = 64.sp, color = NovaMint)
+            }
+        }
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)), startY = 0.35f)
+            )
+        )
+        Column(
+            modifier = Modifier.align(Alignment.BottomStart).padding(24.dp)
+        ) {
+            Text(item.name, fontSize = 26.sp, color = NovaWhite, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(tileSub(item) ?: "", fontSize = 16.sp, color = NovaWhite, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                NovaButton(if (resumeMs > 0) "Resume" else "Play", primary = true, onClick = onPlay, modifier = Modifier.height(48.dp))
+                NovaButton("Details", onClick = onDetails, modifier = Modifier.height(48.dp))
+            }
         }
     }
 }
