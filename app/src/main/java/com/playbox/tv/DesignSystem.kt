@@ -125,67 +125,10 @@ internal data class DesignPalette(
     val glassRim: Color
 )
 
-/** Nova — warm dark, solid surfaces, violet accent. */
-internal val NovaPalette = DesignPalette(
-    bg = NovaBg,
-    surface = NovaSurface,
-    surfaceHigh = NovaSurfaceHigh,
-    onSurface = NovaWhite,
-    muted = NovaMuted,
-    outline = NovaOutline,
-    primary = NovaViolet,
-    primaryContainer = NovaVioletDark,
-    onPrimary = NovaWhite,
-    focusBorder = NovaViolet,
-    focusGlow = NovaViolet.copy(alpha = 0.25f),
-    glass = NovaSurface.copy(alpha = 0.88f),
-    glassStrong = NovaSurface.copy(alpha = 0.96f),
-    glassEdge = Color(0x14FFFFFF),
-    glassRim = Color(0x40FFFFFF)
-)
-
-/** Qwen — the kept option, deep ink + violet glass (Lumen tokens). */
-internal val QwenPalette = DesignPalette(
-    bg = Bg,
-    surface = Surface,
-    surfaceHigh = SurfaceHigh,
-    onSurface = White,
-    muted = Muted,
-    outline = Color(0xFF262B38),
-    primary = Primary,
-    primaryContainer = PrimaryContainer,
-    onPrimary = White,
-    focusBorder = FocusBorder,
-    focusGlow = FocusGlow,
-    glass = Glass,
-    glassStrong = GlassStrong,
-    glassEdge = GlassEdge,
-    glassRim = GlassRim
-)
-
-/** Aura — Material 3 dark, lavender primary on near-black. */
-internal val AuraPalette = DesignPalette(
-    bg = AuraSurface,
-    surface = AuraSurface2,
-    surfaceHigh = AuraSurface3,
-    onSurface = AuraOnSurface,
-    muted = AuraOnSurfaceVariant,
-    outline = AuraOutlineVariant,
-    primary = AuraPrimary,
-    primaryContainer = AuraPrimaryContainer,
-    onPrimary = AuraOnPrimary,
-    focusBorder = AuraPrimary,
-    focusGlow = AuraPrimary.copy(alpha = 0.25f),
-    glass = AuraSurface2.copy(alpha = 0.88f),
-    glassStrong = AuraSurface2.copy(alpha = 0.96f),
-    glassEdge = Color(0x14FFFFFF),
-    glassRim = Color(0x40FFFFFF)
-)
-
 /** Zeph — the M3 redesign's one palette. The M3 expressive dark
  * scheme (violet #8B5CF6 on near-black #0B0D12) as a DesignPalette,
  * so the shared RailLayout keeps working unchanged. The three old
- * palettes above die with the designs in Phase 8. */
+ * palettes (Nova/Qwen/Aura) were removed in Phase 8. */
 internal val ZephPalette = DesignPalette(
     bg = Color(0xFF0B0D12),
     surface = Color(0xFF171B26),
@@ -204,11 +147,6 @@ internal val ZephPalette = DesignPalette(
     glassRim = Color(0x40FFFFFF)
 )
 
-internal fun paletteFor(design: AppDesign): DesignPalette = when (design) {
-    AppDesign.NOVA -> NovaPalette
-    AppDesign.QWEN -> QwenPalette
-    AppDesign.AURA -> AuraPalette
-}
 
 /** One line-icon set (Material Outlined) for the navigation. */
 internal fun designIconFor(tab: Tab): ImageVector = when (tab) {
