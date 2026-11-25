@@ -212,7 +212,7 @@ internal fun M3LibraryScreen(
         when (mode) {
             "Network" -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    NetworkScreen(
+                    M3NetworkScreen(
                         server = networkServer, onServer = onNetworkServer,
                         path = networkPath, onPath = onNetworkPath,
                         ftpServer = ftpServer, onFtpServer = onFtpServer,
