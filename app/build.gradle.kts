@@ -9,16 +9,20 @@ plugins {
 // AGP 9 has built-in Kotlin, so org.jetbrains.kotlin.android is gone.
 // The old kotlin-stdlib force (2.0.21) is also gone: Kotlin 2.4.21 reads
 // libvlc 3.7.7's stdlib 2.2.10 metadata fine, so no pin is needed.
+// NOTE: compileSdk stays 36 and the Compose BOM stays 2024.12.01 — the
+// new BOM 2026.11.01 needs compileSdk 37, but Google has not published
+// the API 37 platform (repository tops out at android-36). When API 37
+// ships, bump compileSdk/targetSdk to 37 and the BOM to 2026.11.01.
 
 android {
     namespace = "com.playbox.tv"
-    compileSdk = 37
+    compileSdk = 36
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
         applicationId = "com.playbox.tv"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 24
         versionName = "1.5.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -108,7 +112,7 @@ androidComponents {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     implementation("androidx.core:core-ktx:1.15.0")
