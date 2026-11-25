@@ -114,7 +114,6 @@ internal fun VlcPlayerScreen(
     // Patch 1.3.1: player lock + play-as-audio + the switchable UI.
     var locked by remember { mutableStateOf(false) }
     var playAsAudio by remember { mutableStateOf(false) }
-    val uiStyle = playerUiStyle(context)
     var vlcResolution by remember(item) { mutableStateOf("") }
     var trackChoiceApplied by remember(item) { mutableStateOf(false) }
     // Patch 1.3.0: the seek bar's focus lives in the shared dock now.
@@ -602,14 +601,16 @@ internal fun VlcPlayerScreen(
         // Patch 1.3.0: the slim floating dock + top bar from the designs
         // replace the old full-width panel. The dock hides while a gear
         // panel is open, like the designs.
-        PlayerTopBar(
+        // M3 redesign Phase 6: one bottom dock only — no top bar.
+        // The HUD carries the title + stream info + live clock.
+        M3PlayerHud(
             title = item.name,
             badge = containerOf(item),
+            streamInfo = if (vlcResolution.isNotBlank()) "$vlcResolution  •  ${containerOf(item)}" else containerOf(item),
             visible = showControls && panel == null && !ended && !locked,
-            style = uiStyle,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
         )
-        PlayerDock(
+        M3PlayerDock(
             positionMs = positionMs,
             durationMs = durationMs,
             bufferedFraction = 0f,
@@ -630,11 +631,10 @@ internal fun VlcPlayerScreen(
             seekFocus = seekFocus,
             visible = showControls && panel == null && !ended && !locked,
             status = status,
-            style = uiStyle,
             onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
             onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS) 0.dp else 24.dp)
+                .padding(bottom = 24.dp)
         )
 
         if (panel == "gear") {
