@@ -284,6 +284,20 @@ internal fun saveRailLabelMode(context: android.content.Context, mode: RailLabel
         .apply()
 }
 
+/** Patch 4: "Keep discoverable when closed" (Settings → Network).
+ * OFF by default — the DLNA renderer stops when the app closes or
+ * is swiped away, so the app leaves no background behind. ON keeps
+ * the renderer running after close, for TV users who cast often. */
+internal fun keepDiscoverable(context: android.content.Context): Boolean =
+    context.getSharedPreferences("playbox_settings", android.content.Context.MODE_PRIVATE)
+        .getBoolean("keep_discoverable", false)
+
+internal fun saveKeepDiscoverable(context: android.content.Context, keep: Boolean) {
+    context.getSharedPreferences("playbox_settings", android.content.Context.MODE_PRIVATE).edit()
+        .putBoolean("keep_discoverable", keep)
+        .apply()
+}
+
 /** How long the floating rail stays open after the user leaves it
  * (focus moves back into the content) before it hides. */
 internal const val FloatingRailHideDelayMs = 5000L
