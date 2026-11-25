@@ -31,13 +31,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android platform 37 + build-tools 36.1.0
+      - name: Install Android platform 36 + build-tools 36.1.0
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          yes | "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
+          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.1.0"
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
@@ -64,13 +64,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android platform 37 + build-tools 36.1.0
+      - name: Install Android platform 36 + build-tools 36.1.0
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          yes | "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
+          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.1.0"
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
