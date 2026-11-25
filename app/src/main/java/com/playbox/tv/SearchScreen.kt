@@ -156,6 +156,13 @@ internal fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Str
     )
     val shown = searchFilter(items, search)
     val resume = remember { resumePositions(context) }
+    // Patch 4 (Jio): voice search — mic button only when the box has
+    // a voice recognizer (see VoiceSearch.kt).
+    val onVoice = rememberVoiceSearch(context) { spoken ->
+        onSearch(spoken)
+        saveRecentSearch(context, spoken)
+        recent = recentSearches(context)
+    }
     // Adaptive columns (Batch 1.3, Round 2): fixed chunked(3) clips on odd
     // densities, and stable row keys stop focus jumping while typing.
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -229,6 +236,12 @@ internal fun SearchScreen(items: List<VideoItem>, search: String, onSearch: (Str
                                         Text(
                                             "×", fontSize = 26.sp, color = Muted,
                                             modifier = Modifier.clickable { onSearch("") }.padding(8.dp)
+                                        )
+                                    }
+                                    if (onVoice != null) {
+                                        Text(
+                                            "🎙", fontSize = 24.sp, color = Periwinkle,
+                                            modifier = Modifier.clickable { onVoice() }.padding(8.dp)
                                         )
                                     }
                                 }
