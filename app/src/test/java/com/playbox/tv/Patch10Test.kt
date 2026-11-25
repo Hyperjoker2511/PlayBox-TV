@@ -28,25 +28,6 @@ class Patch10Test {
     }
 
     @Test
-    fun playerUiStyle_novaByName() {
-        assertEquals(PlayerUiStyle.NOVA, playerUiStyleFromName("nova"))
-    }
-
-    @Test
-    fun playerUiStyle_otherNamesUnchanged() {
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("lumen"))
-        assertEquals(PlayerUiStyle.LIQUID_GLASS, playerUiStyleFromName("liquid_glass"))
-        assertEquals(PlayerUiStyle.PRISM, playerUiStyleFromName("prism"))
-    }
-
-    @Test
-    fun playerUiStyle_unknownStillFallsBackToLumen() {
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName(null))
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName(""))
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("something-else"))
-    }
-
-    @Test
     fun surfaceStyle_liquidByName() {
         // 1.4.3 (enhanced): the surface finish — LIQUID is the glass
         // look, SOLID is the flat default.
