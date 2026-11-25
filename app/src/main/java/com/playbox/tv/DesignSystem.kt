@@ -182,6 +182,28 @@ internal val AuraPalette = DesignPalette(
     glassRim = Color(0x40FFFFFF)
 )
 
+/** Zeph — the M3 redesign's one palette. The M3 expressive dark
+ * scheme (violet #8B5CF6 on near-black #0B0D12) as a DesignPalette,
+ * so the shared RailLayout keeps working unchanged. The three old
+ * palettes above die with the designs in Phase 8. */
+internal val ZephPalette = DesignPalette(
+    bg = Color(0xFF0B0D12),
+    surface = Color(0xFF171B26),
+    surfaceHigh = Color(0xFF262B38),
+    onSurface = Color(0xFFF2F4F8),
+    muted = Color(0xFF9AA3B2),
+    outline = Color(0xFF2A2F3D),
+    primary = Color(0xFF8B5CF6),
+    primaryContainer = Color(0xFF4C1D95),
+    onPrimary = Color(0xFFFFFFFF),
+    focusBorder = Color(0xFF8B5CF6),
+    focusGlow = Color(0xFF8B5CF6).copy(alpha = 0.25f),
+    glass = Color(0xFF1F2433).copy(alpha = 0.88f),
+    glassStrong = Color(0xFF1F2433).copy(alpha = 0.96f),
+    glassEdge = Color(0x14FFFFFF),
+    glassRim = Color(0x40FFFFFF)
+)
+
 internal fun paletteFor(design: AppDesign): DesignPalette = when (design) {
     AppDesign.NOVA -> NovaPalette
     AppDesign.QWEN -> QwenPalette
