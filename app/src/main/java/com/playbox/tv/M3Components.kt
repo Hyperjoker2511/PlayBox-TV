@@ -19,7 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -480,5 +483,78 @@ internal fun M3TvButton(
             else MaterialTheme.colorScheme.onSurface,
             maxLines = 1
         )
+    }
+}
+
+/** The M3 top tab strip for narrow screens (phone portrait) — the
+ * rail's counterpart. Brand + a Player button on top, then the four
+ * tabs with icons, labels and a selected underline. Modelled on the
+ * old Nova tab strip's structure, restyled in M3. */
+@Composable
+internal fun M3TabStrip(
+    tab: Tab,
+    onTab: (Tab) -> Unit,
+    onPlayer: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Zeph",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier.size(44.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable { onPlayer() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "Player",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+            listOf(Tab.Home, Tab.Search, Tab.Library, Tab.Settings).forEach { t ->
+                val selected = tab == t
+                Column(
+                    modifier = Modifier.weight(1f).clickable { onTab(t) }
+                        .padding(vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        designIconFor(t),
+                        contentDescription = designLabelFor(t),
+                        tint = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        designLabelFor(t),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (selected) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier.width(48.dp).height(3.dp)
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outlineVariant,
+                                RoundedCornerShape(2.dp)
+                            )
+                    )
+                }
+            }
+        }
     }
 }
