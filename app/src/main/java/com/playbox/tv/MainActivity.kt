@@ -531,15 +531,17 @@ private fun PlayBoxApp() {
                 }
                 val novaContent: @Composable (Tab) -> Unit = { currentTab ->
                     when (currentTab) {
-                        Tab.Home -> NovaHomeScreen(
+                        // M3 redesign Phase 2: Home is the new M3 screen
+                        // in every design — the old Home screens are
+                        // gone from the tab, deleted in Phase 8.
+                        Tab.Home -> M3HomeScreen(
                             videos = videos, audio = audio,
                             loading = !libraryLoaded, permissionDenied = permissionDenied,
                             onOpen = { item, list -> details = item; detailList = list },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                             onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
                             onFolders = { tab = Tab.Library },
-                            onRefresh = { refreshNonce++ },
-                            palette = paletteFor(appDesign)
+                            onRefresh = { refreshNonce++ }
                         )
                         Tab.Search -> NovaSearchScreen(
                             items = all, search = search, onSearch = { search = it },
@@ -640,15 +642,15 @@ private fun PlayBoxApp() {
                 }
                 val auraContent: @Composable (Tab) -> Unit = { currentTab ->
                     when (currentTab) {
-                        Tab.Home -> AuraHomeScreen(
+                        // M3 redesign Phase 2: Home is the new M3 screen.
+                        Tab.Home -> M3HomeScreen(
                             videos = videos, audio = audio,
                             loading = !libraryLoaded, permissionDenied = permissionDenied,
                             onOpen = { item, list -> details = item; detailList = list },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                             onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
                             onFolders = { tab = Tab.Library },
-                            onRefresh = { refreshNonce++ },
-                            palette = paletteFor(appDesign)
+                            onRefresh = { refreshNonce++ }
                         )
                         Tab.Search -> AuraSearchScreen(
                             items = all, search = search, onSearch = { search = it },
@@ -766,15 +768,15 @@ private fun PlayBoxApp() {
                             label = "tabSwitch"
                         ) { currentTab ->
                         when (currentTab) {
-                            Tab.Home -> HomeScreen(
+                            // M3 redesign Phase 2: Home is the new M3 screen.
+                            Tab.Home -> M3HomeScreen(
                                 videos = videos, audio = audio,
                                 loading = !libraryLoaded, permissionDenied = permissionDenied,
                                 onOpen = { item, list -> details = item; detailList = list },
                                 onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                                 onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
                                 onFolders = { tab = Tab.Library },
-                                onRefresh = { refreshNonce++ },
-                                palette = paletteFor(appDesign)
+                                onRefresh = { refreshNonce++ }
                             )
                             Tab.Search -> SearchScreen(
                                 items = all, search = search, onSearch = { search = it },
