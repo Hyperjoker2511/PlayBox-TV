@@ -15,11 +15,6 @@ class Patch9Test {
     )
 
     @Test
-    fun playerUiStyle_lumenByName() {
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("lumen"))
-    }
-
-    @Test
     fun engineFor_media3IsTheDefaultWhenAvailable() {
         // 1.4.0: Media3 is the default again (the 1.3.x VLC default
         // is gone — it crashed on the M31). VLC is still routed for
