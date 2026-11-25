@@ -43,8 +43,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +56,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
 // ---------- ZEPH shared components (M3 expressive) ----------
 // Every new screen is built from these. One focus treatment, one
@@ -557,4 +562,26 @@ internal fun M3TabStrip(
             }
         }
     }
+}
+
+/** A large live clock (HH:mm). The state lives inside this
+ * composable so only it recomposes, once a second. Used by the Home
+ * header and the player HUD. */
+@Composable
+internal fun HomeClock(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    var now by remember { mutableStateOf(java.time.LocalTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000L)
+            now = java.time.LocalTime.now()
+        }
+    }
+    Text(
+        now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
+        fontSize = 30.sp, color = color, fontWeight = FontWeight.Bold,
+        fontFamily = AppFont, modifier = modifier
+    )
 }
