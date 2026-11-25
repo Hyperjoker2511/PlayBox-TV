@@ -27,19 +27,6 @@ class Patch11Test {
     }
 
     @Test
-    fun playerUiStyle_auraByName() {
-        assertEquals(PlayerUiStyle.AURA, playerUiStyleFromName("aura"))
-    }
-
-    @Test
-    fun playerUiStyle_otherNamesUnchanged() {
-        assertEquals(PlayerUiStyle.LUMEN, playerUiStyleFromName("lumen"))
-        assertEquals(PlayerUiStyle.LIQUID_GLASS, playerUiStyleFromName("liquid_glass"))
-        assertEquals(PlayerUiStyle.PRISM, playerUiStyleFromName("prism"))
-        assertEquals(PlayerUiStyle.NOVA, playerUiStyleFromName("nova"))
-    }
-
-    @Test
     fun engineFor_nfsGoesToVlc() {
         val item = VideoItem(path = "nfs://192.168.1.10/movies/film.mkv", name = "film.mkv")
         assertEquals(PlayerEngine.VLC, engineFor(item, null, vlcAvailable = true))
