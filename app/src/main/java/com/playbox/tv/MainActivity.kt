@@ -476,10 +476,10 @@ private fun PlayBoxApp() {
                 )
             } else if (settingsPage == "privacy") {
                 // Patch 4 (Jio): Privacy Policy, opened from Settings → About.
-                PrivacyPolicyScreen(onBack = { settingsPage = null })
+                M3PrivacyPolicyScreen(onBack = { settingsPage = null })
             } else if (settingsPage == "licences") {
                 // Patch 4 (Jio): open-source licences, opened from Settings → About.
-                LicencesScreen(onBack = { settingsPage = null })
+                M3LicencesScreen(onBack = { settingsPage = null })
             } else if (appDesign == AppDesign.NOVA) {
                 // 1.4.2 (Nova, now official): the rail on wide screens
                 // (TV, phone landscape), the tab strip on narrow ones
@@ -544,9 +544,7 @@ private fun PlayBoxApp() {
                             onRefresh = { refreshNonce++ },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                         )
-                        Tab.Settings -> NovaSettingsScreen(
-                            currentDesign = appDesign,
-                            onDesignChange = { appDesign = it; saveAppDesign(context, it) },
+                        Tab.Settings -> M3SettingsScreen(
                             railMode = railMode,
                             onRailModeChange = { railMode = it; saveRailMode(context, it) },
                             labelMode = railLabelMode,
@@ -641,9 +639,7 @@ private fun PlayBoxApp() {
                             onRefresh = { refreshNonce++ },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                         )
-                        Tab.Settings -> AuraSettingsScreen(
-                            currentDesign = appDesign,
-                            onDesignChange = { appDesign = it; saveAppDesign(context, it) },
+                        Tab.Settings -> M3SettingsScreen(
                             railMode = railMode,
                             onRailModeChange = { railMode = it; saveRailMode(context, it) },
                             labelMode = railLabelMode,
@@ -782,16 +778,14 @@ private fun PlayBoxApp() {
                                 onRefresh = { refreshNonce++ },
                                 onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                             )
-                            Tab.Settings -> SettingsScreen(
-                                currentDesign = appDesign,
-                                onDesignChange = { appDesign = it; saveAppDesign(context, it) },
-                                railMode = railMode,
-                                onRailModeChange = { railMode = it; saveRailMode(context, it) },
-                                labelMode = railLabelMode,
-                                onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
-                                onPrivacy = { settingsPage = "privacy" },
-                                onLicences = { settingsPage = "licences" }
-                            )
+                        Tab.Settings -> M3SettingsScreen(
+                            railMode = railMode,
+                            onRailModeChange = { railMode = it; saveRailMode(context, it) },
+                            labelMode = railLabelMode,
+                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
+                            onPrivacy = { settingsPage = "privacy" },
+                            onLicences = { settingsPage = "licences" }
+                        )
                         }
                         }
                 }
