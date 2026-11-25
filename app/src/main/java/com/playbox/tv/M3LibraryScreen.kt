@@ -199,9 +199,9 @@ internal fun M3LibraryScreen(
                         LibraryFilter.FAVOURITES to "Favourites",
                         LibraryFilter.PLAYLISTS to "Playlists"
                     ).forEach { (f, label) ->
-                        ZephFilterChip(label, selected = filter == f) {
+                        ZephFilterChip(label, selected = filter == f, onClick = {
                             filter = f; openPlaylist = null; cinematicFocus = null
-                        }
+                        })
                     }
                 }
             }
@@ -237,14 +237,14 @@ internal fun M3LibraryScreen(
                                         Spacer(modifier = Modifier.height(12.dp))
                                     }
                                     item {
-                                        ZephButton("Add a folder") {
+                                        ZephButton("Add a folder", onClick = {
                                             safPickerError = null
                                             try {
                                                 addFolderLauncher.launch(null)
                                             } catch (_: Exception) {
                                                 safPickerError = "This TV has no folder picker. Use the storage rows above, or the Videos tab."
                                             }
-                                        }
+                                        })
                                         Spacer(modifier = Modifier.height(12.dp))
                                         Text(
                                             "Pick a USB drive or folder once — Zeph remembers it, even after a restart.",
@@ -302,12 +302,12 @@ internal fun M3LibraryScreen(
                                     }
                                     item {
                                         Spacer(modifier = Modifier.height(16.dp))
-                                        ZephOutlinedButton("Remove this folder") {
+                                        ZephOutlinedButton("Remove this folder", onClick = {
                                             val removed = safFolder
                                             onSafFolder(null)
                                             MediaLibrary.removeSafFolder(context, removed)
                                             safFolders = MediaLibrary.safFolders(context)
-                                        }
+                                        })
                                     }
                                 } else {
                                     item {
@@ -353,12 +353,12 @@ internal fun M3LibraryScreen(
                                             Spacer(modifier = Modifier.height(12.dp))
                                         }
                                         item {
-                                            ZephButton("New playlist") {
+                                            ZephButton("New playlist", onClick = {
                                                 val name = LibraryStores.nextPlaylistName(context)
                                                 LibraryStores.createPlaylist(context, name)
                                                 playlistNames = LibraryStores.playlistNames(context)
                                                 openPlaylist = name
-                                            }
+                                            })
                                         }
                                         if (playlistNames.isEmpty()) {
                                             item {
