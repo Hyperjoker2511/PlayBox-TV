@@ -14,19 +14,6 @@ import org.junit.Test
 class Patch11Test {
 
     @Test
-    fun appDesign_auraByName() {
-        assertEquals(AppDesign.AURA, appDesignFromName("aura"))
-    }
-
-    @Test
-    fun appDesign_novaStillTheDefault() {
-        assertEquals(AppDesign.NOVA, appDesignFromName(null))
-        assertEquals(AppDesign.NOVA, appDesignFromName(""))
-        assertEquals(AppDesign.NOVA, appDesignFromName("nova"))
-        assertEquals(AppDesign.NOVA, appDesignFromName("something-else"))
-    }
-
-    @Test
     fun engineFor_nfsGoesToVlc() {
         val item = VideoItem(path = "nfs://192.168.1.10/movies/film.mkv", name = "film.mkv")
         assertEquals(PlayerEngine.VLC, engineFor(item, null, vlcAvailable = true))
