@@ -11,51 +11,54 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ---------- ZEPH — the new Material 3 design system (from scratch) ----------
-// This is a NEW design, not the old Nova/Qwen/Aura look with M3 added.
-// One system, one colour scheme, one typography scale, one shape set.
-// M3 1.5.0 expressive: large rounded shapes, bold display type, a
-// single violet accent (the user's one-accent rule — mint is retired).
-// The violet is the brand: #8B5CF6, the same seed the app has used
-// since Lumen. Everything else is white or muted grey on near-black.
+// ---------- ZEPH — Material 3 Expressive design system (1.7.0) ----------
+// FULL Material 3: the real M3 tonal colour system, the real M3
+// components (see M3Components.kt), the M3 shape and type scales.
+// The 1.6.0 look failed because it kept Nova's identity — near-black
+// background, one violet accent, one hue everywhere. This scheme is
+// a NEW identity: a teal seed with DISTINCT hues — teal primary,
+// sage secondary, warm-peach tertiary — and stepped tonal surfaces
+// so cards, sheets and rails read as M3 elevation, not flat black.
+// The seed is one value to change if a different colour is wanted.
 // Motion stays transform + opacity only, 60fps, no live blur.
 
-/** The Zeph colour scheme: M3 expressive dark, violet seed. */
+/** The Zeph colour scheme: M3 expressive dark, teal seed.
+ * Tonal values follow the Material 3 colour system for a teal seed
+ * (#006A6A): primary is the bright teal 80, containers are the
+ * deep teal 30, secondary is sage, tertiary is warm peach. */
 internal val ZephColorScheme = darkColorScheme(
-    primary = Color(0xFF8B5CF6),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF4C1D95),
-    onPrimaryContainer = Color(0xFFEADDFF),
-    secondary = Color(0xFFCCC2DC),
-    onSecondary = Color(0xFF332D41),
-    secondaryContainer = Color(0xFF4A4458),
-    onSecondaryContainer = Color(0xFFE8DEF8),
-    // Tertiary stays in the violet family (periwinkle) — one hue,
-    // one accent. No second accent colour anywhere in the app.
-    tertiary = Color(0xFFA5B4FC),
-    onTertiary = Color(0xFF1E2A5C),
-    tertiaryContainer = Color(0xFF2E3A6E),
-    onTertiaryContainer = Color(0xFFDCE2FF),
-    error = Color(0xFFF2B8B5),
-    onError = Color(0xFF601410),
-    errorContainer = Color(0xFF8C1D18),
-    onErrorContainer = Color(0xFFF9DEDC),
-    background = Color(0xFF0B0D12),
-    onBackground = Color(0xFFF2F4F8),
-    surface = Color(0xFF171B26),
-    onSurface = Color(0xFFF2F4F8),
-    surfaceVariant = Color(0xFF262B38),
-    onSurfaceVariant = Color(0xFF9AA3B2),
-    outline = Color(0xFF2A2F3D),
-    outlineVariant = Color(0xFF262B38),
-    surfaceContainerLowest = Color(0xFF0B0D12),
-    surfaceContainerLow = Color(0xFF12141B),
-    surfaceContainer = Color(0xFF1F2433),
-    surfaceContainerHigh = Color(0xFF262B38),
-    surfaceContainerHighest = Color(0xFF2E3442),
-    inverseSurface = Color(0xFFF2F4F8),
-    inverseOnSurface = Color(0xFF171B26),
-    inversePrimary = Color(0xFF4C1D95),
+    primary = Color(0xFF4DD0C4),
+    onPrimary = Color(0xFF003735),
+    primaryContainer = Color(0xFF00504B),
+    onPrimaryContainer = Color(0xFF7DF1E4),
+    secondary = Color(0xFFB0CCC6),
+    onSecondary = Color(0xFF1D3531),
+    secondaryContainer = Color(0xFF324B47),
+    onSecondaryContainer = Color(0xFFCCE8E2),
+    tertiary = Color(0xFFE8B48C),
+    onTertiary = Color(0xFF422E22),
+    tertiaryContainer = Color(0xFF5C4033),
+    onTertiaryContainer = Color(0xFFFFDCC6),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF0F1513),
+    onBackground = Color(0xFFE0E3E1),
+    surface = Color(0xFF0F1513),
+    onSurface = Color(0xFFE0E3E1),
+    surfaceVariant = Color(0xFF3F4946),
+    onSurfaceVariant = Color(0xFFBFC9C5),
+    outline = Color(0xFF89938F),
+    outlineVariant = Color(0xFF3F4946),
+    surfaceContainerLowest = Color(0xFF0A0F0E),
+    surfaceContainerLow = Color(0xFF171D1B),
+    surfaceContainer = Color(0xFF1B2120),
+    surfaceContainerHigh = Color(0xFF262D2B),
+    surfaceContainerHighest = Color(0xFF313836),
+    inverseSurface = Color(0xFFE0E3E1),
+    inverseOnSurface = Color(0xFF191C1A),
+    inversePrimary = Color(0xFF006A6A),
     scrim = Color.Black
 )
 
@@ -80,18 +83,18 @@ internal val ZephTypography = Typography(
     labelSmall = TextStyle(fontFamily = AppFont, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, lineHeight = 16.sp)
 )
 
-/** The Zeph shape scale: expressive — large, soft, rounded. */
+/** The Zeph shape scale: M3 Expressive — large, soft, rounded.
+ * Buttons and chips are full (pill), cards are extraLarge. */
 internal val ZephShapes = Shapes(
     extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
     small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
     medium = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
+    large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(32.dp)
 )
 
 /** The app theme. Wrap the whole app in this — it is the ONLY
- * MaterialTheme in the new design. The old designs' palettes are
- * not used by new screens; they are deleted in Phase 8. */
+ * MaterialTheme in the design. */
 @Composable
 internal fun ZephTheme(content: @Composable () -> Unit) {
     MaterialTheme(
