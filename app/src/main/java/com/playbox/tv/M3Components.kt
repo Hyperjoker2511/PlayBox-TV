@@ -440,3 +440,45 @@ internal fun ZephEmptyState(
         }
     }
 }
+
+/** An M3 button with the old TvButton signature (text, modifier,
+ * onClick last) — so screens that used TvButton / GlassButton can
+ * restyle by renaming the call. onClick is LAST here, so
+ * trailing-lambda syntax works (unlike the Zeph buttons, where
+ * onClick comes before modifier/icon). */
+@Composable
+internal fun M3TvButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .zephFocus(interaction)
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                RoundedCornerShape(28.dp)
+            )
+            .border(
+                1.dp,
+                if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outline,
+                RoundedCornerShape(28.dp)
+            )
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 28.dp, vertical = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.titleMedium,
+            color = if (active) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1
+        )
+    }
+}
