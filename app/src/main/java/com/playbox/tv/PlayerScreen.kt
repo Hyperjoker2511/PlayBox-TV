@@ -253,7 +253,6 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // Patch 1.3.1: player lock + play-as-audio + the switchable UI.
     var locked by remember { mutableStateOf(false) }
     var playAsAudio by remember { mutableStateOf(false) }
-    val uiStyle = playerUiStyle(context)
 
     val rootFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
@@ -776,14 +775,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         // Patch 1.3.0: the slim floating dock + top bar from the designs
         // replace the old full-width panel. The dock hides while a gear
         // panel is open, like the designs.
-        PlayerTopBar(
+        // M3 redesign Phase 6: one bottom dock only — no top bar.
+        // The HUD carries the title + stream info + live clock.
+        M3PlayerHud(
             title = item.name,
             badge = if (videoSize.height > 0) "${videoSize.height}p" else containerOf(item),
+            streamInfo = if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}  •  ${containerOf(item)}" else containerOf(item),
             visible = showControls && panel == null && !ended && !locked,
-            style = uiStyle,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
         )
-        PlayerDock(
+        M3PlayerDock(
             positionMs = positionMs,
             durationMs = durationMs,
             bufferedFraction = if (durationMs > 0) (player.bufferedPosition.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
@@ -804,11 +805,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             seekFocus = seekFocus,
             visible = showControls && panel == null && !ended && !locked,
             status = status,
-            style = uiStyle,
             onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
             onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = if (uiStyle == PlayerUiStyle.LIQUID_GLASS || uiStyle == PlayerUiStyle.NOVA) 0.dp else 24.dp)
+                .padding(bottom = 24.dp)
         )
 
         if (panel != null) {
