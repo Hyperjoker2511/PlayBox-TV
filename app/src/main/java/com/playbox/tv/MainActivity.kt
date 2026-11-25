@@ -41,9 +41,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -348,7 +346,11 @@ private fun PlayBoxApp() {
         }
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(primary = Primary, surface = Bg, background = Bg)) {
+    // M3 redesign Phase 1: the whole app now runs under ZephTheme —
+    // the new Material 3 expressive design system (M3Theme.kt). The
+    // old screens keep rendering (they use their own palettes) until
+    // each one is rebuilt in M3, phase by phase.
+    ZephTheme {
         Box(modifier = Modifier.fillMaxSize().background(Bg)) {
             if (showExitDialog) {
                 ExitConfirmDialog(
