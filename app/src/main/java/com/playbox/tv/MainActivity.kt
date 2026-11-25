@@ -154,18 +154,18 @@ private fun PermissionRationaleScreen(onAllow: () -> Unit, onNotNow: () -> Unit)
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.Start
     ) {
-        Text("Zeph needs to see your videos", fontSize = 36.sp, color = White)
+        Text("Zeph needs to see your videos", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.onSurface)
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             "Allow media access so the Videos and Music tabs can list your files. " +
                 "Zeph only reads file names and lengths — nothing leaves your TV. " +
                 "You can still browse folders and USB without it.",
-            fontSize = 22.sp, color = Muted
+            style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(32.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            TvButton("Allow access", onClick = onAllow)
-            TvButton("Not now", onClick = onNotNow)
+            M3TvButton("Allow access", onClick = onAllow)
+            M3TvButton("Not now", onClick = onNotNow)
         }
     }
 }
@@ -271,9 +271,6 @@ private fun PlayBoxApp() {
     var fallbackDoneFor by remember { mutableStateOf<String?>(null) }
     // 1.4.2 (Nova, now official): the whole-app design — Nova (from
     // scratch, the default) or Qwen (the kept option). Kept in state
-    // so switching it in Settings re-renders the scaffold
-    // immediately; saved to prefs so it survives a restart.
-    var appDesign by remember { mutableStateOf(appDesign(context)) }
     // P2: rail mode (docked / floating) + menu labels (off / focused /
     // always). Kept in state so changing them in Settings re-renders
     // the rail immediately; saved to prefs so they survive a restart.
@@ -480,13 +477,12 @@ private fun PlayBoxApp() {
             } else if (settingsPage == "licences") {
                 // Patch 4 (Jio): open-source licences, opened from Settings → About.
                 M3LicencesScreen(onBack = { settingsPage = null })
-            } else if (appDesign == AppDesign.NOVA) {
-                // 1.4.2 (Nova, now official): the rail on wide screens
-                // (TV, phone landscape), the tab strip on narrow ones
-                // (phone portrait). The content switches with a fade
-                // + a small rise (Nova motion), not Qwen's slide.
-                // The Player button resumes the most recently watched
-                // video, like Qwen's Player pill.
+            } else {
+                // M3 redesign Phase 8: one design, one branch. The
+                // rail on wide screens (TV, phone landscape), the M3
+                // tab strip on narrow ones (phone portrait). The
+                // Player button resumes the most recently watched
+                // video.
                 val onPlayer: () -> Unit = {
                     val times = resumeTimes(context)
                     val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
@@ -495,11 +491,8 @@ private fun PlayBoxApp() {
                         playing = item; playList = all; playFromStart = false; playStartSpeed = null
                     }
                 }
-                val novaContent: @Composable (Tab) -> Unit = { currentTab ->
+                val m3Content: @Composable (Tab) -> Unit = { currentTab ->
                     when (currentTab) {
-                        // M3 redesign Phase 2: Home is the new M3 screen
-                        // in every design — the old Home screens are
-                        // gone from the tab, deleted in Phase 8.
                         Tab.Home -> M3HomeScreen(
                             videos = videos, audio = audio,
                             loading = !libraryLoaded, permissionDenied = permissionDenied,
@@ -513,9 +506,8 @@ private fun PlayBoxApp() {
                             items = all, search = search, onSearch = { search = it },
                             onOpen = { item, list -> details = item; detailList = list }
                         )
-                        // Explore is Aura's browse view (1.4.5). Nova has
-                        // no Explore tab, so it falls back to Library if
-                        // the design is switched while on Explore.
+                        // One design has no Explore view, so Explore
+                        // falls back to Library.
                         Tab.Explore -> M3LibraryScreen(
                             videos = videos, audio = audio, loading = !libraryLoaded,
                             mode = libraryMode, onMode = { libraryMode = it },
@@ -554,273 +546,67 @@ private fun PlayBoxApp() {
                         )
                     }
                 }
-                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(NovaBg)) {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                     if (maxWidth >= 700.dp) {
                         // P2: rail mode (docked / floating) + menu labels.
                         RailLayout(
                             railMode = railMode, labelMode = railLabelMode,
                             tab = tab, onTab = { tab = it }, onPlayer = onPlayer,
-                            palette = paletteFor(appDesign)
+                            palette = ZephPalette
                         ) {
                             AnimatedContent(
                                 targetState = tab,
                                 transitionSpec = {
-                                    (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
-                                        (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                    // The tab switch rides the shared Soft spring —
+                                    // direction-aware slide + fade + a small scale
+                                    // settle (in from 1.02, out to 0.98). Springs
+                                    // follow the velocity, so a second tab press
+                                    // mid-flight redirects the motion instead of
+                                    // queueing. Reduce motion swaps it for a plain fade.
+                                    if (isReduceMotion(context)) {
+                                        fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
+                                    } else {
+                                        val dir = tabSlideDirection(initialState, targetState)
+                                        val enter = slideInHorizontally(Motion.soft()) { if (dir >= 0) it / 4 else -it / 4 } +
+                                            fadeIn(Motion.soft()) +
+                                            scaleIn(Motion.soft(), initialScale = 1.02f)
+                                        val exit = slideOutHorizontally(Motion.soft()) { if (dir >= 0) -it / 4 else it / 4 } +
+                                            fadeOut(Motion.soft()) +
+                                            scaleOut(Motion.soft(), targetScale = 0.98f)
+                                        enter togetherWith exit
+                                    }
                                 },
-                                label = "novaTabSwitch"
-                            ) { currentTab -> novaContent(currentTab) }
+                                label = "m3TabSwitch"
+                            ) { currentTab -> m3Content(currentTab) }
                         }
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
-                            NovaTabStrip(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
+                            M3TabStrip(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
                             Box(modifier = Modifier.weight(1f).fillMaxSize()) {
                                 AnimatedContent(
                                     targetState = tab,
-                                    transitionSpec = {
-                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
-                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
-                                    },
-                                    label = "novaTabSwitch"
-                                ) { currentTab -> novaContent(currentTab) }
-                            }
-                        }
-                    }
-                }
-            } else if (appDesign == AppDesign.AURA) {
-                // 1.4.5 Patch 2 (Aura, the third design): the expanding
-                // left rail on wide screens (TV, phone landscape), the
-                // bottom nav on narrow ones (phone portrait). Five
-                // rail items — Home / Search / Explore / Library /
-                // Settings — the Aura file's navigation. The content
-                // switches with a fade + a small rise (Aura motion),
-                // not Qwen's slide. The Player button resumes the
-                // most recently watched video, like Nova and Qwen.
-                val onPlayer: () -> Unit = {
-                    val times = resumeTimes(context)
-                    val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
-                    val item = recent ?: all.firstOrNull()
-                    if (item != null) {
-                        playing = item; playList = all; playFromStart = false; playStartSpeed = null
-                    }
-                }
-                val auraContent: @Composable (Tab) -> Unit = { currentTab ->
-                    when (currentTab) {
-                        // M3 redesign Phase 2: Home is the new M3 screen.
-                        Tab.Home -> M3HomeScreen(
-                            videos = videos, audio = audio,
-                            loading = !libraryLoaded, permissionDenied = permissionDenied,
-                            onOpen = { item, list -> details = item; detailList = list },
-                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
-                            onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
-                            onFolders = { tab = Tab.Library },
-                            onRefresh = { refreshNonce++ }
-                        )
-                        Tab.Search -> M3SearchScreen(
-                            items = all, search = search, onSearch = { search = it },
-                            onOpen = { item, list -> details = item; detailList = list }
-                        )
-                        Tab.Explore -> AuraExploreScreen(
-                            videos = videos, audio = audio,
-                            onOpen = { item, list -> details = item; detailList = list }
-                        )
-                        // M3 redesign Phase 3: Library is the new M3 screen.
-                        Tab.Library -> M3LibraryScreen(
-                            videos = videos, audio = audio, loading = !libraryLoaded,
-                            mode = libraryMode, onMode = { libraryMode = it },
-                            folder = libraryFolder, onFolder = { libraryFolder = it },
-                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
-                            listState = libraryListState,
-                            networkServer = networkServer, onNetworkServer = { networkServer = it },
-                            networkPath = networkPath, onNetworkPath = { networkPath = it },
-                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
-                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
-                            onOpen = { item, list -> details = item; detailList = list },
-                            onRefresh = { refreshNonce++ },
-                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
-                        )
-                        Tab.Settings -> M3SettingsScreen(
-                            railMode = railMode,
-                            onRailModeChange = { railMode = it; saveRailMode(context, it) },
-                            labelMode = railLabelMode,
-                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
-                            onPrivacy = { settingsPage = "privacy" },
-                            onLicences = { settingsPage = "licences" }
-                        )
-                    }
-                }
-                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(AuraSurface)) {
-                    if (maxWidth >= 700.dp) {
-                        // P2: rail mode (docked / floating) + menu labels.
-                        RailLayout(
-                            railMode = railMode, labelMode = railLabelMode,
-                            tab = tab, onTab = { tab = it }, onPlayer = onPlayer,
-                            palette = paletteFor(appDesign)
-                        ) {
-                            AnimatedContent(
-                                targetState = tab,
                                 transitionSpec = {
-                                    (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
-                                        (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
+                                    // The tab switch rides the shared Soft spring —
+                                    // direction-aware slide + fade + a small scale
+                                    // settle (in from 1.02, out to 0.98). Springs
+                                    // follow the velocity, so a second tab press
+                                    // mid-flight redirects the motion instead of
+                                    // queueing. Reduce motion swaps it for a plain fade.
+                                    if (isReduceMotion(context)) {
+                                        fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
+                                    } else {
+                                        val dir = tabSlideDirection(initialState, targetState)
+                                        val enter = slideInHorizontally(Motion.soft()) { if (dir >= 0) it / 4 else -it / 4 } +
+                                            fadeIn(Motion.soft()) +
+                                            scaleIn(Motion.soft(), initialScale = 1.02f)
+                                        val exit = slideOutHorizontally(Motion.soft()) { if (dir >= 0) -it / 4 else it / 4 } +
+                                            fadeOut(Motion.soft()) +
+                                            scaleOut(Motion.soft(), targetScale = 0.98f)
+                                        enter togetherWith exit
+                                    }
                                 },
-                                label = "auraTabSwitch"
-                            ) { currentTab -> auraContent(currentTab) }
-                        }
-                    } else {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
-                                AnimatedContent(
-                                    targetState = tab,
-                                    transitionSpec = {
-                                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.98f)) togetherWith
-                                            (fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.98f))
-                                    },
-                                    label = "auraTabSwitch"
-                                ) { currentTab -> auraContent(currentTab) }
-                            }
-                            AuraBottomNav(tab = tab, onTab = { tab = it })
-                        }
-                    }
-                }
-            } else {
-                // Batch 3 (Qwen): one ambient glow layer at the top.
-                // FIX (2026-11-23): the glow used to be a 320.dp box in
-                // this Column — on a phone in landscape (~390dp tall) it
-                // ate the whole screen and the content got zero height, so
-                // every tab looked blank with the nav at the bottom. It is
-                // now a background overlay that takes no layout space,
-                // sized as a fraction of the screen so it scales from a
-                // 32-inch TV down to a phone.
-                // 1.4.3 (enhanced): on wide screens (TV) the top pill bar
-                // is replaced by the Qwen left rail (QwenRail); the phone
-                // keeps the pill bar. The Player action and the tab
-                // content are shared by both layouts.
-                val qwenPlayer: () -> Unit = {
-                    val times = resumeTimes(context)
-                    val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
-                    val item = recent ?: all.firstOrNull()
-                    if (item != null) {
-                        playing = item; playList = all; playFromStart = false; playStartSpeed = null
-                    }
-                }
-                val qwenContent: @Composable () -> Unit = {
-                        AnimatedContent(
-                            targetState = tab,
-                            transitionSpec = {
-                                // 1.4.0 (Nocturne TV motion): the tab
-                                // switch rides the shared Soft spring —
-                                // direction-aware slide + fade + a
-                                // small scale settle (in from 1.02,
-                                // out to 0.98). Springs follow the
-                                // velocity, so a second tab press
-                                // mid-flight redirects the motion
-                                // instead of queueing. Reduce motion
-                                // swaps it for a plain fade.
-                                if (isReduceMotion(context)) {
-                                    fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
-                                } else {
-                                    val dir = tabSlideDirection(initialState, targetState)
-                                    val enter = slideInHorizontally(Motion.soft()) { if (dir >= 0) it / 4 else -it / 4 } +
-                                        fadeIn(Motion.soft()) +
-                                        scaleIn(Motion.soft(), initialScale = 1.02f)
-                                    val exit = slideOutHorizontally(Motion.soft()) { if (dir >= 0) -it / 4 else it / 4 } +
-                                        fadeOut(Motion.soft()) +
-                                        scaleOut(Motion.soft(), targetScale = 0.98f)
-                                    enter togetherWith exit
-                                }
-                            },
-                            label = "tabSwitch"
-                        ) { currentTab ->
-                        when (currentTab) {
-                            // M3 redesign Phase 2: Home is the new M3 screen.
-                            Tab.Home -> M3HomeScreen(
-                                videos = videos, audio = audio,
-                                loading = !libraryLoaded, permissionDenied = permissionDenied,
-                                onOpen = { item, list -> details = item; detailList = list },
-                                onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
-                                onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
-                                onFolders = { tab = Tab.Library },
-                                onRefresh = { refreshNonce++ }
-                            )
-                            Tab.Search -> M3SearchScreen(
-                                items = all, search = search, onSearch = { search = it },
-                                onOpen = { item, list -> details = item; detailList = list }
-                            )
-                            // Explore is Aura's browse view (1.4.5). Qwen
-                            // has no Explore tab, so it falls back to
-                            // Library if the design is switched while on
-                            // Explore.
-                            Tab.Explore -> M3LibraryScreen(
-                                videos = videos, audio = audio, loading = !libraryLoaded,
-                                mode = libraryMode, onMode = { libraryMode = it },
-                                folder = libraryFolder, onFolder = { libraryFolder = it },
-                                safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
-                                listState = libraryListState,
-                                networkServer = networkServer, onNetworkServer = { networkServer = it },
-                                networkPath = networkPath, onNetworkPath = { networkPath = it },
-                                ftpServer = ftpServer, onFtpServer = { ftpServer = it },
-                                ftpPath = ftpPath, onFtpPath = { ftpPath = it },
-                                onOpen = { item, list -> details = item; detailList = list },
-                                onRefresh = { refreshNonce++ },
-                                onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
-                            )
-                            Tab.Library -> M3LibraryScreen(
-                                videos = videos, audio = audio, loading = !libraryLoaded,
-                                mode = libraryMode, onMode = { libraryMode = it },
-                                folder = libraryFolder, onFolder = { libraryFolder = it },
-                                safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
-                                listState = libraryListState,
-                                networkServer = networkServer, onNetworkServer = { networkServer = it },
-                                networkPath = networkPath, onNetworkPath = { networkPath = it },
-                                ftpServer = ftpServer, onFtpServer = { ftpServer = it },
-                                ftpPath = ftpPath, onFtpPath = { ftpPath = it },
-                                onOpen = { item, list -> details = item; detailList = list },
-                                onRefresh = { refreshNonce++ },
-                                onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
-                            )
-                        Tab.Settings -> M3SettingsScreen(
-                            railMode = railMode,
-                            onRailModeChange = { railMode = it; saveRailMode(context, it) },
-                            labelMode = railLabelMode,
-                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
-                            onPrivacy = { settingsPage = "privacy" },
-                            onLicences = { settingsPage = "licences" }
-                        )
-                        }
-                        }
-                }
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                    val wide = maxWidth >= 900.dp
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.35f)
-                                .align(Alignment.TopCenter).background(
-                                    Brush.verticalGradient(
-                                        listOf(Color(0x298B5CF6), Color.Transparent)
-                                    )
-                                )
-                        ) {}
-                        if (wide) {
-                            // P2: rail mode (docked / floating) + menu labels.
-                            RailLayout(
-                                railMode = railMode, labelMode = railLabelMode,
-                                tab = tab, onTab = { tab = it }, onPlayer = qwenPlayer,
-                                palette = paletteFor(appDesign)
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
-                                    qwenContent()
-                                }
-                            }
-                        } else {
-                            Column(modifier = Modifier.fillMaxSize()) {
-                                TopNav(
-                                    tab = tab, onTab = { tab = it },
-                                    onPlayer = qwenPlayer,
-                                    modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 24.dp)
-                                )
-                                Box(modifier = Modifier.weight(1f).fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
-                                    qwenContent()
-                                }
+                                    label = "m3TabSwitch"
+                                ) { currentTab -> m3Content(currentTab) }
                             }
                         }
                     }
@@ -843,20 +629,20 @@ private fun ExitConfirmDialog(onExit: () -> Unit, onStay: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Column(
-            modifier = Modifier.background(Bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainer, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Exit Zeph Player?", fontSize = 28.sp, color = White)
+            Text("Exit Zeph Player?", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 "The app closes fully — no background, no cast receiver left running.",
-                fontSize = 18.sp, color = Muted
+                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(28.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                TvButton("Exit", onClick = onExit)
-                TvButton("Stay", onClick = onStay)
+                M3TvButton("Exit", onClick = onExit)
+                M3TvButton("Stay", onClick = onStay)
             }
         }
     }
