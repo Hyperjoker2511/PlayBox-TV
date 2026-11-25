@@ -71,7 +71,10 @@ internal fun SettingsScreen(
     railMode: RailMode = RailMode.DOCKED,
     onRailModeChange: (RailMode) -> Unit = {},
     labelMode: RailLabelMode = RailLabelMode.FOCUSED,
-    onLabelModeChange: (RailLabelMode) -> Unit = {}
+    onLabelModeChange: (RailLabelMode) -> Unit = {},
+    // Patch 4 (Jio): open the in-app Privacy Policy and Licences screens.
+    onPrivacy: () -> Unit = {},
+    onLicences: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
@@ -448,6 +451,11 @@ internal fun SettingsScreen(
                         Text("Local and USB video and audio. Seek, fast-forward, rewind, speed, subtitles and audio tracks.", fontSize = 20.sp, color = Muted)
                         Text("Player: Media3 / ExoPlayer 1.6.1. DLNA cast from your phone. SMB / NAS folders.", fontSize = 20.sp, color = Muted)
                         Text("No sign-in. No ads. No Google Play Services.", fontSize = 20.sp, color = Muted)
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            TvButton("Privacy policy", onClick = onPrivacy)
+                            TvButton("Open-source licences", onClick = onLicences)
+                        }
                     }
                 }
             }
