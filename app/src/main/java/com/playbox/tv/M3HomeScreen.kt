@@ -17,13 +17,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -35,13 +41,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-// ---------- ZEPH Home (M3 redesign, from scratch) ----------
-// A NEW Home, not a Nova/Qwen/Aura port. One M3 system: the
-// greeting + live clock up top, a big expressive hero for the
-// featured video (Continue or first video), a Continue watching
-// carousel, then All videos as M3 rows. Everything scrolls
-// vertically; nothing clips. The data is the same as before
-// (MediaLibrary + resume store) — only the design is new.
+// ---------- ZEPH Home (M3 Expressive 1.7.0) ----------
+// A NEW Home, not the 1.6.0 arrangement. M3 Expressive throughout:
+// a tonal clock pill, a quick-actions chip row (Library, Folders,
+// Network, Refresh), a big expressive hero with a tertiary "Featured"
+// chip, larger carousel cards, M3 section headers with See-all.
+// The data is the same as before (MediaLibrary + resume store) —
+// only the design is new.
 
 @Composable
 internal fun M3HomeScreen(
@@ -69,12 +75,12 @@ internal fun M3HomeScreen(
         val hPad = if (wide) (maxWidth * 0.05f).coerceIn(34.dp, 88.dp) else 18.dp
         val topPad = if (wide) 46.dp else 22.dp
         val bottomPad = if (wide) 56.dp else 40.dp
-        val heroHeight = if (wide) 340.dp else 220.dp
+        val heroHeight = if (wide) 360.dp else 230.dp
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = hPad)
         ) {
-            // Header: greeting + live clock, then the library counts.
+            // Header: greeting + a tonal clock pill, then the counts.
             item {
                 Spacer(modifier = Modifier.height(topPad))
                 Row(
@@ -87,9 +93,17 @@ internal fun M3HomeScreen(
                         style = MaterialTheme.typography.displaySmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    HomeClock(color = MaterialTheme.colorScheme.onSurface)
+                    // The clock sits in a tonal pill — M3 Expressive.
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                    ) {
+                        HomeClock(color = MaterialTheme.colorScheme.primary)
+                    }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     "${videos.size} videos  •  ${audio.size} tracks" +
                         if (servers > 0) "  •  $servers network servers" else "",
@@ -105,11 +119,43 @@ internal fun M3HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
             }
 
-            // Hero: the featured video — full-bleed cover, title,
-            // meta, resume progress, Play + Details.
+            // Quick actions: M3 AssistChips — Library, Folders/USB,
+            // Network, Refresh. A dashboard strip, new in 1.7.0.
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    M3QuickChip(
+                        label = "Library",
+                        icon = Icons.Filled.VideoLibrary,
+                        onClick = { onLibrary("Videos") }
+                    )
+                    M3QuickChip(
+                        label = "Folders / USB",
+                        icon = Icons.Filled.FolderOpen,
+                        onClick = onFolders
+                    )
+                    M3QuickChip(
+                        label = "Network",
+                        icon = Icons.Filled.Wifi,
+                        onClick = { onLibrary("Network") }
+                    )
+                    M3QuickChip(
+                        label = "Refresh",
+                        icon = Icons.Filled.Refresh,
+                        onClick = onRefresh
+                    )
+                }
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+
+            // Hero: the featured video — full-bleed cover, tertiary
+            // "Featured" chip, big title, resume progress, Play +
+            // Details in expressive pill buttons.
             if (hero != null) {
                 val heroResumeMs = resume[hero.path] ?: 0L
                 val heroFraction =
@@ -138,15 +184,24 @@ internal fun M3HomeScreen(
                                     .fillMaxWidth()
                                     .padding(24.dp)
                             ) {
-                                Text(
-                                    if (heroResumeMs > 0L) "Continue watching" else "Featured",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                // Tertiary chip — the warm peach, the
+                                // third hue that makes M3 read as M3.
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        if (heroResumeMs > 0L) "Continue watching" else "Featured",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     hero.name,
-                                    style = MaterialTheme.typography.headlineMedium,
+                                    style = MaterialTheme.typography.headlineLarge,
                                     color = Color.White,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
@@ -186,17 +241,30 @@ internal fun M3HomeScreen(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(28.dp))
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
             }
 
-            // Continue watching carousel.
+            // Continue watching carousel — larger cards, See-all.
             if (continueWatching.isNotEmpty()) {
                 item {
-                    ZephSectionTitle(
-                        "Continue watching",
-                        "${continueWatching.size} in progress"
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        ZephSectionTitle(
+                            "Continue watching",
+                            "${continueWatching.size} in progress"
+                        )
+                        TextButton(onClick = { onLibrary("Videos") }) {
+                            Text(
+                                "See all",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                 }
                 item {
@@ -214,7 +282,7 @@ internal fun M3HomeScreen(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(28.dp))
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
             } else if (videos.isEmpty() && audio.isEmpty()) {
                 // Empty state: nothing in the library yet.
@@ -288,6 +356,32 @@ internal fun M3HomeScreen(
     }
 }
 
+/** A quick-action chip: M3 AssistChip with a leading icon. */
+@Composable
+private fun M3QuickChip(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label, style = MaterialTheme.typography.labelLarge) },
+        leadingIcon = {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            labelColor = MaterialTheme.colorScheme.onSurface,
+            leadingIconContentColor = MaterialTheme.colorScheme.primary
+        ),
+        border = AssistChipDefaults.assistChipBorder(
+            enabled = true,
+            borderColor = MaterialTheme.colorScheme.outlineVariant,
+            borderWidth = 1.dp
+        )
+    )
+}
+
 /** A Continue watching card: wide 16:9 cover, title, resume bar. */
 @Composable
 private fun M3ContinueCard(
@@ -298,7 +392,7 @@ private fun M3ContinueCard(
     onOpen: () -> Unit
 ) {
     ZephCard(
-        modifier = Modifier.width(280.dp),
+        modifier = Modifier.width(320.dp),
         onClick = onOpen
     ) {
         Column {
@@ -316,8 +410,8 @@ private fun M3ContinueCard(
                 // Play button on the cover.
                 Box(
                     modifier = Modifier.align(Alignment.Center)
-                        .size(52.dp)
-                        .clip(MaterialTheme.shapes.extraLarge)
+                        .size(56.dp)
+                        .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary),
                     contentAlignment = Alignment.Center
                 ) {
