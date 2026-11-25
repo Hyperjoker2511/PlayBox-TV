@@ -31,18 +31,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android platform 36 + build-tools 36.1.0
+      - name: Install Android platform 37 + build-tools 36.1.0
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" "platforms;android-36" "build-tools;36.1.0"
+          "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
 
-      - name: Set up Gradle 8.11.1
+      - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 8.11.1
+          gradle-version: 9.6.0
 
       - name: Make the Gradle wrapper executable
         # Files pushed through GitHub's web/API upload lose the +x bit.
@@ -64,18 +64,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android platform 36 + build-tools 36.1.0
+      - name: Install Android platform 37 + build-tools 36.1.0
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           echo "sdkmanager=$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" "platforms;android-36" "build-tools;36.1.0"
+          "$SDKMANAGER" "platforms;android-37" "build-tools;36.1.0"
 
-      - name: Set up Gradle 8.11.1
+      - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 8.11.1
+          gradle-version: 9.6.0
 
       - name: Make the Gradle wrapper executable
         run: chmod +x gradlew
