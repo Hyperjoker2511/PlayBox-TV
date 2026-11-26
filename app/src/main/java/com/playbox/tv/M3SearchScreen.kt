@@ -2,6 +2,7 @@ package com.playbox.tv
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.onSizeChanged
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,6 +58,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
@@ -190,6 +191,10 @@ internal fun M3SearchScreen(
             // height — it can never clip off the bottom (K2).
             var kbHeight by remember { mutableStateOf(0.dp) }
             val density = LocalDensity.current
+            // maxHeight belongs to the BoxWithConstraints scope —
+            // capture it here, before the Box whose own scope
+            // would shadow it.
+            val maxH = maxHeight
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -221,7 +226,7 @@ internal fun M3SearchScreen(
                     Box(
                         modifier = Modifier.align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .heightIn(max = maxHeight * 0.62f)
+                            .heightIn(max = maxH * 0.62f)
                             .onSizeChanged { kbHeight = with(density) { it.height.toDp() } }
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
