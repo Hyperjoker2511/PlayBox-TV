@@ -2,7 +2,7 @@ package com.playbox.tv
 
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.LocalSharedTransitionScope
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -27,8 +27,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -89,13 +91,21 @@ import kotlinx.coroutines.delay
 internal val LocalTabAnimatedVisibilityScope =
     compositionLocalOf<AnimatedVisibilityScope?> { null }
 
+/** The SharedTransitionScope (S14): Compose exposes it only as
+ * the receiver of SharedTransitionLayout's content lambda — there
+ * is no public LocalSharedTransitionScope — so MainActivity
+ * provides the app's own local from that lambda, and the shared-
+ * element helpers below read it from here. */
+internal val LocalZephSharedTransitionScope =
+    compositionLocalOf<SharedTransitionScope?> { null }
+
 /** A shared-element modifier for a cover (S14): the cover morphs
  * into the Details hero. A plain Modifier when the shared
  * transition is not available (outside the tab content). */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun coverSharedModifier(key: String): Modifier {
-    val scope = LocalSharedTransitionScope.current ?: return Modifier
+    val scope = LocalZephSharedTransitionScope.current ?: return Modifier
     val animScope = LocalTabAnimatedVisibilityScope.current ?: return Modifier
     val state = scope.rememberSharedContentState(key = key)
     return with(scope) { Modifier.sharedElement(state, animScope) }
@@ -107,7 +117,7 @@ internal fun coverSharedModifier(key: String): Modifier {
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun sharedModifier(key: String, animScope: AnimatedVisibilityScope?): Modifier {
-    val scope = LocalSharedTransitionScope.current ?: return Modifier
+    val scope = LocalZephSharedTransitionScope.current ?: return Modifier
     if (animScope == null) return Modifier
     val state = scope.rememberSharedContentState(key = key)
     return with(scope) { Modifier.sharedElement(state, animScope) }
