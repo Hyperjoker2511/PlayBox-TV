@@ -71,9 +71,26 @@ internal fun saveRecentSearch(context: Context, query: String) {
     prefs.edit().putString(RECENT_SEARCH_KEY, updated.joinToString("\u0001")).apply()
 }
 
-/** Pure search filter (unit-tested). */
+/** Pure search filter (unit-tested). Matches the name, and for
+ * songs also the folder-derived artist and album — the design
+ * searches title/artist/album/genre, and Zeph has no genre tags.
+ * The "Unknown artist" / "Music" fallbacks never match, so a
+ * query for "unknown" does not return every root-level track. */
 internal fun searchFilter(items: List<VideoItem>, query: String): List<VideoItem> =
-    if (query.isBlank()) items else items.filter { it.name.contains(query, ignoreCase = true) }
+    if (query.isBlank()) items else items.filter { item ->
+        val q = query.trim()
+        item.name.contains(q, ignoreCase = true) || item.matchesArtistOrAlbum(q)
+    }
+
+/** A song matches when the folder-derived artist or album
+ * contains the query. Videos have no artist/album. */
+private fun VideoItem.matchesArtistOrAlbum(q: String): Boolean {
+    if (isVideo) return false
+    val artist = audioArtistOf(this)
+    val album = audioAlbumOf(this)
+    return (artist != "Unknown artist" && artist.contains(q, ignoreCase = true)) ||
+        (album != "Music" && album.contains(q, ignoreCase = true))
+}
 
 /** The type label on a result: "Video • 1:42:07" / "Music • 52:18". */
 internal fun searchSub(item: VideoItem): String? {
