@@ -1,7 +1,6 @@
 package com.playbox.tv
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -39,6 +39,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -66,7 +69,9 @@ import kotlinx.coroutines.delay
 // only (scale on focus, fade on press), 60fps, no live blur.
 
 /** The Zeph focus treatment for TV: a small scale-up + a ring in
- * the primary colour when focused. Use on any clickable surface. */
+ * the primary colour when focused. Use on any clickable surface.
+ * The scale runs on M3's own spatial spring (the theme's
+ * MotionScheme.expressive()), so focus travel IS Material 3 motion. */
 @Composable
 internal fun Modifier.zephFocus(
     interactionSource: MutableInteractionSource,
@@ -75,7 +80,7 @@ internal fun Modifier.zephFocus(
     val focused by interactionSource.collectIsFocusedAsState()
     val scale by animateFloatAsState(
         if (focused && enabled) DesignFocusScale else 1f,
-        spring(dampingRatio = 0.75f, stiffness = 400f), label = "zephFocusScale"
+        Motion.spatial(), label = "zephFocusScale"
     )
     return this
         .graphicsLayer { scaleX = scale; scaleY = scale }
@@ -291,6 +296,44 @@ internal fun ZephSectionTitle(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+/** The engine door — Auto / Media3 / VLC as a real M3
+ * SegmentedButton. Auto is FIRST: Media3 leads, VLC steps in on
+ * its own for network shares and formats Media3 can't play.
+ * Shared by Details and the player dock, so the door is the same
+ * control in both places. `choice` null = Auto. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun M3EngineDoor(
+    choice: PlayerEngine?,
+    onChoice: (PlayerEngine?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    SingleChoiceSegmentedButtonRow(modifier = modifier) {
+        val options = listOf(
+            "Auto" to null,
+            "Media3" to PlayerEngine.MEDIA3,
+            "VLC" to PlayerEngine.VLC
+        )
+        options.forEachIndexed { index, (label, engine) ->
+            SegmentedButton(
+                selected = choice == engine,
+                onClick = { onChoice(engine) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                icon = {
+                    if (choice == engine) {
+                        Icon(
+                            Icons.Filled.Check, contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            ) {
+                Text(label, style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }
@@ -528,7 +571,8 @@ internal fun M3TabStrip(
             }
         }
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-            listOf(Tab.Home, Tab.Search, Tab.Library, Tab.Settings).forEach { t ->
+            // v5: Home / Search / Sources / Library / Settings.
+            listOf(Tab.Home, Tab.Search, Tab.Sources, Tab.Library, Tab.Settings).forEach { t ->
                 val selected = tab == t
                 Column(
                     modifier = Modifier.weight(1f).clickable { onTab(t) }
