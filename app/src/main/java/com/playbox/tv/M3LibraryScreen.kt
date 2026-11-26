@@ -22,10 +22,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -34,6 +37,9 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -84,7 +90,10 @@ internal fun M3LibraryScreen(
     onFtpPath: (String?) -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
     onRefresh: () -> Unit,
-    onPlay: (VideoItem, List<VideoItem>) -> Unit = { _, _ -> }
+    onPlay: (VideoItem, List<VideoItem>) -> Unit = { _, _ -> },
+    // v7 (Sources "Add a source"): a nonce from MainActivity —
+    // each tap opens the Network screen's add-server form.
+    addFormRequest: Int = 0
 ) {
     val context = LocalContext.current
     val sortPrefs = remember { context.getSharedPreferences("playbox_sort", Context.MODE_PRIVATE) }
@@ -158,15 +167,52 @@ internal fun M3LibraryScreen(
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            "Library",
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        // Mode chips.
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf("Videos", "Music", "Folders / USB", "Network").forEach { m ->
+        // L1: the shared top bar, not a 36sp title.
+        ZephScreenTopBar("Library")
+        Spacer(modifier = Modifier.height(12.dp))
+        // L2/L4/L9: ONE controls row — the SegmentedButton +
+        // Sort + Refresh, then the mode chips (L3 gains "All").
+        // It scrolls sideways on a narrow screen instead of
+        // wrapping, and the gaps are tight, so the first grid
+        // row is no longer half-clipped on a short screen.
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (mode == "Videos" || mode == "Music" || mode == "All") {
+                item {
+                    SingleChoiceSegmentedButtonRow {
+                        listOf(
+                            "list" to Icons.Filled.List,
+                            "grid" to Icons.Filled.GridView,
+                            "cinematic" to Icons.Filled.Star
+                        ).forEachIndexed { index, (layout, icon) ->
+                            SegmentedButton(
+                                selected = browseLayout == layout,
+                                onClick = {
+                                    browseLayout = layout
+                                    sortPrefs.edit().putString("browse_layout", layout).apply()
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = 3),
+                                icon = { Icon(icon, contentDescription = null) },
+                                label = { Text(m3BrowseLayoutLabel(layout)) }
+                            )
+                        }
+                    }
+                }
+                item {
+                    ZephTonalButton("Sort: ${VideoSorter.label(sortOrder)}", onClick = {
+                        sortOrder = VideoSorter.next(sortOrder)
+                        sortPrefs.edit().putString("order", sortOrder.name).apply()
+                    })
+                }
+            }
+            item {
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        Icons.Filled.Refresh, contentDescription = "Refresh",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            items(listOf("All", "Videos", "Music", "Folders / USB", "Network"), key = { it }) { m ->
                 ZephFilterChip(
                     label = m, selected = mode == m,
                     onClick = {
@@ -176,39 +222,26 @@ internal fun M3LibraryScreen(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        if (mode != "Network") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ZephTonalButton("Sort: ${VideoSorter.label(sortOrder)}", onClick = {
-                    sortOrder = VideoSorter.next(sortOrder)
-                    sortPrefs.edit().putString("order", sortOrder.name).apply()
-                })
-                ZephTonalButton("Layout: ${m3BrowseLayoutLabel(browseLayout)}", onClick = {
-                    browseLayout = m3NextBrowseLayout(browseLayout)
-                    sortPrefs.edit().putString("browse_layout", browseLayout).apply()
-                })
-                ZephOutlinedButton("Refresh", onClick = onRefresh)
-            }
-            if (mode == "Videos" || mode == "Music") {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (mode == "Videos" || mode == "Music" || mode == "All") {
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(
                     listOf(
                         LibraryFilter.ALL to "All",
                         LibraryFilter.RECENT to "Recently played",
                         LibraryFilter.CONTINUE to "Continue watching",
                         LibraryFilter.FAVOURITES to "Favourites",
                         LibraryFilter.PLAYLISTS to "Playlists"
-                    ).forEach { (f, label) ->
-                        ZephFilterChip(label, selected = filter == f, onClick = {
-                            filter = f; openPlaylist = null; cinematicFocus = null
-                        })
-                    }
+                    ),
+                    key = { it.second }
+                ) { (f, label) ->
+                    ZephFilterChip(label, selected = filter == f, onClick = {
+                        filter = f; openPlaylist = null; cinematicFocus = null
+                    })
                 }
             }
-            Spacer(modifier = Modifier.height(20.dp))
-        } else {
-            Spacer(modifier = Modifier.height(8.dp))
         }
+        Spacer(modifier = Modifier.height(12.dp))
         when (mode) {
             "Network" -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -217,13 +250,16 @@ internal fun M3LibraryScreen(
                         path = networkPath, onPath = onNetworkPath,
                         ftpServer = ftpServer, onFtpServer = onFtpServer,
                         ftpPath = ftpPath, onFtpPath = onFtpPath,
-                        onOpen = onOpen
+                        onOpen = onOpen,
+                        addFormRequest = addFormRequest
                     )
                 }
             }
             else -> {
                 BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    val cols = (maxWidth / 240.dp).toInt().coerceIn(1, 6)
+                    // L6: a fixed grid — 3 columns wide, 2 narrow —
+                    // not a dynamic column count from the width.
+                    val cols = if (maxWidth >= 700.dp) 3 else 2
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         when (mode) {
                             "Folders / USB" -> {
@@ -343,7 +379,16 @@ internal fun M3LibraryScreen(
                                 }
                             }
                             else -> {
-                                val base = VideoSorter.sort(if (mode == "Videos") videos else audio, sortOrder)
+                                // L3: "All" shows videos + music
+                                // together, the same list Home shows.
+                                val base = VideoSorter.sort(
+                                    when (mode) {
+                                        "Videos" -> videos
+                                        "Music" -> audio
+                                        else -> videos + audio
+                                    },
+                                    sortOrder
+                                )
                                 if (filter == LibraryFilter.PLAYLISTS) {
                                     val open = openPlaylist
                                     if (open == null) {
@@ -404,13 +449,13 @@ internal fun M3LibraryScreen(
                                 } else {
                                     val shown = filterLibraryItems(base, filter, favourites, recent, resume.keys)
                                     val emptyText = when (filter) {
-                                        LibraryFilter.ALL -> if (loading) "Loading…" else "No ${mode.lowercase()} found yet."
+                                        LibraryFilter.ALL -> if (loading) "Loading…" else if (mode == "All") "No videos or music found yet." else "No ${mode.lowercase()} found yet."
                                         LibraryFilter.RECENT -> "Nothing played yet — play a video and it shows up here."
                                         LibraryFilter.CONTINUE -> "No videos in progress."
                                         LibraryFilter.FAVOURITES -> "No favourites yet — tap the star on a list row, or mark one from a video's Details page."
                                         LibraryFilter.PLAYLISTS -> ""
                                     }
-                                    if (browseLayout == "cinematic" && (mode == "Videos" || mode == "Music")) {
+                                    if (browseLayout == "cinematic" && (mode == "Videos" || mode == "Music" || mode == "All")) {
                                         m3CinematicRows(
                                             shown, cols, resume, favourites,
                                             onToggleFav = { path ->
@@ -450,12 +495,6 @@ private fun m3BrowseLayoutLabel(layout: String): String = when (layout) {
     "grid" -> "Grid"
     "cinematic" -> "Cinematic"
     else -> "List"
-}
-
-private fun m3NextBrowseLayout(layout: String): String = when (layout) {
-    "list" -> "grid"
-    "grid" -> "cinematic"
-    else -> "list"
 }
 
 /** A folder row: folder icon + name, in an M3 card. */
@@ -549,7 +588,7 @@ private fun M3LibraryRow(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    tileSub(item) ?: "",
+                    listRowSub(item) ?: "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -605,6 +644,20 @@ private fun M3GridCard(
                             modifier = Modifier.size(28.dp)
                         )
                     }
+                }
+                // L5: the duration badge — Home's grid cards have
+                // one, Library's did not.
+                if (item.isVideo && item.durationMs > 0L) {
+                    Text(
+                        TimeFormatter.format(item.durationMs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                            .padding(4.dp)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(Color(0xB3000000))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))
