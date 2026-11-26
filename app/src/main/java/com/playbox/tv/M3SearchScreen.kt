@@ -1,29 +1,23 @@
 package com.playbox.tv
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.onSizeChanged
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,414 +25,374 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardCapslock
+import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import androidx.compose.ui.unit.sp
 
-// ---------- ZEPH Search (M3 redesign, from scratch) ----------
-// A NEW Search, not a Nova/Qwen/Aura port — but it keeps the
-// animation the user picked from the Short (2026-11-22): #1 Icon
-// Expand + #5 Focus Morph, one continuous flow. The pill stretches
-// into a full-width field, then on focus the title slides away, the
-// field rises, Cancel slides in and the Recent chips drop below.
-// All transform + opacity only, so it stays cheap on the 2 GB box.
-// Voice search (mic, only when the box has a recognizer) and recent
-// searches carry over unchanged.
-// v5 (1.9.0): an ON-SCREEN QWERTY KEYBOARD — on a remote, text
-// comes from the keyboard or voice. On a wide screen (TV) the
-// keyboard sits on the left and the results on the right; on a
-// narrow screen it drops in under the field when the field is
-// focused. The keyboard writes into the same query the field edits.
-
-/** The placeholder hint types itself in, holds, deletes, and moves
- * to the next hint — the #1 typing effect, as a placeholder only. */
-@Composable
-private fun M3TypewriterHint() {
-    val hints = listOf(
-        "Search videos, music, folders…",
-        "Try a movie name…",
-        "Try a song…"
-    )
-    var text by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        var h = 0
-        while (true) {
-            val hint = hints[h % hints.size]
-            for (i in 1..hint.length) {
-                text = hint.take(i)
-                delay(45)
-            }
-            delay(1500)
-            for (i in hint.length downTo 1) {
-                text = hint.take(i - 1)
-                delay(12)
-            }
-            h++
-        }
-    }
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
-    )
-}
+// ---------- ZEPH Search (v7 1.9.1 — keyboard rebuilt from research) ----------
+// The keyboard is HIDDEN until you want to type: it only appears
+// when you tap the search field (or press OK on it with the remote),
+// and Back hides it again. The keyboard itself is rebuilt from the
+// Gboard-TV / YouTube TV / Netflix research: a compact floating
+// panel, suggestion pills on top, NO stagger (rows line up straight,
+// because D-pad moves are up/down/left/right), one key size (48dp),
+// Space widest, Search the only accent key, number superscripts on
+// the top row, focus starts on Q. On a small screen it goes compact
+// (36dp keys, no suggestions) so it never clips off the bottom.
+// The field is read-only — the on-screen keyboard IS the input, so
+// the phone's soft keyboard never fights it. The #1/#5 Focus Morph
+// (expanding pill, sliding title, Cancel) is gone: the design has
+// the shared top bar and a plain 56dp field instead.
 
 @Composable
 internal fun M3SearchScreen(
     items: List<VideoItem>,
     search: String,
     onSearch: (String) -> Unit,
-    onOpen: (VideoItem, List<VideoItem>) -> Unit
+    onOpen: (VideoItem, List<VideoItem>) -> Unit,
+    voiceRequest: Int = 0
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     var recent by remember { mutableStateOf(recentSearches(context)) }
-    var fieldFocused by remember { mutableStateOf(false) }
-    // Reduce motion skips the entry stretch — the field is full width
-    // from the first frame, and transitions are fade-only.
-    val reduceMotion = remember { isReduceMotion(context) }
-    // #1: the field starts as a small pill and springs open.
-    var entered by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { entered = true }
-    val fieldWidth by animateFloatAsState(
-        targetValue = if (entered || reduceMotion) 1f else 0.16f,
-        animationSpec = Motion.bouncy(),
-        label = "searchExpand"
-    )
-    val iconScale by animateFloatAsState(
-        targetValue = if (entered || reduceMotion) 1f else 0.7f,
-        animationSpec = Motion.bouncy(),
-        label = "searchIcon"
-    )
-    // #5: the field rises a little when focused.
-    val fieldRise by animateDpAsState(
-        targetValue = if (fieldFocused && !reduceMotion) (-8).dp else 0.dp,
-        animationSpec = Motion.soft(),
-        label = "searchRise"
-    )
+    var keyboardVisible by remember { mutableStateOf(false) }
+    // K7: Back hides the keyboard first; only then does Back leave
+    // Search (MainActivity's handler takes it from there).
+    BackHandler(enabled = keyboardVisible) {
+        keyboardVisible = false
+        focusManager.clearFocus()
+    }
     val shown = searchFilter(items, search)
-    val resume = remember { resumePositions(context) }
     // Voice search — mic button only when the box has a recognizer.
     val onVoice = rememberVoiceSearch(context) { spoken ->
         onSearch(spoken)
         saveRecentSearch(context, spoken)
         recent = recentSearches(context)
     }
-    // Running a search: save it to Recent and leave the field.
+    // v7: the mic on the Home SearchBar opens Search and starts
+    // listening at once — the nonce fires a new listen per tap.
+    LaunchedEffect(voiceRequest) {
+        if (voiceRequest > 0) onVoice?.invoke()
+    }
+    // Running a search: save it to Recent and hide the keyboard.
     val runSearch: () -> Unit = {
         if (search.isNotBlank()) {
             saveRecentSearch(context, search)
             recent = recentSearches(context)
-            focusManager.clearFocus()
         }
+        keyboardVisible = false
+        focusManager.clearFocus()
     }
+    val hideKeyboard: () -> Unit = {
+        keyboardVisible = false
+        focusManager.clearFocus()
+    }
+    val showKeyboard: () -> Unit = { keyboardVisible = true }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wide = maxWidth >= 700.dp
-        if (wide) {
-            // TV: title + field on top, keyboard left, results right.
+        val short = maxHeight < 500.dp
+        // Compact keys on any small screen (phone, or a short TV
+        // frame) — full 48dp keys only on a tall wide screen.
+        val compactKeyboard = !wide || maxHeight < 600.dp
+        if (wide && !short) {
+            // TV: top bar + field, then the keyboard on the left
+            // (1.25fr) and the results on the right (1fr) — or the
+            // results full width while the keyboard is hidden.
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                 Spacer(modifier = Modifier.height(24.dp))
-                M3SearchTitle(visible = !fieldFocused, reduceMotion = reduceMotion)
-                M3SearchFieldRow(
-                    search = search, onSearch = onSearch,
-                    fieldWidth = fieldWidth, iconScale = iconScale, fieldRise = fieldRise,
-                    fieldFocused = fieldFocused, onFieldFocused = { fieldFocused = it },
-                    onVoice = onVoice, onCancel = {
-                        onSearch("")
-                        focusManager.clearFocus()
-                    },
-                    onSubmit = runSearch,
-                    reduceMotion = reduceMotion
-                )
+                ZephScreenTopBar("Search")
                 Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(modifier = Modifier.weight(1.25f)) {
-                        M3OnScreenKeyboard(
-                            query = search, onQuery = onSearch,
-                            onSearch = runSearch, onVoice = onVoice
-                        )
+                M3SearchField(
+                    search = search, onSearch = onSearch,
+                    onVoice = onVoice, onFieldTap = showKeyboard
+                )
+                if (!keyboardVisible) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Tap the field to type — the keyboard appears · or tap the mic to speak",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    M3RecentChips(recent = recent, onRecent = onSearch)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        searchResultsItems(shown, search, onOpen, runSearch)
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        M3SearchMeta(
-                            search = search, shownCount = shown.size, totalCount = items.size,
-                            recent = recent, fieldFocused = fieldFocused,
-                            reduceMotion = reduceMotion,
-                            onRecent = { onSearch(it) }
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        LazyColumn(modifier = Modifier.weight(1f)) {
-                            searchResultsItems(shown, search, resume, onOpen) {
-                                runSearch()
+                } else {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1.25f)) {
+                            M3OnScreenKeyboard(
+                                query = search, onQuery = onSearch,
+                                onSearch = runSearch, onVoice = onVoice,
+                                onHide = hideKeyboard,
+                                items = items, recent = recent,
+                                compact = compactKeyboard
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            M3RecentChips(recent = recent, onRecent = onSearch)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LazyColumn(modifier = Modifier.weight(1f)) {
+                                searchResultsItems(shown, search, onOpen, runSearch)
                             }
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        } else if (wide && short) {
+            // Landscape phone: the keyboard is a floating sheet
+            // over the bottom of the results, capped at 62% of the
+            // height — it can never clip off the bottom (K2).
+            var kbHeight by remember { mutableStateOf(0.dp) }
+            val density = LocalDensity.current
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    ZephScreenTopBar("Search")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    M3SearchField(
+                        search = search, onSearch = onSearch,
+                        onVoice = onVoice, onFieldTap = showKeyboard
+                    )
+                    if (!keyboardVisible) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Tap the field to type — the keyboard appears · or tap the mic to speak",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    M3RecentChips(recent = recent, onRecent = onSearch)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = kbHeight + 16.dp)
+                    ) {
+                        searchResultsItems(shown, search, onOpen, runSearch)
+                    }
+                }
+                if (keyboardVisible) {
+                    Box(
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .heightIn(max = maxHeight * 0.62f)
+                            .onSizeChanged { kbHeight = with(density) { it.height.toDp() } }
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        M3OnScreenKeyboard(
+                            query = search, onQuery = onSearch,
+                            onSearch = runSearch, onVoice = onVoice,
+                            onHide = hideKeyboard,
+                            items = items, recent = recent,
+                            compact = true
+                        )
+                    }
+                }
+            }
         } else {
-            // Narrow: the field, then the keyboard under it when
-            // focused, then the results — one scrolling list.
+            // Narrow portrait phone: one scrolling list — field,
+            // hint, recents, the compact keyboard in-flow when
+            // shown, then the results.
             LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
-                    M3SearchTitle(visible = !fieldFocused, reduceMotion = reduceMotion)
-                    M3SearchFieldRow(
+                    ZephScreenTopBar("Search")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    M3SearchField(
                         search = search, onSearch = onSearch,
-                        fieldWidth = fieldWidth, iconScale = iconScale, fieldRise = fieldRise,
-                        fieldFocused = fieldFocused, onFieldFocused = { fieldFocused = it },
-                        onVoice = onVoice, onCancel = {
-                            onSearch("")
-                            focusManager.clearFocus()
-                        },
-                        onSubmit = runSearch,
-                        reduceMotion = reduceMotion
+                        onVoice = onVoice, onFieldTap = showKeyboard
                     )
+                    if (!keyboardVisible) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Tap the field to type — the keyboard appears · or tap the mic to speak",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    M3RecentChips(recent = recent, onRecent = onSearch)
                     Spacer(modifier = Modifier.height(16.dp))
                 }
-                if (fieldFocused) {
+                if (keyboardVisible) {
                     item {
                         M3OnScreenKeyboard(
                             query = search, onQuery = onSearch,
-                            onSearch = runSearch, onVoice = onVoice
+                            onSearch = runSearch, onVoice = onVoice,
+                            onHide = hideKeyboard,
+                            items = items, recent = recent,
+                            compact = true
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
-                item {
-                    M3SearchMeta(
-                        search = search, shownCount = shown.size, totalCount = items.size,
-                        recent = recent, fieldFocused = fieldFocused,
-                        reduceMotion = reduceMotion,
-                        onRecent = { onSearch(it) }
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                searchResultsItems(shown, search, resume, onOpen) {
-                    runSearch()
-                }
+                searchResultsItems(shown, search, onOpen, runSearch)
                 item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
     }
 }
 
-/** The "Search" title — slides away when the field is focused (#5). */
+/** The search field (K10): 56dp, surface-high, NO border, search
+ * icon onSurfaceVariant, a static placeholder (K11 — no
+ * typewriter), the mic in a 38dp secondaryContainer circle, and no
+ * Clear button. It morphs from the Home SearchBar (S14). Read-only:
+ * the on-screen keyboard is the input, so the phone's soft keyboard
+ * never appears. Tapping it shows the on-screen keyboard. */
 @Composable
-private fun M3SearchTitle(visible: Boolean, reduceMotion: Boolean) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = if (reduceMotion) fadeIn() else fadeIn() + slideInVertically { -it / 2 },
-        exit = if (reduceMotion) fadeOut() else fadeOut() + slideOutVertically { -it / 2 }
-    ) {
-        Column {
-            Text(
-                "Search",
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-}
-
-/** The search field row: the expanding pill (#1), the field rising
- * on focus (#5), Cancel sliding in beside it. `onSubmit` runs the
- * search (the IME Search key) — it saves the query to Recent and
- * leaves the field; it does NOT clear the query. */
-@Composable
-private fun M3SearchFieldRow(
+private fun M3SearchField(
     search: String,
     onSearch: (String) -> Unit,
-    fieldWidth: Float,
-    iconScale: Float,
-    fieldRise: androidx.compose.ui.unit.Dp,
-    fieldFocused: Boolean,
-    onFieldFocused: (Boolean) -> Unit,
     onVoice: (() -> Unit)?,
-    onCancel: () -> Unit,
-    onSubmit: () -> Unit,
-    reduceMotion: Boolean
+    onFieldTap: () -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.offset { IntOffset(0, fieldRise.roundToPx()) }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth().height(56.dp)
+            .then(coverSharedModifier("search-bar"))
+            .clip(RoundedCornerShape(28.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable { onFieldTap() }
+            .padding(start = 18.dp, end = 8.dp),
+        contentAlignment = Alignment.CenterStart
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(fieldWidth)
-                .height(64.dp)
-                .clip(RoundedCornerShape(32.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(
-                    if (fieldFocused) 2.dp else 1.dp,
-                    if (fieldFocused) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outline,
-                    RoundedCornerShape(32.dp)
-                )
-                .padding(horizontal = 20.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Search, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp)
-                        .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                // The text field fades in only once the pill is wide
-                // enough to hold it — before that the pill is just
-                // the icon, expanding.
-                AnimatedVisibility(
-                    visible = fieldWidth > 0.55f || reduceMotion,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicTextField(
-                            value = search,
-                            onValueChange = onSearch,
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = MaterialTheme.typography.bodyLarge.fontSize
-                            ),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-                            modifier = Modifier.weight(1f)
-                                .onFocusChanged { onFieldFocused(it.hasFocus) },
-                            decorationBox = { inner ->
-                                Box(contentAlignment = Alignment.CenterStart) {
-                                    if (search.isEmpty()) M3TypewriterHint()
-                                    inner()
-                                }
-                            }
-                        )
-                        if (search.isNotEmpty()) {
-                            IconButton(onClick = { onSearch("") }) {
-                                Icon(
-                                    Icons.Filled.Clear, contentDescription = "Clear",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Search, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(23.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            BasicTextField(
+                value = search,
+                onValueChange = onSearch,
+                singleLine = true,
+                readOnly = true,
+                textStyle = TextStyle(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = MaterialTheme.typography.bodyLarge.fontSize
+                ),
+                modifier = Modifier.weight(1f)
+                    .onFocusChanged { if (it.hasFocus) onFieldTap() },
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (search.isEmpty()) {
+                            Text(
+                                "Search videos, music…",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        if (onVoice != null) {
-                            IconButton(onClick = { onVoice() }) {
-                                Icon(
-                                    Icons.Filled.Mic, contentDescription = "Voice search",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+                        inner()
                     }
                 }
+            )
+            if (onVoice != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier.size(38.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .clickable { onVoice() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Mic, contentDescription = "Voice search",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
-        }
-        // #5: Cancel slides in beside the field when focused.
-        AnimatedVisibility(
-            visible = fieldFocused,
-            enter = if (reduceMotion) fadeIn() else fadeIn() + slideInHorizontally { it },
-            exit = if (reduceMotion) fadeOut() else fadeOut() + slideOutHorizontally { it }
-        ) {
-            ZephTextButton("Cancel", onClick = onCancel)
         }
     }
 }
 
-/** The count line + Recent chips, above the results. */
+/** Recent searches (K12/K16): AssistChips with a history icon,
+ * shown in the hidden frame AND while typing, above the results. */
 @Composable
-private fun M3SearchMeta(
-    search: String,
-    shownCount: Int,
-    totalCount: Int,
+private fun M3RecentChips(
     recent: List<String>,
-    fieldFocused: Boolean,
-    reduceMotion: Boolean,
     onRecent: (String) -> Unit
 ) {
-    if (search.isBlank()) {
-        // #5: the Recent chips drop in below the field when it is
-        // focused, and slide away with Cancel.
-        AnimatedVisibility(
-            visible = fieldFocused && recent.isNotEmpty(),
-            enter = if (reduceMotion) fadeIn() else fadeIn() + slideInVertically { it / 2 },
-            exit = if (reduceMotion) fadeOut() else fadeOut() + slideOutVertically { it / 2 }
-        ) {
-            Column {
-                Text(
-                    "Recent",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+    if (recent.isEmpty()) return
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(recent, key = { it }) { q ->
+            AssistChip(
+                onClick = { onRecent(q) },
+                label = { Text(q, style = MaterialTheme.typography.labelLarge) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.History, contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    labelColor = MaterialTheme.colorScheme.onSurface,
+                    leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                border = AssistChipDefaults.assistChipBorder(
+                    enabled = true,
+                    borderColor = MaterialTheme.colorScheme.outlineVariant,
+                    borderWidth = 1.dp
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(recent, key = { it }) { q ->
-                        ZephFilterChip(q, selected = false, onClick = { onRecent(q) })
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
+            )
         }
-        Text(
-            "$totalCount files",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    } else {
-        Text(
-            "$shownCount results for '$search'",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
-/** The results, as LazyListScope items — shared by the wide and
- * narrow layouts. */
+/** The results, as LazyListScope items — shared by all layouts. */
 private fun LazyListScope.searchResultsItems(
     shown: List<VideoItem>,
     search: String,
-    resume: Map<String, Long>,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
     onRunSearch: () -> Unit
 ) {
@@ -450,28 +404,31 @@ private fun LazyListScope.searchResultsItems(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    } else if (shown.isEmpty()) {
+        item {
+            Text(
+                "No videos yet — plug in a USB drive, or copy a video to this TV.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     } else {
         items(shown, key = { it.path }) { item ->
-            val resumeMs = resume[item.path] ?: 0L
-            val fraction = if (item.durationMs > 0) resumeMs.toFloat() / item.durationMs else 0f
-            M3SearchRow(item, resumeFraction = fraction) {
+            M3SearchRow(item) {
                 onRunSearch()
                 onOpen(item, shown)
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(9.dp))
         }
     }
 }
 
-// ---------- The on-screen keyboard (v5) ----------
-// A real QWERTY keyboard for the remote: 58dp keys with 16dp
-// expressive radii, a real stagger (rows 2–3 indented), clear
-// groups — letter keys in surfaceContainer, function keys (123,
-// caps, backspace, mic) in secondaryContainer, Space wide, and
-// Search as a proper primary Filled button with the word "Search".
-// Focus fills the key with primary (like the design's M key).
-// 123 swaps to a symbols row; caps toggles case. Every key is
-// D-pad focusable (zephFocus: scale + ring).
+// ---------- The on-screen keyboard (v7, rebuilt from research) ----------
+// One key size, no stagger, suggestion pills on top (full size
+// only), number superscripts on the top row, focus starts on Q.
+// Shift is one-shot (tap again quickly to lock); long-press
+// Backspace clears the query. Every key is D-pad focusable
+// (zephFocus: scale + ring).
 
 @Composable
 private fun M3OnScreenKeyboard(
@@ -479,32 +436,70 @@ private fun M3OnScreenKeyboard(
     onQuery: (String) -> Unit,
     onSearch: () -> Unit,
     onVoice: (() -> Unit)?,
+    onHide: () -> Unit,
+    items: List<VideoItem>,
+    recent: List<String>,
+    compact: Boolean,
     modifier: Modifier = Modifier
 ) {
     var caps by remember { mutableStateOf(false) }
+    var capsLock by remember { mutableStateOf(false) }
+    var lastShiftTap by remember { mutableLongStateOf(0L) }
     var symbols by remember { mutableStateOf(false) }
+    val keyHeight: Dp = if (compact) 36.dp else 48.dp
+    val keyRadius: Dp = if (compact) 10.dp else 12.dp
+    val gap: Dp = if (compact) 6.dp else 8.dp
+    val qFocus = remember { FocusRequester() }
+    // K6: focus starts on Q when the keyboard appears.
+    LaunchedEffect(Unit) { qFocus.requestFocus() }
+
     val letters = listOf(
         listOf("Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"),
-        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L"),
+        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L", "."),
         listOf("Z", "X", "C", "V", "B", "N", "M")
     )
     val symbolRows = listOf(
         listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
-        listOf("-", "/", ":", ";", "(", ")", "&", "@", "\""),
-        listOf(".", ",", "?", "!", "'")
+        listOf("-", "/", ":", ";", "(", ")", "&", "@", "\"", "%"),
+        listOf(".", ",", "?", "!", "'", "_", "=", "+", "*")
     )
     val rows = if (symbols) symbolRows else letters
+    val numbers = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+    fun capsOn(): Boolean = caps || capsLock
     fun type(text: String) {
-        onQuery(query + if (caps && !symbols) text.uppercase() else text.lowercase())
+        onQuery(query + if (capsOn() && !symbols) text.uppercase() else text.lowercase())
+        // One-shot caps clears after one letter; a lock stays.
+        if (caps && !capsLock) caps = false
+    }
+    fun onShift() {
+        val now = System.currentTimeMillis()
+        when {
+            capsLock -> { capsLock = false; caps = false }
+            caps && now - lastShiftTap < 400L -> { capsLock = true }
+            else -> caps = true
+        }
+        lastShiftTap = now
+    }
+    // K4: suggestion pills — item names and recents that start
+    // with the query, up to 3. Full-size keyboard only.
+    val suggestions = remember(query, items, recent) {
+        if (query.isBlank()) emptyList()
+        else {
+            val prefix = query.lowercase()
+            val fromItems = items.map { it.name }
+                .filter { it.lowercase().startsWith(prefix) && !it.equals(query, ignoreCase = true) }
+            val fromRecent = recent.filter { it.lowercase().startsWith(prefix) && !it.equals(query, ignoreCase = true) }
+            (fromItems + fromRecent).distinct().take(3)
+        }
     }
 
     Column(
         modifier = modifier
             .clip(MaterialTheme.shapes.extraLarge)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraLarge)
-            .padding(18.dp)
+            .padding(if (compact) 12.dp else 18.dp)
     ) {
+        // K8: tools row — keyboard icon + hint + Hide at right.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Filled.Keyboard, contentDescription = null,
@@ -513,72 +508,139 @@ private fun M3OnScreenKeyboard(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "Keyboard",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
                 "D-pad to move · OK to type",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.weight(1f))
+            Row(
+                modifier = Modifier.clickable { onHide() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.KeyboardHide, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    "Hide keyboard",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+        // K4: suggestion pills, full size only.
+        if (!compact && suggestions.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                suggestions.forEach { s ->
+                    Box(
+                        modifier = Modifier.height(40.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .clickable { onQuery(s) }
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            s,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
         rows.forEachIndexed { rowIndex, row ->
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = when (rowIndex) { 1 -> 26.dp; 2 -> 52.dp; else -> 0.dp }),
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gap)
             ) {
-                row.forEach { key ->
+                if (!symbols && rowIndex == 2) {
+                    // Row 3, letters: Shift + Z–M + @ + Backspace.
                     M3Key(
-                        label = key,
-                        onClick = { type(key) },
-                        modifier = Modifier.weight(1f)
+                        icon = Icons.Filled.KeyboardCapslock,
+                        onClick = { onShift() },
+                        modifier = Modifier.weight(1f),
+                        fn = true, active = capsOn(),
+                        keyHeight = keyHeight, keyRadius = keyRadius
                     )
                 }
-                // Backspace sits at the end of the bottom letter row.
-                if (rowIndex == 2) {
+                row.forEachIndexed { keyIndex, key ->
+                    M3Key(
+                        label = if (symbols) key else if (capsOn()) key.uppercase() else key.lowercase(),
+                        // K5: number superscripts on the top row.
+                        superscript = if (!symbols && rowIndex == 0) numbers.getOrNull(keyIndex) else null,
+                        onClick = { type(key) },
+                        modifier = Modifier.weight(1f),
+                        focusRequester = if (!symbols && rowIndex == 0 && keyIndex == 0) qFocus else null,
+                        keyHeight = keyHeight, keyRadius = keyRadius
+                    )
+                }
+                if (!symbols && rowIndex == 2) {
+                    M3Key(
+                        label = "@",
+                        onClick = { type("@") },
+                        modifier = Modifier.weight(1f),
+                        keyHeight = keyHeight, keyRadius = keyRadius
+                    )
                     M3Key(
                         onClick = { onQuery(query.dropLast(1)) },
-                        modifier = Modifier.weight(1.6f),
-                        fn = true,
-                        backspace = true
+                        onLongClick = { onQuery("") },
+                        modifier = Modifier.weight(1f),
+                        fn = true, backspace = true,
+                        keyHeight = keyHeight, keyRadius = keyRadius
+                    )
+                }
+                if (symbols && rowIndex == 2) {
+                    M3Key(
+                        onClick = { onQuery(query.dropLast(1)) },
+                        onLongClick = { onQuery("") },
+                        modifier = Modifier.weight(1f),
+                        fn = true, backspace = true,
+                        keyHeight = keyHeight, keyRadius = keyRadius
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(9.dp))
+            Spacer(modifier = Modifier.height(gap))
         }
+        // Bottom row: 123? + Space (flex 4) + - + mic + Search
+        // (flex 2, the only accent key) + Hide.
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
+            horizontalArrangement = Arrangement.spacedBy(gap)
         ) {
             M3Key(
                 label = if (symbols) "ABC" else "123",
                 onClick = { symbols = !symbols },
                 modifier = Modifier.weight(1f),
-                fn = true
-            )
-            M3Key(
-                icon = Icons.Filled.KeyboardCapslock,
-                onClick = { caps = !caps },
-                modifier = Modifier.weight(1f),
                 fn = true,
-                active = caps
+                keyHeight = keyHeight, keyRadius = keyRadius
             )
             M3Key(
                 label = "Space",
                 onClick = { onQuery("$query ") },
-                modifier = Modifier.weight(3.2f)
+                modifier = Modifier.weight(4f),
+                keyHeight = keyHeight, keyRadius = keyRadius
+            )
+            M3Key(
+                label = "-",
+                onClick = { type("-") },
+                modifier = Modifier.weight(1f),
+                fn = true,
+                keyHeight = keyHeight, keyRadius = keyRadius
             )
             if (onVoice != null) {
                 M3Key(
                     icon = Icons.Filled.Mic,
                     onClick = { onVoice() },
                     modifier = Modifier.weight(1f),
-                    fn = true
+                    fn = true,
+                    keyHeight = keyHeight, keyRadius = keyRadius
                 )
             }
             M3Key(
@@ -586,23 +648,38 @@ private fun M3OnScreenKeyboard(
                 icon = Icons.Filled.Search,
                 onClick = onSearch,
                 modifier = Modifier.weight(2f),
-                primary = true
+                primary = true,
+                keyHeight = keyHeight, keyRadius = keyRadius
+            )
+            M3Key(
+                icon = Icons.Filled.KeyboardHide,
+                onClick = onHide,
+                modifier = Modifier.weight(1f),
+                fn = true,
+                keyHeight = keyHeight, keyRadius = keyRadius
             )
         }
     }
 }
 
-/** One keyboard key: 58dp, 16dp radius, primary fill on focus. */
+/** One keyboard key: 48dp (36dp compact), 12dp (10dp) radius,
+ * primary fill on focus. A superscript draws the top-row number;
+ * a long-press clears the query (Backspace). */
 @Composable
 private fun M3Key(
     label: String? = null,
     icon: ImageVector? = null,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     fn: Boolean = false,
     primary: Boolean = false,
     active: Boolean = false,
-    backspace: Boolean = false
+    backspace: Boolean = false,
+    superscript: String? = null,
+    focusRequester: FocusRequester? = null,
+    keyHeight: Dp,
+    keyRadius: Dp
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
@@ -619,18 +696,33 @@ private fun M3Key(
         fn -> MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
+    var boxModifier = modifier
+        .height(keyHeight)
+        .zephFocus(interaction)
+        .clip(RoundedCornerShape(keyRadius))
+        .background(container, RoundedCornerShape(keyRadius))
+        .border(
+            if (fn || primary || focused) 0.dp else 1.dp,
+            MaterialTheme.colorScheme.outlineVariant,
+            RoundedCornerShape(keyRadius)
+        )
+    if (focusRequester != null) boxModifier = boxModifier.focusRequester(focusRequester)
+    boxModifier = if (onLongClick != null) {
+        boxModifier.combinedClickable(
+            interactionSource = interaction,
+            indication = null,
+            onClick = onClick,
+            onLongClick = onLongClick
+        )
+    } else {
+        boxModifier.clickable(
+            interactionSource = interaction,
+            indication = null,
+            onClick = onClick
+        )
+    }
     Box(
-        modifier = modifier
-            .height(58.dp)
-            .zephFocus(interaction)
-            .clip(RoundedCornerShape(16.dp))
-            .background(container, RoundedCornerShape(16.dp))
-            .border(
-                if (fn || primary || focused) 0.dp else 1.dp,
-                MaterialTheme.colorScheme.outlineVariant,
-                RoundedCornerShape(16.dp)
-            )
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        modifier = boxModifier,
         contentAlignment = Alignment.Center
     ) {
         if (backspace) {
@@ -657,14 +749,25 @@ private fun M3Key(
                 color = content
             )
         }
+        // K5: the top-row number, small, top-right.
+        if (superscript != null) {
+            Text(
+                superscript,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = content.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 6.dp)
+            )
+        }
     }
 }
 
-/** A Search result row: cover tile, title + meta, resume bar. */
+/** A Search result row (K15): a 44dp primaryContainer icon
+ * circle + title + "duration · size · container" — no thumbnail,
+ * no badge, no star, no resume bar. */
 @Composable
 private fun M3SearchRow(
     item: VideoItem,
-    resumeFraction: Float,
     onOpen: () -> Unit
 ) {
     ZephCard(
@@ -672,62 +775,44 @@ private fun M3SearchRow(
         onClick = onOpen
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(13.dp, 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier.size(120.dp, 68.dp)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                modifier = Modifier.size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
             ) {
-                if (item.isVideo) {
-                    VideoThumb(item, Modifier.fillMaxSize())
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Search, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-                if (item.isVideo && item.durationMs > 0L) {
-                    Text(
-                        TimeFormatter.format(item.durationMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        modifier = Modifier.align(Alignment.BottomEnd)
-                            .padding(4.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(Color(0xB3000000))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
+                Icon(
+                    if (item.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(21.dp)
+                )
             }
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     item.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    searchSub(item) ?: "",
-                    style = MaterialTheme.typography.bodySmall,
+                    listOf(
+                        TimeFormatter.format(item.durationMs),
+                        formatSize(item.sizeBytes),
+                        containerOf(item)
+                    ).filter { it.isNotBlank() }.joinToString("  ·  "),
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (resumeFraction > 0f) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ZephLinearProgress(progress = resumeFraction)
-                }
             }
         }
     }
