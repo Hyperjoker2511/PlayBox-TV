@@ -495,25 +495,30 @@ internal fun M3DetailsScreen(
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                 }
-                val rows = upNext.chunked(gridCols)
-                items(rows, key = { row -> row.first().path }) { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        row.forEach { next ->
-                            M3DetailsUpNextCard(
-                                item = next,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                onOpen = { onOpen(next) },
-                                modifier = Modifier.weight(1f)
-                            )
+                // Rows of cards, one LazyColumn item per row — a
+                // plain forEach, not LazyListScope.items: the chunked
+                // list overload never resolved on CI (it picked the
+                // count overload and failed on the row type).
+                upNext.chunked(gridCols).forEach { row ->
+                    item(key = row.first().path) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            row.forEach { next ->
+                                M3DetailsUpNextCard(
+                                    item = next,
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    onOpen = { onOpen(next) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            repeat(gridCols - row.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
-                        repeat(gridCols - row.size) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
+                        Spacer(modifier = Modifier.height(14.dp))
                     }
-                    Spacer(modifier = Modifier.height(14.dp))
                 }
             }
             item {
