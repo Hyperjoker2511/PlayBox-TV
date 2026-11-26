@@ -518,11 +518,11 @@ private fun PlayBoxApp() {
                             loading = !libraryLoaded, permissionDenied = permissionDenied,
                             onOpen = { item, list -> details = item; detailList = list },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
+                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null },
                             onLibrary = { mode -> goLibraryMode(mode) },
                             onFolders = { tab = Tab.Browse },
                             onRefresh = { refreshNonce++ },
-                            onSearch = { tab = Tab.Search },
-                            onVoice = { voiceSearchRequest++; tab = Tab.Search }
+                            onSettings = { tab = Tab.Settings }
                         )
                         Tab.Search -> M3SearchScreen(
                             items = all, search = search, onSearch = { search = it },
