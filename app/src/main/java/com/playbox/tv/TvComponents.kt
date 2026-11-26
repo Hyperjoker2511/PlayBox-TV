@@ -64,11 +64,12 @@ internal fun tileSub(item: VideoItem): String? {
 // ---------- LUMEN (2026-11-23): glass + focus ----------
 
 /** The one focus treatment for the whole app (Lumen): a focused item
- * scales 1.06 on a spring, gains a 2px violet ring and a soft violet
+ * scales 1.04 on a spring, gains a 3px violet ring and a soft violet
  * glow, and every glass surface carries a bright rim of light along
  * its top edge — the detail that makes glass read as glass without
  * any live blur. Transform + opacity only, so it stays smooth on the
- * 2 GB box and the phone. */
+ * 2 GB box and the phone. v7: same numbers as zephFocus (S6) — one
+ * treatment, not two. */
 @Composable
 internal fun GlassSurface(
     onClick: () -> Unit,
@@ -81,11 +82,11 @@ internal fun GlassSurface(
     // Patch 6: reduce motion skips the focus zoom.
     val surfaceContext = LocalContext.current
     val reduceMotion = remember(surfaceContext) { isReduceMotion(surfaceContext) }
-    // 1.4.0 (Nocturne TV): the focus growth is 1.08 on the shared
-    // Bouncy spring — fast D-pad travel makes the growth chase the
-    // focus from card to card instead of cutting.
+    // v7: the focus growth is 1.04, the same as zephFocus — fast
+    // D-pad travel makes the growth chase the focus from card to
+    // card instead of cutting.
     val scale by animateFloatAsState(
-        targetValue = if (focused && !reduceMotion) 1.08f else 1f,
+        targetValue = if (focused && !reduceMotion) 1.04f else 1f,
         animationSpec = Motion.bouncy(),
         label = "focusScale"
     )
@@ -97,7 +98,7 @@ internal fun GlassSurface(
                 Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
                 shape
             )
-            .border(2.dp, if (focused) FocusBorder else GlassBorder, shape)
+            .border(if (focused) 3.dp else 2.dp, if (focused) FocusBorder else GlassBorder, shape)
             .focusRequester(req).onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
             .clip(shape),
@@ -133,7 +134,7 @@ internal fun GlassButton(
     val buttonContext = LocalContext.current
     val reduceMotion = remember(buttonContext) { isReduceMotion(buttonContext) }
     val scale by animateFloatAsState(
-        targetValue = if (focused && !reduceMotion) 1.08f else 1f,
+        targetValue = if (focused && !reduceMotion) 1.04f else 1f,
         animationSpec = Motion.bouncy(),
         label = "focusScale"
     )
