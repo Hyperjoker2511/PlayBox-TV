@@ -577,7 +577,11 @@ private fun PlayBoxApp() {
                         Tab.Search -> M3SearchScreen(
                             items = all, search = search, onSearch = { search = it },
                             voiceRequest = voiceSearchRequest,
-                            onOpen = { item, list -> details = item; detailList = list }
+                            onOpen = { item, list -> details = item; detailList = list },
+                            // Patch 6: a song plays straight into Now
+                            // Playing (the design's playTracks); a
+                            // video opens Details.
+                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null; nowPlayingOpen = true }
                         )
                         // 2.0.0 (Patch 4): Browse is the design's
                         // screen — storage cards, network rows and
