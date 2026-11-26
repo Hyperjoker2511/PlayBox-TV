@@ -85,7 +85,8 @@ internal fun VlcPlayerScreen(
     // Patch 1.3.1: called when the LibVLC engine cannot be created at
     // all — MainActivity then opens the same file on Media3 instead of
     // crashing.
-    onEngineFailed: () -> Unit = {}
+    onEngineFailed: () -> Unit = {},
+    onEngineDoor: ((PlayerEngine?) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -101,6 +102,8 @@ internal fun VlcPlayerScreen(
     var panel by remember { mutableStateOf<String?>(null) }
     var gearTab by remember { mutableStateOf("Playback") }
     var ended by remember { mutableStateOf(false) }
+    // v5: the dock's engine door — the per-file choice (null = Auto).
+    var dockEngine by remember(item.path) { mutableStateOf(chosenEngine(context, item.path)) }
     var subsOn by remember { mutableStateOf(settings.getBoolean("subtitles_on", true)) }
     var interactionTick by remember { mutableStateOf(0) }
     var pendingSeekMs by remember(item) { mutableStateOf(0L) }
@@ -608,7 +611,8 @@ internal fun VlcPlayerScreen(
             badge = containerOf(item),
             streamInfo = if (vlcResolution.isNotBlank()) "$vlcResolution  •  ${containerOf(item)}" else containerOf(item),
             visible = showControls && panel == null && !ended && !locked,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
+            onBack = onExit
         )
         M3PlayerDock(
             positionMs = positionMs,
@@ -633,6 +637,15 @@ internal fun VlcPlayerScreen(
             status = status,
             onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
             onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
+            activeEngine = PlayerEngine.VLC,
+            engineChoice = dockEngine,
+            onEngineChange = { eng ->
+                dockEngine = eng
+                chooseEngine(context, item.path, eng)
+                onEngineDoor?.invoke(eng)
+            },
+            upNext = queue.drop(queueIndex + 1).take(4),
+            onPlayUpNext = { onPlayNext(it) },
             modifier = Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
         )
