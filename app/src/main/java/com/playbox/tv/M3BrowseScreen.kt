@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,10 +34,12 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Stream
 import androidx.compose.material.icons.filled.Tv
@@ -62,7 +63,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -144,7 +144,6 @@ internal fun M3BrowseScreen(
         folder != null -> M3BrowseLocalFolderView(
             stack = folderStack,
             onStack = { folderStack = it },
-            videos = videos,
             onOpen = onOpen,
             onPlayFromStart = onPlayFromStart
         )
@@ -275,7 +274,7 @@ private fun M3BrowseRoot(
         val cols = if (maxWidth >= 700.dp) 3 else 1
         LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
             item {
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 M3ScreenHeader(
                     title = "Browse",
                     subtitle = "Local storage, USB drives and network shares",
@@ -292,7 +291,6 @@ private fun M3BrowseRoot(
                         )
                     }
                 )
-                Spacer(modifier = Modifier.height(16.dp))
             }
             item {
                 M3BrowseSectionTitle("Storage")
@@ -334,7 +332,7 @@ private fun M3BrowseRoot(
                     M3BrowseSectionTitle("Picked folders")
                     Spacer(modifier = Modifier.height(12.dp))
                 }
-                items(safFolders, key = { it.toString() }) { uri ->
+                itemsIndexed(safFolders, key = { _, uri -> uri.toString() }) { i, uri ->
                     M3BrowseListRow(
                         row = BrowseRow(
                             name = safName(uri),
@@ -343,7 +341,8 @@ private fun M3BrowseRoot(
                             icon = Icons.Filled.Folder,
                             onClick = { onOpenSafFolder(uri) }
                         ),
-                        index = 0
+                        index = i,
+                        riseDelayMs = 200 + i * 60
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                 }
@@ -381,31 +380,36 @@ private fun M3BrowseRoot(
                     Spacer(modifier = Modifier.height(12.dp))
                 }
             } else {
-                items(smbServers, key = { it.host + "/" + it.share }) { srv ->
+                itemsIndexed(smbServers, key = { _, srv -> srv.host + "/" + srv.share }) { i, srv ->
                     M3BrowseListRow(
                         row = BrowseRow(
                             name = "${srv.host} / ${srv.share}",
                             info = "smb://${srv.host}/${srv.share}",
                             kind = BrowseRowKind.SERVER,
-                            icon = Icons.Filled.FolderShared,
+                            // The design's server icon is a DNS glyph
+                            // (Browse.tsx's server rows use "dns").
+                            icon = Icons.Filled.Dns,
                             badge = "SMB",
                             onClick = { onOpenSmbServer(srv) }
                         ),
-                        index = 0
+                        index = i,
+                        riseDelayMs = 200 + i * 60
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                 }
-                items(ftpServers, key = { it.label() }) { srv ->
+                itemsIndexed(ftpServers, key = { _, srv -> srv.label() }) { i, srv ->
                     M3BrowseListRow(
                         row = BrowseRow(
                             name = srv.label(),
                             info = formatFtpServer(srv),
                             kind = BrowseRowKind.SERVER,
-                            icon = Icons.Filled.Storage,
+                            // The design's FTP icon is a cloud glyph.
+                            icon = Icons.Filled.Cloud,
                             badge = srv.protocol.uppercase(),
                             onClick = { onOpenFtpServer(srv) }
                         ),
-                        index = 0
+                        index = smbServers.size + i,
+                        riseDelayMs = 200 + (smbServers.size + i) * 60
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                 }
@@ -419,7 +423,8 @@ private fun M3BrowseRoot(
                         icon = Icons.Filled.Cast,
                         onClick = null
                     ),
-                    index = 0
+                    index = smbServers.size + ftpServers.size,
+                    riseDelayMs = 200 + (smbServers.size + ftpServers.size) * 60
                 )
                 Spacer(modifier = Modifier.height(20.dp))
             }
@@ -443,13 +448,13 @@ private fun M3BrowseRoot(
     }
 }
 
-/** The design's SectionTitle: title-l, bold. */
+/** The design's SectionTitle: title-l, plain (Regular 400 —
+ * the design's type scale has no bold section titles). */
 @Composable
 private fun M3BrowseSectionTitle(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurface
     )
 }
@@ -522,7 +527,7 @@ private fun M3StorageCard(
 
 // ---------- Folder view (shared by local + network) ----------
 
-private enum class BrowseRowKind { FOLDER, VIDEO, AUDIO, SERVER }
+private enum class BrowseRowKind { FOLDER, VIDEO, AUDIO, SERVER, OTHER }
 
 private data class BrowseRow(
     val name: String,
@@ -550,19 +555,32 @@ private fun M3BrowseFolderView(
     val firstRowFocus = remember { FocusRequester() }
     LaunchedEffect(crumbs) { firstRowFocus.requestFocus() }
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         M3ScreenHeader(
             title = title,
             subtitle = "${rows.size} items",
             actions = {
-                ZephTonalButton(
-                    text = "Up one level",
-                    onClick = onUp,
-                    icon = Icons.Filled.ArrowBack
-                )
+                // The design's "Up one level" is a 40dp ROUND
+                // tonal icon button (Browse.tsx: IconButton
+                // variant="tonal"), not a wide pill.
+                val upInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .zephFocus(upInteraction, focusScale = 1f, cornerRadius = 20.dp)
+                        .clickable(interactionSource = upInteraction, indication = null) { onUp() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.ArrowBack, contentDescription = "Up one level",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         )
-        Spacer(modifier = Modifier.height(12.dp))
         // Breadcrumb chips (Root + segments, last one selected).
         // A plain scrolling Row, not a LazyRow: the chips are few,
         // and item() cannot be called inside itemsIndexed.
@@ -580,7 +598,10 @@ private fun M3BrowseFolderView(
                     )
                 }
                 ZephFilterChip(
-                    label = crumb,
+                    // The design's first chip is "Root" (with the
+                    // storage icon) — the storage/server name is
+                    // the screen title, not the first crumb.
+                    label = if (i == 0) "Root" else crumb,
                     selected = i == crumbs.lastIndex,
                     onClick = { onCrumb(i) },
                     leadingIcon = if (i == 0) Icons.Filled.Storage else null
@@ -650,12 +671,19 @@ private fun M3BrowseFolderView(
 
 /** The design's ListItem, as Zeph uses it here: a 40dp
  * type-coloured icon circle, headline + supporting, and a
- * trailing chevron (folders) or protocol badge (servers). */
+ * trailing chevron (folders) or protocol badge (servers).
+ * Non-media files are OTHER rows (the design's "other" type):
+ * a surface-container-highest circle, a lightbulb icon, the
+ * file size — and NOT clickable. */
 @Composable
 private fun M3BrowseListRow(
     row: BrowseRow,
     index: Int,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    // The rise delay in ms. Null = the folder view's stagger
+    // (min(index, 10) * 35); the root view's server rows pass
+    // the design's 200 + i * 60.
+    riseDelayMs: Int? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
     val (container, tint) = when (row.kind) {
@@ -665,6 +693,8 @@ private fun M3BrowseListRow(
             MaterialTheme.colorScheme.onTertiaryContainer
         BrowseRowKind.AUDIO -> MaterialTheme.colorScheme.secondaryContainer to
             MaterialTheme.colorScheme.onSecondaryContainer
+        BrowseRowKind.OTHER -> MaterialTheme.colorScheme.surfaceContainerHighest to
+            MaterialTheme.colorScheme.onSurfaceVariant
     }
     var modifier = Modifier
         .fillMaxWidth()
@@ -680,7 +710,7 @@ private fun M3BrowseListRow(
                 } else Modifier
             )
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .riseIn(minOf(index, 10) * 35),
+            .riseIn(riseDelayMs ?: minOf(index, 10) * 35),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -741,7 +771,6 @@ private fun M3BrowseListRow(
 private fun M3BrowseLocalFolderView(
     stack: List<File>,
     onStack: (List<File>) -> Unit,
-    videos: List<VideoItem>,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
     onPlayFromStart: (VideoItem, List<VideoItem>) -> Unit
 ) {
@@ -749,19 +778,46 @@ private fun M3BrowseLocalFolderView(
     var contents by remember {
         mutableStateOf<Pair<List<File>, List<VideoItem>>>(emptyList<File>() to emptyList())
     }
+    // Non-media files in this folder (the design's "file" type)
+    // + each subfolder's direct-children count, both read in the
+    // same IO pass as the listing.
+    var others by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var childCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     LaunchedEffect(folder) {
         contents = emptyList<File>() to emptyList()
-        contents = withContext(Dispatchers.IO) { MediaLibrary.listFolder(folder) }
+        others = emptyList()
+        childCounts = emptyMap()
+        val (listed, otherFiles, counts) = withContext(Dispatchers.IO) {
+            val listed = MediaLibrary.listFolder(folder)
+            val all = folder.listFiles() ?: emptyArray()
+            val nonMedia = all.filter { it.isFile && !VideoFilter.isMediaFile(it.name) }
+                .map {
+                    VideoItem(
+                        path = it.absolutePath, name = it.name,
+                        sizeBytes = it.length(), dateAddedSec = it.lastModified() / 1000
+                    )
+                }
+            val counts = listed.first.associate { dir ->
+                dir.absolutePath to (dir.listFiles()?.size ?: 0)
+            }
+            Triple(listed, nonMedia, counts)
+        }
+        contents = listed
+        others = otherFiles
+        childCounts = counts
     }
     val (dirs, media) = contents
-    val rows = remember(dirs, media) {
+    val rows = remember(dirs, media, others, childCounts) {
         buildList {
             dirs.forEach { dir ->
-                val count = videos.count { it.path.startsWith(dir.absolutePath + "/") }
+                // The design's folder row: "{N} items" — the
+                // direct-children count, not the indexed-video
+                // count the app used to show.
+                val count = childCounts[dir.absolutePath] ?: 0
                 add(
                     BrowseRow(
                         name = dir.name,
-                        info = if (count > 0) "$count videos" else "Folder",
+                        info = "$count items",
                         kind = BrowseRowKind.FOLDER,
                         icon = Icons.Filled.Folder,
                         onClick = { onStack(stack + dir) }
@@ -781,10 +837,27 @@ private fun M3BrowseLocalFolderView(
                     )
                 )
             }
+            // Non-media files are shown, not hidden (the
+            // design's "file" type): a lightbulb row, the kind
+            // + size, and NOT clickable.
+            others.forEach { item ->
+                add(
+                    BrowseRow(
+                        name = item.name,
+                        info = "${containerOf(item)} · ${formatSize(item.sizeBytes)}",
+                        kind = BrowseRowKind.OTHER,
+                        icon = Icons.Filled.Lightbulb,
+                        onClick = null
+                    )
+                )
+            }
         }
     }
     M3BrowseFolderView(
-        title = folderDisplayName(folder),
+        // The design's folder-view title is the STORAGE name
+        // ("Internal storage"), not the current folder — the
+        // breadcrumb already shows where you are.
+        title = folderDisplayName(stack.first()),
         crumbs = stack.map { folderDisplayName(it) },
         onCrumb = { i -> onStack(stack.take(i + 1)) },
         onUp = { onStack(stack.dropLast(1)) },
@@ -808,10 +881,13 @@ private fun M3BrowseSafFolderView(
     var contents by remember {
         mutableStateOf<Pair<List<Uri>, List<VideoItem>>>(emptyList<Uri>() to emptyList())
     }
+    var others by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     LaunchedEffect(folder) {
         contents = emptyList<Uri>() to emptyList()
+        others = emptyList()
         contents = withContext(Dispatchers.IO) { MediaLibrary.listSafFolder(context, folder) }
+        others = withContext(Dispatchers.IO) { MediaLibrary.listSafOtherFiles(context, folder) }
     }
     LaunchedEffect(contents) {
         val uris = contents.first.distinct()
@@ -834,7 +910,7 @@ private fun M3BrowseSafFolderView(
     fun crumbName(uri: Uri): String =
         if (uri == stack.first()) (rootName ?: "Folder") else dirName(uri)
     val (dirs, media) = contents
-    val rows = remember(dirs, media, names) {
+    val rows = remember(dirs, media, names, others) {
         buildList {
             dirs.forEach { dir ->
                 add(
@@ -860,10 +936,26 @@ private fun M3BrowseSafFolderView(
                     )
                 )
             }
+            // Non-media files are shown, not hidden (the
+            // design's "file" type): a lightbulb row, the kind
+            // + size, and NOT clickable.
+            others.forEach { item ->
+                add(
+                    BrowseRow(
+                        name = item.name,
+                        info = "${containerOf(item)} · ${formatSize(item.sizeBytes)}",
+                        kind = BrowseRowKind.OTHER,
+                        icon = Icons.Filled.Lightbulb,
+                        onClick = null
+                    )
+                )
+            }
         }
     }
     M3BrowseFolderView(
-        title = crumbName(folder),
+        // The design's folder-view title is the storage name —
+        // here, the picked folder's own name.
+        title = crumbName(stack.first()),
         crumbs = stack.map { crumbName(it) },
         onCrumb = { i -> onStack(stack.take(i + 1)) },
         onUp = { onStack(stack.dropLast(1)) },
@@ -936,6 +1028,20 @@ private fun M3BrowseSmbFolderView(
                     )
                 )
             }
+            // Non-media files are shown, not hidden (the
+            // design's "file" type): a lightbulb row, the kind
+            // + size, and NOT clickable.
+            entries.filter { !it.isDir && !VideoFilter.isMediaFile(it.name) }.forEach { entry ->
+                add(
+                    BrowseRow(
+                        name = entry.name,
+                        info = "${entry.name.substringAfterLast('.', \"\").uppercase().ifBlank { \"FILE\" }} · ${formatSize(entry.size)}",
+                        kind = BrowseRowKind.OTHER,
+                        icon = Icons.Filled.Lightbulb,
+                        onClick = null
+                    )
+                )
+            }
         }
     }
     val segments = remember(path, server) {
@@ -943,7 +1049,9 @@ private fun M3BrowseSmbFolderView(
             .split('/').filter { it.isNotEmpty() }
     }
     M3BrowseFolderView(
-        title = segments.lastOrNull() ?: "${server.host} / ${server.share}",
+        // The design's folder-view title is the server name,
+        // not the current folder — the breadcrumb shows the path.
+        title = "${server.host} / ${server.share}",
         crumbs = listOf("${server.host} / ${server.share}") + segments,
         onCrumb = { i ->
             if (i == 0) onPath(server.url())
@@ -1022,13 +1130,29 @@ private fun M3BrowseFtpFolderView(
                     )
                 )
             }
+            // Non-media files are shown, not hidden (the
+            // design's "file" type): a lightbulb row, the kind
+            // + size, and NOT clickable.
+            entries.filter { !it.isDir && !VideoFilter.isMediaFile(it.name) }.forEach { entry ->
+                add(
+                    BrowseRow(
+                        name = entry.name,
+                        info = "${entry.name.substringAfterLast('.', \"\").uppercase().ifBlank { \"FILE\" }} · ${formatSize(entry.size)}",
+                        kind = BrowseRowKind.OTHER,
+                        icon = Icons.Filled.Lightbulb,
+                        onClick = null
+                    )
+                )
+            }
         }
     }
     val segments = remember(path) {
         path.trimEnd('/').split('/').filter { it.isNotEmpty() }
     }
     M3BrowseFolderView(
-        title = segments.lastOrNull() ?: server.label(),
+        // The design's folder-view title is the server label,
+        // not the current folder — the breadcrumb shows the path.
+        title = server.label(),
         crumbs = listOf(server.label()) + segments,
         onCrumb = { i ->
             if (i == 0) onPath(server.rootPath())
