@@ -638,6 +638,10 @@ private fun PlayBoxApp() {
                     details = null
                 }
                 SharedTransitionLayout(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                    // S14: the SharedTransitionScope lives only as this
+                    // lambda's receiver — provide it as the app's own
+                    // local so the cover/hero helpers can read it.
+                    CompositionLocalProvider(LocalZephSharedTransitionScope provides this) {
                     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                         // Ph6: a short screen (a phone in landscape)
                         // gets the wide layout only when it is tall
@@ -666,7 +670,8 @@ private fun PlayBoxApp() {
                                         onPlay = detailsPlay,
                                         onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
                                         onOpen = { item -> details = item },
-                                        onBack = { details = null }
+                                        onBack = { details = null },
+                                        onSeeAll = { details = null; tab = Tab.Library }
                                     )
                                 }
                             }
@@ -688,13 +693,15 @@ private fun PlayBoxApp() {
                                         onPlay = detailsPlay,
                                         onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
                                         onOpen = { item -> details = item },
-                                        onBack = { details = null }
+                                        onBack = { details = null },
+                                        onSeeAll = { details = null; tab = Tab.Library }
                                     )
                                 }
                                 M3TabStrip(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
                             }
                         }
                     }
+                    } // LocalZephSharedTransitionScope
                 }
             }
         }
@@ -717,7 +724,11 @@ private fun DetailsOverlay(
     onPlay: (VideoItem, Boolean) -> Unit,
     onQueue: (VideoItem) -> Unit,
     onOpen: (VideoItem) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    // 1.9.1 (D12): "See all" in Up next — exits the overlay and
+    // opens the Library. It lives here as a callback because this
+    // composable owns neither the details state nor the tab.
+    onSeeAll: () -> Unit = {}
 ) {
     AnimatedVisibility(
         visible = details != null,
@@ -725,6 +736,9 @@ private fun DetailsOverlay(
         exit = fadeOut(Motion.soft()) + scaleOut(Motion.soft(), targetScale = 0.98f),
         modifier = Modifier.fillMaxSize()
     ) {
+        // The AnimatedVisibilityScope is this lambda's receiver —
+        // capture it before the Box, whose own scope would shadow it.
+        val animScope = this
         val item = lastDetails ?: return@AnimatedVisibility
         Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             M3DetailsScreen(
@@ -734,8 +748,8 @@ private fun DetailsOverlay(
                 onPlay = onPlay,
                 onQueue = onQueue,
                 onOpen = onOpen,
-                onSeeAll = { details = null; tab = Tab.Library },
-                animatedVisibilityScope = this
+                onSeeAll = onSeeAll,
+                animatedVisibilityScope = animScope
             )
         }
     }
