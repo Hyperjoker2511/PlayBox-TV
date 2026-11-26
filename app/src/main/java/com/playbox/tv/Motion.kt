@@ -23,8 +23,9 @@ import androidx.compose.ui.unit.dp
 //   - Fade through: 200ms — content swaps (tab content, lists).
 //   - Shared axis X: 400ms — tab switches, forward/back.
 //   - Shared axis (large): 400ms — bigger screen moves.
-//   - Container transform: 500ms — SearchBar growing into the
-//     Search screen, a cover becoming Details.
+//   - Container transform: 480ms — a cover becoming Details,
+//     the player entering (the design's container-in: 480ms,
+//     scale 0.88, radius 48→0).
 //   - Spatial springs (M3 Expressive): focus travel, press morph —
 //     read from the theme's motion scheme via its generic spec
 //     functions (defaultSpatialSpec / fastSpatialSpec /
@@ -40,7 +41,7 @@ internal object Motion {
     const val FadeThroughMs = 200
     const val SharedAxisMs = 400
     const val SharedAxisLargeMs = 400
-    const val ContainerTransformMs = 500
+    const val ContainerTransformMs = 480
     // 2.0.0 design: the screen fade-through is 420ms on the
     // emphasized-decelerate easing (the design's fade-through holds
     // opacity at 0 for the first 35% — see MainActivity's tabSwitch).
