@@ -31,6 +31,23 @@ class Patch3Test {
     }
 
     @Test
+    fun searchFilter_matchesSongArtistAndAlbum() {
+        // Artist/Album/track layout — the query matches the
+        // folder-derived artist and album, not just the name.
+        val track = item("/Music/Beatles/Abbey Road/01 Come Together.mp3", "01 Come Together")
+        val other = item("/Music/Queen/A Night at the Opera/Bohemian Rhapsody.mp3", "Bohemian Rhapsody")
+        val items = listOf(track, other)
+        assertEquals(listOf(track), searchFilter(items, "beatles"))
+        assertEquals(listOf(track), searchFilter(items, "abbey"))
+        assertEquals(listOf(other), searchFilter(items, "queen"))
+        // The fallbacks never match — "unknown" must not return
+        // every root-level track.
+        val root = item("/loose.mp3", "Loose Track")
+        assertTrue(searchFilter(listOf(root), "unknown").isEmpty())
+        assertTrue(searchFilter(listOf(root), "music").isEmpty())
+    }
+
+    @Test
     fun mergeQueue_appendsAndDedupes() {
         val a = item("/a.mp4", "A")
         val b = item("/b.mp4", "B")
