@@ -34,6 +34,10 @@ internal object Motion {
     const val SharedAxisMs = 400
     const val SharedAxisLargeMs = 400
     const val ContainerTransformMs = 500
+    // 2.0.0 design: the screen fade-through is 420ms on the
+    // emphasized-decelerate easing (the design's fade-through holds
+    // opacity at 0 for the first 35% — see MainActivity's tabSwitch).
+    const val ScreenFadeThroughMs = 420
 
     // M3 emphasized easings (cubic-bezier from the M3 motion spec).
     val Emphasized: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -71,6 +75,11 @@ internal object Motion {
 
     fun <T> fadeThrough(): FiniteAnimationSpec<T> =
         tween(durationMillis = FadeThroughMs, easing = Emphasized)
+
+    // 2.0.0 design: the screen fade-through (420ms, emphasized
+    // decelerate) — tab content swaps in the new design.
+    fun <T> screenFadeThrough(): FiniteAnimationSpec<T> =
+        tween(durationMillis = ScreenFadeThroughMs, easing = EmphasizedDecelerate)
 
     fun <T> bouncy(): FiniteAnimationSpec<T> =
         tween(durationMillis = ContainerTransformMs, easing = EmphasizedDecelerate)
