@@ -435,8 +435,10 @@ internal fun DesignRail(
     DesignRailContent(
         tab = tab, onTab = onTab, onPlayer = onPlayer, palette = palette,
         expanded = expanded, onInteract = {}, focusRequester = focusRequester,
+        // No background here — the RailLayout wrapper paints the
+        // floating pill around the rail, so a square background
+        // would cover its rounded corners.
         modifier = modifier.width(width).fillMaxHeight()
-            .background(palette.surface)
             .onFocusChanged { railFocused = it.hasFocus }
     )
 }
@@ -542,9 +544,24 @@ internal fun RailLayout(
 ) {
     when (railMode) {
         RailMode.DOCKED -> {
+            // The rail lives on the RIGHT as a floating pill — the
+            // approved M3 full-app design (playbox-m3-full-app.html).
+            // Content sits on the left; the rail is a rounded
+            // surfaceContainer pill with a gap around it, not a
+            // left-edge strip. D-pad: ◀/▶ from the content reaches
+            // it from the right now.
             Row(modifier = modifier.fillMaxSize()) {
-                DesignRail(tab = tab, onTab = onTab, onPlayer = onPlayer, palette = palette, labelMode = labelMode)
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content() }
+                Box(
+                    modifier = Modifier
+                        .padding(top = DsSpace.lg, bottom = DsSpace.lg, end = DsSpace.md, start = DsSpace.sm)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(DsRadius.sheet))
+                        .background(palette.surface)
+                        .border(1.dp, palette.outline, RoundedCornerShape(DsRadius.sheet))
+                ) {
+                    DesignRail(tab = tab, onTab = onTab, onPlayer = onPlayer, palette = palette, labelMode = labelMode)
+                }
             }
         }
         RailMode.FLOATING -> {
