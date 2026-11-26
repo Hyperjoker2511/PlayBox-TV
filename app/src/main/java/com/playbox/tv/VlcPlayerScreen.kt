@@ -86,7 +86,8 @@ internal fun VlcPlayerScreen(
     // all — MainActivity then opens the same file on Media3 instead of
     // crashing.
     onEngineFailed: () -> Unit = {},
-    onEngineDoor: ((PlayerEngine?) -> Unit)? = null
+    onEngineDoor: ((PlayerEngine?) -> Unit)? = null,
+    onSeeAllUpNext: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -134,6 +135,16 @@ internal fun VlcPlayerScreen(
     var spuDelayMs by remember { mutableStateOf(vlcPrefs.getLong("spu_delay_ms", 0L)) }
     var volumePct by remember { mutableStateOf(vlcPrefs.getInt("volume_pct", 100)) }
     var eqPreset by remember { mutableStateOf(vlcPrefs.getInt("eq_preset", -1)) }
+    // 1.9.1 (P3): the HUD's stream info — resolution + codec
+    // names, probed from the file (the same probe Details uses).
+    var videoMeta by remember(item) { mutableStateOf<VideoMeta?>(null) }
+    // 1.9.1 (Se7): the Settings brightness applies to the activity
+    // window while a video plays, and restores on exit.
+    val activity = context as? android.app.Activity
+    DisposableEffect(activity) {
+        setWindowBrightness(activity, brightnessPct(context))
+        onDispose { setWindowBrightness(activity, -1) }
+    }
     var loopMode by remember { mutableStateOf(settings.getInt("loop_mode", 0)) }
     var shuffleOn by remember { mutableStateOf(settings.getBoolean("shuffle_on", false)) }
     var abA by remember { mutableStateOf<Long?>(null) }
@@ -242,6 +253,20 @@ internal fun VlcPlayerScreen(
                 if (engineRef == engine) engineRef = null
             }
         }
+    }
+
+    // 1.9.1 (Se6): when "Remember volume" is on, the per-video
+    // level is restored on open (and applied to the live engine
+    // too, in case it already exists). The engine-setup effect
+    // below also applies volumePct, so either order works.
+    LaunchedEffect(item.path) {
+        if (rememberVolume(context)) {
+            storedVolumeFor(context, item.path)?.let { v ->
+                volumePct = (v * 100).toInt().coerceIn(0, 100)
+                runCatching { engine?.player?.setVolume(clampVlcVolume(volumePct)) }
+            }
+        }
+        videoMeta = withContext(Dispatchers.IO) { probeVideoMeta(context, item) }
     }
 
     // Attach the engine to the surface only once the surface exists.
@@ -469,6 +494,17 @@ internal fun VlcPlayerScreen(
         runCatching { engine?.player?.setRate(next) }
         pokeControls()
     }
+    // 1.9.1 (P10): the Volume chip cycles 100 → 50 → off → 100,
+    // driving the VLC player volume (0–200 internally) and
+    // persisting the session level + the per-video level.
+    fun cycleVolume() {
+        volumePct = when (volumePct) { 100 -> 50; 50 -> 0; else -> 100 }
+        vlcPrefs.edit().putInt("volume_pct", volumePct).apply()
+        if (rememberVolume(context)) saveVolumeFor(context, item.path, volumePct / 100f)
+        runCatching { engine?.player?.setVolume(clampVlcVolume(volumePct)) }
+        status = if (volumePct == 0) "Volume off" else "Volume $volumePct%"
+        pokeControls()
+    }
     fun cycleAudioTrack() {
         pokeControls()
         val list = audioTracks
@@ -494,19 +530,22 @@ internal fun VlcPlayerScreen(
         restartNonce++
     }
 
-    val audioLabel = if (audioTracks.size <= 1) "Audio" else {
-        val cur = audioTracks.indexOfFirst { it.id == engine?.player?.audioTrack }.coerceAtLeast(0)
-        "Audio ${cur + 1}/${audioTracks.size}"
+    // 1.9.1 (P10): the chips name the track — "Audio · English",
+    // "Subtitles · English" / "Subtitles · Off" — not "Audio 1/2".
+    val audioLabel = run {
+        val cur = audioTracks.firstOrNull { it.id == engine?.player?.audioTrack }
+        val name = cur?.name?.trim().orEmpty()
+        if (name.isNotBlank()) "Audio · $name" else "Audio"
     }
     val subLabel = when {
-        !subsOn -> "Subtitles"
-        (engine?.player?.spuTrack ?: -1) < 0 -> "Subtitles"
+        !subsOn -> "Subtitles · Off"
+        (engine?.player?.spuTrack ?: -1) < 0 -> "Subtitles · Off"
         else -> {
             val cur = spuTracks.firstOrNull { it.id == engine?.player?.spuTrack }
-            "CC " + (cur?.name?.substringBefore(" ")?.take(8) ?: "")
+            val name = cur?.name?.trim().orEmpty()
+            if (name.isNotBlank()) "Subtitles · " + name.substringBefore(" ").take(12) else "Subtitles"
         }
     }
-    val aspectLabel = when (aspectMode) { AspectMode.FIT -> "Fit"; AspectMode.FILL -> "Fill"; AspectMode.ZOOM -> "Zoom" }
 
     // The VLC surface is sized by VLC itself (best-fit / fill) — the
     // aspect modes above do the work, so no manual sizing is needed
@@ -608,11 +647,14 @@ internal fun VlcPlayerScreen(
         // The HUD carries the title + stream info + live clock.
         M3PlayerHud(
             title = item.name,
-            badge = containerOf(item),
-            streamInfo = if (vlcResolution.isNotBlank()) "$vlcResolution  •  ${containerOf(item)}" else containerOf(item),
+            streamInfo = videoMeta?.let { "${it.resolution} · ${it.videoCodec} · ${it.audioCodec}" }
+                ?: if (vlcResolution.isNotBlank()) "$vlcResolution  •  ${containerOf(item)}" else containerOf(item),
             visible = showControls && panel == null && !ended && !locked,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
-            onBack = onExit
+            modifier = Modifier.align(Alignment.TopCenter)
+                .padding(start = 24.dp, end = 24.dp, top = 28.dp),
+            onBack = onExit,
+            onGear = { gearTab = "Playback"; panel = "gear" },
+            status = status
         )
         M3PlayerDock(
             positionMs = positionMs,
@@ -623,20 +665,16 @@ internal fun VlcPlayerScreen(
             skipSec = skipSec,
             subLabel = subLabel,
             audioLabel = audioLabel,
-            aspectLabel = aspectLabel,
+            volumePct = volumePct,
             onSeekBy = ::seekBy,
             onPlayPause = { if (engine.player.isPlaying) engine.player.pause() else engine.player.play() },
             onCycleSpeed = ::cycleSpeed,
             onSubtitles = { gearTab = "Subtitles"; panel = "gear" },
             onAudio = ::cycleAudioTrack,
-            onAspect = { aspectMode = nextAspect(aspectMode); pokeControls() },
-            onGear = { gearTab = "Playback"; panel = "gear" },
+            onVolume = ::cycleVolume,
             playFocus = playPauseFocus,
             seekFocus = seekFocus,
             visible = showControls && panel == null && !ended && !locked,
-            status = status,
-            onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
-            onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
             activeEngine = PlayerEngine.VLC,
             engineChoice = dockEngine,
             onEngineChange = { eng ->
@@ -646,9 +684,14 @@ internal fun VlcPlayerScreen(
             },
             upNext = queue.drop(queueIndex + 1).take(4),
             onPlayUpNext = { onPlayNext(it) },
+            onSeeAllUpNext = onSeeAllUpNext,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp)
         )
+        // P5: the centre play/pause flash on each toggle.
+        if (!ended && !locked) {
+            M3CentreIndicator(isPlaying = isPlaying, modifier = Modifier.align(Alignment.Center))
+        }
 
         if (panel == "gear") {
             Box(modifier = Modifier.align(Alignment.CenterEnd)) {
