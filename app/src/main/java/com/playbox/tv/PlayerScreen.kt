@@ -670,7 +670,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // reads like the design ("Audio · Stereo"), not "Audio 1/2".
     val audioLabel = remember(tracksVersion) {
         try {
-            val fmt = player.audioFormat
+            // Player (the interface) has no audioFormat — that is
+            // ExoPlayer-only — so read the selected audio track's
+            // Format from the track list instead.
+            val group = player.currentTracks.groups
+                .firstOrNull { it.type == C.TRACK_TYPE_AUDIO }
+            val fmt = group?.let { g ->
+                if (g.length == 0) null else g.getTrackFormat(
+                    (0 until g.length).firstOrNull { g.isTrackSelected(it) } ?: 0
+                )
+            }
             val channels = fmt?.channelCount ?: 0
             val lang = fmt?.language
             when {
