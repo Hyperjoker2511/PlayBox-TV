@@ -202,24 +202,19 @@ internal fun M3DetailsScreen(
             }
             Spacer(modifier = Modifier.height(28.dp))
         }
-        // Per-file player door.
+        // Per-file player door — Auto first (Media3 leads, VLC
+        // steps in on its own), as a real M3 SegmentedButton.
         item {
-            ZephSectionTitle("Player", "Auto lets the Settings default and the format rules decide")
+            ZephSectionTitle("Player", "Auto lets the Settings default and the format rules decide — Media3 leads, VLC steps in on its own for network shares and formats Media3 can't play")
             Spacer(modifier = Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ZephFilterChip("Auto", selected = engineChoice == null, onClick = {
-                    engineChoice = null
-                    chooseEngine(context, item.path, null)
-                })
-                ZephFilterChip("Media3", selected = engineChoice == PlayerEngine.MEDIA3, onClick = {
-                    engineChoice = PlayerEngine.MEDIA3
-                    chooseEngine(context, item.path, PlayerEngine.MEDIA3)
-                })
-                ZephFilterChip("VLC", selected = engineChoice == PlayerEngine.VLC, onClick = {
-                    engineChoice = PlayerEngine.VLC
-                    chooseEngine(context, item.path, PlayerEngine.VLC)
-                })
-            }
+            M3EngineDoor(
+                choice = engineChoice,
+                onChoice = { engine ->
+                    engineChoice = engine
+                    chooseEngine(context, item.path, engine)
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(modifier = Modifier.height(24.dp))
         }
         // Audio tracks.
