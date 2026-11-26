@@ -14,7 +14,7 @@ import androidx.compose.runtime.Composable
 // M3's duration tokens and emphasized easings from the M3 motion
 // spec, and M3's transition patterns:
 //   - Fade through: 200ms — content swaps (tab content, lists).
-//   - Shared axis X: 300ms — tab switches, forward/back.
+//   - Shared axis X: 400ms — tab switches, forward/back.
 //   - Shared axis (large): 400ms — bigger screen moves.
 //   - Container transform: 500ms — SearchBar growing into the
 //     Search screen, a cover becoming Details.
@@ -31,7 +31,7 @@ import androidx.compose.runtime.Composable
 internal object Motion {
     // M3 duration tokens (ms) — from the M3 motion spec.
     const val FadeThroughMs = 200
-    const val SharedAxisMs = 300
+    const val SharedAxisMs = 400
     const val SharedAxisLargeMs = 400
     const val ContainerTransformMs = 500
 
@@ -65,8 +65,12 @@ internal object Motion {
     //   soft:   panels, the player dock, sheets, tab switches.
     //   bouncy: focus travel, buttons, cards (emphasized decelerate).
     //   snap:   seek thumb, toggles, small state changes.
+    //   fadeThrough: tab content swaps (200ms fade-through, S13).
     fun <T> soft(): FiniteAnimationSpec<T> =
         tween(durationMillis = SharedAxisMs, easing = Emphasized)
+
+    fun <T> fadeThrough(): FiniteAnimationSpec<T> =
+        tween(durationMillis = FadeThroughMs, easing = Emphasized)
 
     fun <T> bouncy(): FiniteAnimationSpec<T> =
         tween(durationMillis = ContainerTransformMs, easing = EmphasizedDecelerate)
