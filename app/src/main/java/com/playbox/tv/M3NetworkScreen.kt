@@ -58,7 +58,10 @@ internal fun M3NetworkScreen(
     onFtpServer: (FtpServer?) -> Unit,
     ftpPath: String?,
     onFtpPath: (String?) -> Unit,
-    onOpen: (VideoItem, List<VideoItem>) -> Unit
+    onOpen: (VideoItem, List<VideoItem>) -> Unit,
+    // v7 (Sources "Add a source"): a nonce from Library — each
+    // tap opens the SMB add-server form, even if shown once.
+    addFormRequest: Int = 0
 ) {
     val context = LocalContext.current
     val lastUrlPrefs = remember { context.getSharedPreferences("playbox_last_url", Context.MODE_PRIVATE) }
@@ -66,6 +69,10 @@ internal fun M3NetworkScreen(
     var urlError by remember { mutableStateOf<String?>(null) }
     var servers by remember { mutableStateOf(SmbNetwork.servers(context)) }
     var showAddForm by remember { mutableStateOf(false) }
+    // v7: Sources' "Add a source" opens this form from outside.
+    LaunchedEffect(addFormRequest) {
+        if (addFormRequest > 0) showAddForm = true
+    }
     var host by remember { mutableStateOf("") }
     var share by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
