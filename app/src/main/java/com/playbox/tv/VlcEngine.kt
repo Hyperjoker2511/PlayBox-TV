@@ -239,11 +239,15 @@ internal fun hasStaleVlcAttempt(context: Context): Boolean =
         .getBoolean(VLC_ATTEMPT_KEY, false)
 
 /** Aspect modes map to VLC's scale types. Zoom is best-fit at 1.25x —
- * VLC has no crop-zoom of its own. (unit-tested) */
+ * VLC has no crop-zoom of its own. Stretch fills (distorts);
+ * 16:9 / 4:3 use VLC's own ratio scale types. (unit-tested) */
 internal fun vlcScaleType(mode: AspectMode): MediaPlayer.ScaleType = when (mode) {
     AspectMode.FIT -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
     AspectMode.FILL -> MediaPlayer.ScaleType.SURFACE_FILL
     AspectMode.ZOOM -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
+    AspectMode.STRETCH -> MediaPlayer.ScaleType.SURFACE_FILL
+    AspectMode.RATIO_16_9 -> MediaPlayer.ScaleType.SURFACE_16_9
+    AspectMode.RATIO_4_3 -> MediaPlayer.ScaleType.SURFACE_4_3
 }
 
 /** The extra scale for Zoom (1.25x); 1x for the other modes.
