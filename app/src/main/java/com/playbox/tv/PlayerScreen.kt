@@ -28,6 +28,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -168,30 +174,124 @@ internal fun applySubtitleOption(player: Player, opt: SubOption) {
     }
 }
 
+/** Patch 7: one entry in the audio picker — the design's Audio
+ * sheet is a radio list, like the subtitle picker. */
+internal data class AudioOption(val id: String, val label: String, val sub: String, val group: TrackGroup?, val trackIndex: Int)
+
+/** Patch 7: every embedded audio track in the file, with a label
+ * (language / channel layout) and a sub (codec / bitrate). */
+private fun buildAudioOptions(player: Player): List<AudioOption> {
+    val options = mutableListOf<AudioOption>()
+    try {
+        val audioGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        audioGroups.forEachIndexed { gi, group ->
+            (0 until group.length).forEach { ti ->
+                val format = group.getTrackFormat(ti)
+                val channels = format.channelCount
+                val layout = when {
+                    channels == 1 -> "Mono"
+                    channels == 2 -> "Stereo"
+                    channels >= 6 -> "5.1"
+                    channels > 0 -> "$channels ch"
+                    else -> ""
+                }
+                val lang = format.language?.takeIf { it != "und" }?.let { languageName(it) } ?: ""
+                val label = listOf(lang, layout).filter { it.isNotBlank() }.joinToString(" · ")
+                    .ifBlank { "Track ${ti + 1}" }
+                val codec = format.sampleMimeType?.substringAfter("/")?.uppercase() ?: ""
+                val bitrate = if (format.bitrate > 0) "${format.bitrate / 1000} kbps" else ""
+                val sub = listOf(codec, bitrate).filter { it.isNotBlank() }.joinToString(" · ")
+                options.add(AudioOption("g${gi}t$ti", label, sub, group.mediaTrackGroup, ti))
+            }
+        }
+    } catch (_: Exception) { }
+    return options
+}
+
+/** Patch 7: which audio picker entry is currently playing. */
+private fun selectedAudioId(player: Player, options: List<AudioOption>): String? {
+    return try {
+        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        for (opt in options) {
+            if (opt.group == null) continue
+            val g = groups.firstOrNull { it.mediaTrackGroup == opt.group } ?: continue
+            if (g.isTrackSelected(opt.trackIndex)) return opt.id
+        }
+        null
+    } catch (_: Exception) { null }
+}
+
+/** Patch 7: apply an audio picker choice. */
+private fun applyAudioOption(player: Player, opt: AudioOption) {
+    if (opt.group == null) return
+    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+        .setOverrideForType(TrackSelectionOverride(opt.group, opt.trackIndex)).build()
+}
+
 // ---------- Patch 4 (Qwen player, part 1) ----------
 // One bottom glass panel only — no top bar, no title, no badges, no
 // footer. Controls appear on any press and fade after 5s idle in ANY
 // state (not just while playing). Subtitles render as a Compose overlay
-// from the player's cues. Aspect cycles Fit / Fill / Zoom.
+// from the player's cues. Aspect cycles Fit / Fill / Zoom /
+// Stretch / 16:9 / 4:3 — the design's five modes plus Zeph's
+// Zoom (1.25× crop), kept.
 
-internal enum class AspectMode { FIT, FILL, ZOOM }
+internal enum class AspectMode { FIT, FILL, ZOOM, STRETCH, RATIO_16_9, RATIO_4_3 }
 
 internal fun nextAspect(mode: AspectMode): AspectMode = when (mode) {
     AspectMode.FIT -> AspectMode.FILL
     AspectMode.FILL -> AspectMode.ZOOM
-    AspectMode.ZOOM -> AspectMode.FIT
+    AspectMode.ZOOM -> AspectMode.STRETCH
+    AspectMode.STRETCH -> AspectMode.RATIO_16_9
+    AspectMode.RATIO_16_9 -> AspectMode.RATIO_4_3
+    AspectMode.RATIO_4_3 -> AspectMode.FIT
+}
+
+/** The pill label for an aspect mode (the design's Aspect sheet). */
+internal fun aspectLabel(mode: AspectMode): String = when (mode) {
+    AspectMode.FIT -> "Best fit"
+    AspectMode.FILL -> "Fill screen"
+    AspectMode.ZOOM -> "Zoom 1.25×"
+    AspectMode.STRETCH -> "Stretch"
+    AspectMode.RATIO_16_9 -> "16:9"
+    AspectMode.RATIO_4_3 -> "4:3"
+}
+
+/** Fit a video into a box of boxW×boxH (letterbox). */
+private fun fitIntoBox(videoW: Int, videoH: Int, boxW: Int, boxH: Int): Pair<Int, Int> {
+    val s = minOf(boxW.toFloat() / videoW, boxH.toFloat() / videoH)
+    return (videoW * s).toInt() to (videoH * s).toInt()
 }
 
 /** The SurfaceView size for a video of videoW×videoH on a
  * screenW×screenH screen, in each aspect mode. (unit-tested) */
 internal fun aspectSize(videoW: Int, videoH: Int, screenW: Int, screenH: Int, mode: AspectMode): Pair<Int, Int> {
     if (videoW <= 0 || videoH <= 0 || screenW <= 0 || screenH <= 0) return screenW to screenH
-    val scale = when (mode) {
-        AspectMode.FIT -> minOf(screenW.toFloat() / videoW, screenH.toFloat() / videoH)
-        AspectMode.FILL -> maxOf(screenW.toFloat() / videoW, screenH.toFloat() / videoH)
-        AspectMode.ZOOM -> maxOf(screenW.toFloat() / videoW, screenH.toFloat() / videoH) * 1.25f
+    return when (mode) {
+        AspectMode.FIT -> fitIntoBox(videoW, videoH, screenW, screenH)
+        AspectMode.FILL -> {
+            val scale = maxOf(screenW.toFloat() / videoW, screenH.toFloat() / videoH)
+            (videoW * scale).toInt() to (videoH * scale).toInt()
+        }
+        AspectMode.ZOOM -> {
+            val scale = maxOf(screenW.toFloat() / videoW, screenH.toFloat() / videoH) * 1.25f
+            (videoW * scale).toInt() to (videoH * scale).toInt()
+        }
+        // Stretch distorts the video to fill the display.
+        AspectMode.STRETCH -> screenW to screenH
+        // 16:9 / 4:3: fit the video into the largest box of that
+        // ratio that fits the screen.
+        AspectMode.RATIO_16_9 -> {
+            val boxH = (screenW * 9f / 16f).toInt()
+            if (boxH <= screenH) fitIntoBox(videoW, videoH, screenW, boxH)
+            else fitIntoBox(videoW, videoH, (screenH * 16f / 9f).toInt(), screenH)
+        }
+        AspectMode.RATIO_4_3 -> {
+            val boxH = (screenW * 3f / 4f).toInt()
+            if (boxH <= screenH) fitIntoBox(videoW, videoH, screenW, boxH)
+            else fitIntoBox(videoW, videoH, (screenH * 4f / 3f).toInt(), screenH)
+        }
     }
-    return (videoW * scale).toInt() to (videoH * scale).toInt()
 }
 
 /** "-12:34  ·  1:42:07" for the panel's time row. (unit-tested) */
@@ -244,6 +344,15 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     }
     var status by remember { mutableStateOf("") }
     var panel by remember { mutableStateOf<String?>(null) }
+    // Patch 7: the design's side sheet (audio / subs / speed /
+    // aspect / engine / info) — separate from the gear panel.
+    var sheet by remember { mutableStateOf<String?>(null) }
+    // Patch 7: the seek-flash circle — (forward, timestamp),
+    // cleared after the 700ms seek-pop.
+    var seekFlash by remember { mutableStateOf<Pair<Boolean, Long>?>(null) }
+    LaunchedEffect(seekFlash) {
+        if (seekFlash != null) { delay(700); seekFlash = null }
+    }
     var ended by remember { mutableStateOf(false) }
     // v5: the dock's engine door — the per-file choice (null = Auto).
     var dockEngine by remember(item.path) { mutableStateOf(chosenEngine(context, item.path)) }
@@ -296,11 +405,11 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     val seekFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     val endedFocus = remember { FocusRequester() }
-    LaunchedEffect(showControls, panel, ended) {
+    LaunchedEffect(showControls, panel, sheet, ended) {
         runCatching {
             when {
                 ended -> endedFocus.requestFocus()
-                panel != null -> panelFocus.requestFocus()
+                panel != null || sheet != null -> panelFocus.requestFocus()
                 showControls -> playPauseFocus.requestFocus()
                 else -> rootFocus.requestFocus()
             }
@@ -583,8 +692,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // and an open panel or the ended screen keeps the controls up — but
     // the countdown now runs in ANY state, not just while playing, so a
     // stalled or paused video no longer leaves the buttons up forever.
-    LaunchedEffect(showControls, panel, ended, interactionTick) {
-        if (showControls && panel == null && !ended) { delay(5000); showControls = false }
+    // Patch 7: the design's auto-hide is 4.2s, and an open side sheet
+    // keeps the controls up too.
+    LaunchedEffect(showControls, panel, sheet, ended, interactionTick) {
+        if (showControls && panel == null && sheet == null && !ended) { delay(4200); showControls = false }
     }
 
     // B3: guard the queue lookup — an item that is not in the queue must
@@ -597,6 +708,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         when {
             // Patch 1.3.1: Back unlocks first, like VLC's lock.
             locked -> locked = false
+            sheet != null -> sheet = null
             panel != null -> panel = null
             ended -> onExit()
             // Patch 4: Back on a hidden panel shows the controls first;
@@ -621,6 +733,51 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     fun seekBy(delta: Long) {
         val target = SeekHelper.clampSeek(positionMs, delta, durationMs)
         player.seekTo(target); positionMs = target; pokeControls()
+        // Patch 7: a real skip (±10s / the skip setting) pops the
+        // design's seek-flash circle; a 33ms step-frame does not.
+        if (kotlin.math.abs(delta) >= 1000L) {
+            seekFlash = (delta > 0) to System.currentTimeMillis()
+        }
+    }
+    // Patch 7: the design's A–B loop pill cycles A → B → clear,
+    // with toasts (the gear sheet keeps its Set A / Set B / Clear
+    // buttons on the same state).
+    fun cycleAB() {
+        when {
+            abA == null -> {
+                abA = positionMs; ab = null
+                status = "A–B loop: A set at ${TimeFormatter.format(positionMs)}"
+            }
+            ab == null -> {
+                val a = abA!!
+                if (positionMs - a < 2000) {
+                    status = "Pick a point at least 2 s after A"
+                    pokeControls()
+                    return
+                }
+                ab = a to positionMs
+                status = "Looping ${TimeFormatter.format(a)} → ${TimeFormatter.format(positionMs)}"
+            }
+            else -> {
+                abA = null; ab = null
+                status = "A–B loop cleared"
+            }
+        }
+        pokeControls()
+    }
+    // Patch 7: the design's transport prev / next. Prev restarts
+    // the video if more than 5s in, else plays the previous video.
+    fun playPrev() {
+        if (positionMs > 5000) {
+            player.seekTo(0); positionMs = 0
+        } else if (prevItem != null) {
+            onPlayNext(prevItem)
+        }
+        pokeControls()
+    }
+    fun playNext() {
+        if (nextItem != null) onPlayNext(nextItem)
+        pokeControls()
     }
     fun cycleSpeed() {
         val next = when (speed) { 1f -> 1.5f; 1.5f -> 2f; 2f -> 0.5f; else -> 1f }
@@ -733,6 +890,9 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         }
     }
 
+    // Patch 7: the design's VideoPlayer layout — full-bleed video,
+    // top bar + centre transport + bottom bar + side sheets, with
+    // the top/bottom scrims behind the controls.
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
@@ -742,7 +902,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                 if (locked) return@onPreviewKeyEvent false
                 // B6: every remote press restarts the auto-hide countdown.
                 interactionTick++
-                val uiVisible = showControls || panel != null || ended
+                val uiVisible = showControls || panel != null || sheet != null || ended
                 when (event.key) {
                     // Batch 1.4 (polish): FF/RW follow the user's skip
                     // setting (10s or 30s) instead of hardcoding 30s.
@@ -814,13 +974,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
 
         // Patch 4: subtitles render as a Compose overlay from the
         // player's cues — the old player selected tracks but never drew
-        // them. It sits above the panel when the controls are up.
+        // them. It sits above the bottom bar when the controls are up
+        // (148dp, the design's number) and 48dp when hidden.
         // Patch 5: the size / colour / background come from the gear.
         if (cues.isNotEmpty() && subsOn) {
             val style = subStyle(context)
             Box(
                 modifier = Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = if (showControls) 190.dp else 48.dp, start = 64.dp, end = 64.dp),
+                    .padding(bottom = if (showControls) 148.dp else 48.dp, start = 64.dp, end = 64.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -834,92 +995,263 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             }
         }
 
-        // Patch 1.3.0: the slim floating dock + top bar from the designs
-        // replace the old full-width panel. The dock hides while a gear
-        // panel is open, like the designs.
-        // M3 redesign Phase 6: one bottom dock only — no top bar.
-        // The HUD carries the title + stream info + live clock.
+        // The controls: top bar + centre transport + bottom bar.
+        val controlsVisible = showControls && panel == null && sheet == null && !ended && !locked
+        if (controlsVisible) {
+            // The design's scrims — top (black/80 → transparent)
+            // and bottom (transparent → black/55 → black/90).
+            Box(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().height(144.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)
+                        )
+                    )
+            )
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(256.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.55f),
+                                Color.Black.copy(alpha = 0.9f)
+                            )
+                        )
+                    )
+            )
+        }
         M3PlayerHud(
             title = item.name,
-            streamInfo = videoMeta?.let { "${it.resolution} · ${it.videoCodec} · ${it.audioCodec}" }
+            meta = videoMeta?.let { "${it.resolution} · ${it.videoCodec} · ${it.audioCodec}" }
                 ?: if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}  •  ${containerOf(item)}" else containerOf(item),
-            visible = showControls && panel == null && !ended && !locked,
+            resBadge = videoMeta?.resolution?.substringBefore(" ")
+                ?: if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}" else "",
+            codecBadge = videoMeta?.videoCodec ?: "",
+            showHwBadge = hwDecPref(context) != "off",
+            visible = controlsVisible,
             modifier = Modifier.align(Alignment.TopCenter)
-                .padding(start = 24.dp, end = 24.dp, top = 28.dp),
+                .padding(start = 24.dp, end = 24.dp, top = 20.dp),
             onBack = onExit,
-            onGear = { panel = "gear" },
             status = status
+        )
+        M3VideoPlayerTransport(
+            isPlaying = isPlaying,
+            ended = ended,
+            onPrev = ::playPrev,
+            onSeekBack = { seekBy(-skipMs) },
+            onPlayPause = {
+                if (ended) {
+                    player.seekTo(0); positionMs = 0; ended = false
+                    player.play()
+                } else if (player.isPlaying) player.pause() else player.play()
+            },
+            onSeekForward = { seekBy(skipMs) },
+            onNext = ::playNext,
+            playFocus = playPauseFocus,
+            visible = controlsVisible,
+            modifier = Modifier.align(Alignment.Center)
         )
         M3PlayerDock(
             positionMs = positionMs,
             durationMs = durationMs,
             bufferedFraction = if (durationMs > 0) (player.bufferedPosition.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
-            isPlaying = isPlaying,
             speed = speed,
             skipSec = skipSec,
-            subLabel = subLabel,
             audioLabel = audioLabel,
-            volumePct = volumePct,
-            onSeekBy = ::seekBy,
-            onPlayPause = { if (player.isPlaying) player.pause() else player.play() },
-            onCycleSpeed = ::cycleSpeed,
-            onSubtitles = { panel = "subs" },
-            onAudio = ::cycleAudioTrack,
-            onVolume = ::cycleVolume,
-            playFocus = playPauseFocus,
-            seekFocus = seekFocus,
-            visible = showControls && panel == null && !ended && !locked,
-            activeEngine = PlayerEngine.MEDIA3,
-            engineChoice = dockEngine,
-            onEngineChange = { eng ->
-                dockEngine = eng
-                chooseEngine(context, item.path, eng)
-                onEngineDoor?.invoke(eng)
+            subLabel = subLabel,
+            aspectLabel = aspectLabel(aspectMode),
+            abLabel = when {
+                abA == null -> "A–B loop"
+                ab == null -> "Set B"
+                else -> "Clear loop"
             },
-            upNext = queue.drop(queueIndex + 1).take(4),
-            onPlayUpNext = { onPlayNext(it) },
-            onSeeAllUpNext = onSeeAllUpNext,
+            abBadge = when {
+                abA == null -> ""
+                ab == null -> "A"
+                else -> "A–B"
+            },
+            abActive = abA != null,
+            engineLabel = when (dockEngine) {
+                null -> "Auto"
+                PlayerEngine.MEDIA3 -> "Media3"
+                PlayerEngine.VLC -> "VLC"
+            },
+            onSeekTo = { ms ->
+                val t = SeekHelper.clampSeek(positionMs, ms - positionMs, durationMs)
+                player.seekTo(t); positionMs = t; pokeControls()
+            },
+            onSeekBy = ::seekBy,
+            onAudio = { sheet = "audio" },
+            onSubtitles = { sheet = "subs" },
+            onSpeed = { sheet = "speed" },
+            onAspect = { sheet = "aspect" },
+            onAB = ::cycleAB,
+            onEngine = { sheet = "engine" },
+            onInfo = { sheet = "info" },
+            onPip = {
+                if (onEnterPip != null) onEnterPip()
+                else {
+                    status = "Pop-up player — coming in the next update"
+                    pokeControls()
+                }
+            },
+            onGear = { panel = "gear" },
+            seekFocus = seekFocus,
+            visible = controlsVisible,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp)
+                .padding(start = 32.dp, end = 32.dp, bottom = 20.dp)
         )
-        // P5: the centre play/pause flash on each toggle.
-        if (!ended && !locked) {
-            M3CentreIndicator(isPlaying = isPlaying, modifier = Modifier.align(Alignment.Center))
+        // The seek-flash circles (700ms seek-pop).
+        seekFlash?.let { (forward, _) ->
+            M3SeekFlash(
+                forward = forward, skipSec = skipSec, visible = true,
+                modifier = Modifier.align(if (forward) Alignment.CenterEnd else Alignment.CenterStart)
+                    .padding(horizontal = 80.dp)
+            )
         }
+        // The paused badge — paused AND the controls hidden.
+        M3PausedBadge(
+            visible = !isPlaying && !showControls && !ended && !locked,
+            modifier = Modifier.align(Alignment.Center)
+        )
 
-        if (panel != null) {
-            // Batch 2: a real subtitle picker — Off, the external subtitle
-            // file found next to the video, and every embedded text track
-            // in the file. Rebuilt when tracks arrive (tracksVersion).
-            Column(
-                modifier = Modifier.align(Alignment.CenterEnd).width(420.dp).fillMaxHeight()
-                    .background(
-                        Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
-                        RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp)
-                    )
-                    .border(1.dp, GlassBorder, RoundedCornerShape(topStart = 32.dp, bottomStart = 32.dp))
-                    .padding(24.dp)
+        // The design's side sheets (Audio / Subs / Speed / Aspect /
+        // Engine / Info), sliding in from the right.
+        if (sheet != null) {
+            M3PlayerSheet(
+                title = when (sheet) {
+                    "audio" -> "Audio track"
+                    "subs" -> "Subtitles"
+                    "speed" -> "Playback speed"
+                    "aspect" -> "Aspect ratio"
+                    "engine" -> "Engine"
+                    else -> "Media information"
+                },
+                onClose = { sheet = null },
+                focusRequester = panelFocus
             ) {
-                Text("Subtitles", fontSize = 28.sp, color = White)
-                Spacer(modifier = Modifier.height(16.dp))
-                if (subOptions.size <= 1) {
-                    Text("No subtitles in this file.", fontSize = 20.sp, color = Muted)
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                subOptions.forEachIndexed { i, opt ->
-                    TvButton(
-                        (if (opt.id == selectedSubId) "● " else "") + opt.label,
-                        if (i == 0) Modifier.focusRequester(panelFocus) else Modifier
-                    ) {
-                        applySubtitleOption(player, opt)
-                        subsOn = opt.id != "off"
-                        settings.edit().putBoolean("subtitles_on", subsOn).apply()
-                        status = if (opt.id == "off") "Subtitles off" else "Subtitles: ${opt.label}"
-                        panel = null
+                when (sheet) {
+                    "audio" -> {
+                        val audioOptions = remember(tracksVersion) { buildAudioOptions(player) }
+                        val selectedAudio = remember(tracksVersion, audioOptions) { selectedAudioId(player, audioOptions) }
+                        if (audioOptions.isEmpty()) {
+                            Text("No audio tracks in this file.", fontSize = 20.sp, color = Muted)
+                        }
+                        audioOptions.forEachIndexed { i, opt ->
+                            M3PlayerSheetRadioRow(
+                                option = M3PlayerSheetOption(opt.id, opt.label, opt.sub, opt.id == selectedAudio),
+                                onClick = {
+                                    applyAudioOption(player, opt)
+                                    status = "Audio: ${opt.label}"
+                                    sheet = null
+                                },
+                                focusRequester = if (i == 0) panelFocus else null
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
+                    "subs" -> {
+                        if (subOptions.size <= 1) {
+                            Text("No subtitles in this file.", fontSize = 20.sp, color = Muted)
+                        }
+                        subOptions.forEachIndexed { i, opt ->
+                            M3PlayerSheetRadioRow(
+                                option = M3PlayerSheetOption(opt.id, opt.label, "", opt.id == selectedSubId),
+                                onClick = {
+                                    applySubtitleOption(player, opt)
+                                    subsOn = opt.id != "off"
+                                    settings.edit().putBoolean("subtitles_on", subsOn).apply()
+                                    status = if (opt.id == "off") "Subtitles off" else "Subtitles: ${opt.label}"
+                                    sheet = null
+                                },
+                                focusRequester = if (i == 0) panelFocus else null
+                            )
+                        }
+                        M3PlayerSheetRadioRow(
+                            option = M3PlayerSheetOption(
+                                "load", "Load from file…",
+                                "Put an .srt, .ass or .vtt beside the video", false
+                            ),
+                            onClick = {
+                                status = "Subtitles are found automatically next to the video"
+                                sheet = null
+                            }
+                        )
+                    }
+                    "speed" -> {
+                        listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEachIndexed { i, s ->
+                            M3PlayerSheetRadioRow(
+                                option = M3PlayerSheetOption(
+                                    s.toString(),
+                                    if (s == 1f) "Normal" else "${"%.2f".format(java.util.Locale.US, s).trimEnd('0').trimEnd('.')}×",
+                                    "",
+                                    speed == s
+                                ),
+                                onClick = {
+                                    speed = s; player.setPlaybackSpeed(s)
+                                    status = if (s == 1f) "Speed normal" else "Speed ${s}×"
+                                    sheet = null
+                                },
+                                focusRequester = if (i == 0) panelFocus else null
+                            )
+                        }
+                    }
+                    "aspect" -> {
+                        AspectMode.values().forEachIndexed { i, mode ->
+                            M3PlayerSheetRadioRow(
+                                option = M3PlayerSheetOption(
+                                    mode.name, aspectLabel(mode),
+                                    when (mode) {
+                                        AspectMode.FIT -> "Keep original proportions"
+                                        AspectMode.FILL -> "Crop to remove black bars"
+                                        AspectMode.ZOOM -> "Crop and zoom in 1.25×"
+                                        AspectMode.STRETCH -> "Distort to fill the display"
+                                        AspectMode.RATIO_16_9 -> "Widescreen"
+                                        AspectMode.RATIO_4_3 -> "Classic"
+                                    },
+                                    aspectMode == mode
+                                ),
+                                onClick = { aspectMode = mode; sheet = null },
+                                focusRequester = if (i == 0) panelFocus else null
+                            )
+                        }
+                    }
+                    "engine" -> {
+                        listOf(
+                            Triple<PlayerEngine?, String, String>(null, "Auto", "Use the best engine for this file"),
+                            Triple(PlayerEngine.MEDIA3, "Media3", "The system player — smooth and efficient"),
+                            Triple(PlayerEngine.VLC, "VLC", "Plays almost anything, including odd codecs")
+                        ).forEachIndexed { i, (eng, label, sub) ->
+                            M3PlayerSheetRadioRow(
+                                option = M3PlayerSheetOption(
+                                    eng?.name ?: "auto", label, sub, dockEngine == eng
+                                ),
+                                onClick = {
+                                    dockEngine = eng
+                                    chooseEngine(context, item.path, eng)
+                                    onEngineDoor?.invoke(eng)
+                                    sheet = null
+                                },
+                                focusRequester = if (i == 0) panelFocus else null
+                            )
+                        }
+                    }
+                    "info" -> {
+                        infoRows.forEach { (label, value) ->
+                            M3PlayerSheetInfoRow(
+                                icon = when (label) {
+                                    "Video" -> Icons.Filled.Movie
+                                    "Audio" -> Icons.Filled.GraphicEq
+                                    "File" -> Icons.Filled.Storage
+                                    "Decoder" -> Icons.Filled.Memory
+                                    else -> Icons.Filled.Info
+                                },
+                                overline = label,
+                                headline = value
+                            )
+                        }
+                    }
                 }
-                TvButton("Close") { panel = null }
             }
         }
 
@@ -975,6 +1307,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                     },
                     audioLabel = audioLabel,
                     onCycleAudio = { cycleAudioTrack() },
+                    volumePct = volumePct,
+                    onVolume = { pct ->
+                        volumePct = pct
+                        applyDeviceVolume(audioManager, pct)
+                        if (rememberVolume(context)) saveVolumeFor(context, item.path, pct / 100f)
+                        status = if (pct == 0) "Volume off" else "Volume $pct%"
+                        pokeControls()
+                    },
                     audioFx = audioFx,
                     eqEnabled = eqEnabled,
                     onEqEnabled = { on -> eqEnabled = on; settings.edit().putBoolean("eq_on", on).apply(); pokeControls() },
@@ -1005,9 +1345,11 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         }
 
         // Patch 1.3.1: locked — only the unlock button is on screen.
+        // Patch 7: M3 (no glass) — the lock overlay is rebuilt on a
+        // plain surface, so GlassButton is gone.
         if (locked) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                GlassButton("🔒 Locked — tap to unlock") { locked = false }
+                ZephButton("🔒 Locked — tap to unlock", onClick = { locked = false })
             }
         }
 
@@ -1015,10 +1357,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             Column(
                 modifier = Modifier.align(Alignment.Center)
                     .background(
-                        Brush.verticalGradient(listOf(Color(0x14FFFFFF), Glass)),
+                        MaterialTheme.colorScheme.surfaceContainerHigh,
                         RoundedCornerShape(32.dp)
                     )
-                    .border(1.dp, GlassBorder, RoundedCornerShape(32.dp))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(32.dp)
+                    )
                     .padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -1035,6 +1381,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         }
     }
 }
+
 
 @Composable
 internal fun WaveProgress(progress: Float) {
