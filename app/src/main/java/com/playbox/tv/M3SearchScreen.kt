@@ -21,10 +21,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -35,9 +37,9 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardCapslock
 import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
@@ -68,20 +70,26 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ---------- ZEPH Search (v7 1.9.1 — keyboard rebuilt from research) ----------
-// The keyboard is HIDDEN until you want to type: it only appears
-// when you tap the search field (or press OK on it with the remote),
-// and Back hides it again. The keyboard itself is rebuilt from the
-// Gboard-TV / YouTube TV / Netflix research: a compact floating
-// panel, suggestion pills on top, NO stagger (rows line up straight,
-// because D-pad moves are up/down/left/right), one key size (48dp),
-// Space widest, Search the only accent key, number superscripts on
-// the top row, focus starts on Q. On a small screen it goes compact
-// (36dp keys, no suggestions) so it never clips off the bottom.
-// The field is read-only — the on-screen keyboard IS the input, so
-// the phone's soft keyboard never fights it. The #1/#5 Focus Morph
-// (expanding pill, sliding title, Cancel) is gone: the design has
-// the shared top bar and a plain 56dp field instead.
+// ---------- ZEPH Search (Patch 6, 2.0.0 rebuild) ----------
+// The design's Search (Search.tsx): ScreenHeader ("Search" /
+// "Videos, songs, albums and artists"), a TextField capped at
+// 560dp, "Try searching for" + trending chips when empty,
+// "No results for 'q'" when nothing matches, a Videos horizontal
+// row and Songs list rows when something does. The design has NO
+// on-screen keyboard (web demo) — Zeph keeps the v7 keyboard
+// here, same layout as 1.9.1: hidden until you tap the field
+// (or press OK on it with the remote), Back hides it again.
+// Voice search and Recent searches are Zeph features the design
+// lacks — they stay, restyled: the mic on the field, recents as
+// chips under the trending chips in the empty state (and as
+// suggestion pills on the keyboard while you type).
+// Tapping a video opens Details (the design's openVideo); tapping
+// a song plays it straight into Now Playing (the design's
+// playTracks). Search matches the name, and for songs also the
+// folder-derived artist and album (searchFilter in M3Helpers).
+
+/** The design's trending terms (Search.tsx SUGGEST). */
+private val SEARCH_SUGGEST = listOf("Neon", "Aurora", "4K", "Marlow", "Documentary", "Lo-fi")
 
 @Composable
 internal fun M3SearchScreen(
@@ -89,6 +97,7 @@ internal fun M3SearchScreen(
     search: String,
     onSearch: (String) -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
+    onPlayFromStart: (VideoItem, List<VideoItem>) -> Unit,
     voiceRequest: Int = 0
 ) {
     val context = LocalContext.current
@@ -102,6 +111,9 @@ internal fun M3SearchScreen(
         focusManager.clearFocus()
     }
     val shown = searchFilter(items, search)
+    val videos = remember(shown) { shown.filter { it.isVideo } }
+    val songs = remember(shown) { shown.filter { it.isAudio } }
+    val resume = remember { resumePositions(context) }
     // Voice search — mic button only when the box has a recognizer.
     val onVoice = rememberVoiceSearch(context) { spoken ->
         onSearch(spoken)
@@ -135,13 +147,15 @@ internal fun M3SearchScreen(
         // frame) — full 48dp keys only on a tall wide screen.
         val compactKeyboard = !wide || maxHeight < 600.dp
         if (wide && !short) {
-            // TV: top bar + field, then the keyboard on the left
+            // TV: header + field, then the keyboard on the left
             // (1.25fr) and the results on the right (1fr) — or the
             // results full width while the keyboard is hidden.
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-                Spacer(modifier = Modifier.height(24.dp))
-                ZephScreenTopBar("Search")
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
+                M3ScreenHeader(
+                    title = "Search",
+                    subtitle = "Videos, songs, albums and artists"
+                )
                 M3SearchField(
                     search = search, onSearch = onSearch,
                     onVoice = onVoice, onFieldTap = showKeyboard
@@ -154,10 +168,13 @@ internal fun M3SearchScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    M3RecentChips(recent = recent, onRecent = onSearch)
-                    Spacer(modifier = Modifier.height(12.dp))
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        searchResultsItems(shown, search, onOpen, runSearch)
+                        searchContentItems(
+                            videos = videos, songs = songs, search = search,
+                            items = items, recent = recent, onSearch = onSearch,
+                            onOpen = onOpen, onPlayFromStart = onPlayFromStart,
+                            onRunSearch = runSearch, resume = resume
+                        )
                     }
                 } else {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -174,12 +191,13 @@ internal fun M3SearchScreen(
                                 compact = compactKeyboard
                             )
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            M3RecentChips(recent = recent, onRecent = onSearch)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            LazyColumn(modifier = Modifier.weight(1f)) {
-                                searchResultsItems(shown, search, onOpen, runSearch)
-                            }
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            searchContentItems(
+                                videos = videos, songs = songs, search = search,
+                                items = items, recent = recent, onSearch = onSearch,
+                                onOpen = onOpen, onPlayFromStart = onPlayFromStart,
+                                onRunSearch = runSearch, resume = resume
+                            )
                         }
                     }
                 }
@@ -198,8 +216,10 @@ internal fun M3SearchScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    ZephScreenTopBar("Search")
-                    Spacer(modifier = Modifier.height(12.dp))
+                    M3ScreenHeader(
+                        title = "Search",
+                        subtitle = "Videos, songs, albums and artists"
+                    )
                     M3SearchField(
                         search = search, onSearch = onSearch,
                         onVoice = onVoice, onFieldTap = showKeyboard
@@ -213,13 +233,16 @@ internal fun M3SearchScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    M3RecentChips(recent = recent, onRecent = onSearch)
-                    Spacer(modifier = Modifier.height(12.dp))
                     LazyColumn(
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(bottom = kbHeight + 16.dp)
                     ) {
-                        searchResultsItems(shown, search, onOpen, runSearch)
+                        searchContentItems(
+                            videos = videos, songs = songs, search = search,
+                            items = items, recent = recent, onSearch = onSearch,
+                            onOpen = onOpen, onPlayFromStart = onPlayFromStart,
+                            onRunSearch = runSearch, resume = resume
+                        )
                     }
                 }
                 if (keyboardVisible) {
@@ -241,14 +264,16 @@ internal fun M3SearchScreen(
                 }
             }
         } else {
-            // Narrow portrait phone: one scrolling list — field,
-            // hint, recents, the compact keyboard in-flow when
-            // shown, then the results.
+            // Narrow portrait phone: one scrolling list — header,
+            // field, hint, the compact keyboard in-flow when
+            // shown, then the content.
             LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
                 item {
-                    Spacer(modifier = Modifier.height(24.dp))
-                    ZephScreenTopBar("Search")
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
+                    M3ScreenHeader(
+                        title = "Search",
+                        subtitle = "Videos, songs, albums and artists"
+                    )
                     M3SearchField(
                         search = search, onSearch = onSearch,
                         onVoice = onVoice, onFieldTap = showKeyboard
@@ -261,8 +286,6 @@ internal fun M3SearchScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    M3RecentChips(recent = recent, onRecent = onSearch)
                     Spacer(modifier = Modifier.height(16.dp))
                 }
                 if (keyboardVisible) {
@@ -277,19 +300,25 @@ internal fun M3SearchScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
-                searchResultsItems(shown, search, onOpen, runSearch)
+                searchContentItems(
+                    videos = videos, songs = songs, search = search,
+                    items = items, recent = recent, onSearch = onSearch,
+                    onOpen = onOpen, onPlayFromStart = onPlayFromStart,
+                    onRunSearch = runSearch, resume = resume
+                )
                 item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
     }
 }
 
-/** The search field (K10): 56dp, surface-high, NO border, search
- * icon onSurfaceVariant, a static placeholder (K11 — no
- * typewriter), the mic in a 38dp secondaryContainer circle, and no
- * Clear button. It morphs from the Home SearchBar (S14). Read-only:
- * the on-screen keyboard is the input, so the phone's soft keyboard
- * never appears. Tapping it shows the on-screen keyboard. */
+/** The search field (K10, Patch 6): 56dp, surface-high, NO
+ * border, search icon onSurfaceVariant, a static placeholder
+ * (K11 — no typewriter), the mic in a 38dp secondaryContainer
+ * circle, and no Clear button. Capped at 560dp wide, like the
+ * design's max-w-[560px]. Read-only: the on-screen keyboard is
+ * the input, so the phone's soft keyboard never appears. Tapping
+ * it shows the on-screen keyboard. */
 @Composable
 private fun M3SearchField(
     search: String,
@@ -299,7 +328,7 @@ private fun M3SearchField(
 ) {
     Box(
         modifier = Modifier
-            .fillMaxWidth().height(56.dp)
+            .fillMaxWidth().widthIn(max = 560.dp).height(56.dp)
             .then(coverSharedModifier("search-bar"))
             .clip(RoundedCornerShape(28.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -329,7 +358,7 @@ private fun M3SearchField(
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (search.isEmpty()) {
                             Text(
-                                "Search videos, music…",
+                                "Search your library",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -361,7 +390,7 @@ private fun M3SearchField(
 }
 
 /** Recent searches (K12/K16): AssistChips with a history icon,
- * shown in the hidden frame AND while typing, above the results. */
+ * shown in the empty state under the trending chips. */
 @Composable
 private fun M3RecentChips(
     recent: List<String>,
@@ -394,37 +423,198 @@ private fun M3RecentChips(
     }
 }
 
-/** The results, as LazyListScope items — shared by all layouts. */
-private fun LazyListScope.searchResultsItems(
-    shown: List<VideoItem>,
+/** The content under the field, as LazyListScope items — shared
+ * by all three layouts. The design's three states: empty (no
+ * query) → "Try searching for" + trending chips (+ recents);
+ * no results → the centred "No results for 'q'"; results →
+ * a Videos horizontal row and Songs list rows. */
+private fun LazyListScope.searchContentItems(
+    videos: List<VideoItem>,
+    songs: List<VideoItem>,
     search: String,
+    items: List<VideoItem>,
+    recent: List<String>,
+    onSearch: (String) -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit,
-    onRunSearch: () -> Unit
+    onPlayFromStart: (VideoItem, List<VideoItem>) -> Unit,
+    onRunSearch: () -> Unit,
+    resume: Map<String, Long>
 ) {
-    if (shown.isEmpty() && search.isNotBlank()) {
-        item {
-            Text(
-                "No results for '$search'. Try a shorter name or browse Folders.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+    if (search.isBlank()) {
+        if (items.isEmpty()) {
+            // Honest empty library — the trending chips would
+            // lead nowhere, so the note stands alone.
+            item {
+                Text(
+                    "No videos yet — plug in a USB drive, or copy a video to this TV.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            item {
+                Text(
+                    "Try searching for",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(SEARCH_SUGGEST, key = { it }) { term ->
+                        ZephFilterChip(
+                            label = term,
+                            selected = false,
+                            onClick = { onSearch(term) },
+                            leadingIcon = Icons.Filled.TrendingUp
+                        )
+                    }
+                }
+            }
+            if (recent.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        "Recent",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    M3RecentChips(recent = recent, onRecent = onSearch)
+                }
+            }
         }
-    } else if (shown.isEmpty()) {
+    } else if (videos.isEmpty() && songs.isEmpty()) {
         item {
-            Text(
-                "No videos yet — plug in a USB drive, or copy a video to this TV.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 56.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Filled.Search, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "No results for “$search”",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     } else {
-        items(shown, key = { it.path }) { item ->
-            M3SearchRow(item) {
-                onRunSearch()
-                onOpen(item, shown)
+        if (videos.isNotEmpty()) {
+            item {
+                Text(
+                    "Videos",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(12.dp))
             }
-            Spacer(modifier = Modifier.height(9.dp))
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    itemsIndexed(videos, key = { _, v -> v.path }) { index, video ->
+                        val progress = if (video.durationMs > 0) {
+                            (resume[video.path] ?: 0L).toFloat() / video.durationMs
+                        } else 0f
+                        M3VideoCard(
+                            item = video,
+                            progress = progress,
+                            index = index,
+                            onOpen = {
+                                onRunSearch()
+                                onOpen(video, videos)
+                            },
+                            modifier = Modifier.width(212.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
         }
+        if (songs.isNotEmpty()) {
+            item {
+                Text(
+                    "Songs",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            itemsIndexed(songs, key = { _, s -> s.path }) { index, song ->
+                M3SearchSongRow(
+                    item = song,
+                    index = index,
+                    onPlay = {
+                        onRunSearch()
+                        onPlayFromStart(song, songs)
+                    }
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+        }
+    }
+}
+
+/** One song row (Search.tsx ListItem): 44dp album art, title +
+ * "artist · album", trailing duration. A ListItem: 28dp radius,
+ * lift-sm focus (1.03). Tapping plays the song straight into
+ * Now Playing — it does not open Details. */
+@Composable
+private fun M3SearchSongRow(
+    item: VideoItem,
+    index: Int,
+    onPlay: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val album = audioAlbumOf(item)
+    val artist = audioArtistOf(item)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .zephFocus(interaction, focusScale = 1.03f, cornerRadius = 28.dp)
+            .clickable(interactionSource = interaction, indication = null) { onPlay() }
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .riseIn(minOf(index, 10) * 30),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
+        ) {
+            M3AlbumArt(
+                hue = audioHueOf(album),
+                icon = Icons.Filled.MusicNote,
+                iconSize = 20.dp,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                item.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "$artist · $album",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            TimeFormatter.format(item.durationMs),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }
 
@@ -763,62 +953,6 @@ private fun M3Key(
                 color = content.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 6.dp)
             )
-        }
-    }
-}
-
-/** A Search result row (K15): a 44dp primaryContainer icon
- * circle + title + "duration · size · container" — no thumbnail,
- * no badge, no star, no resume bar. */
-@Composable
-private fun M3SearchRow(
-    item: VideoItem,
-    onOpen: () -> Unit
-) {
-    ZephCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onOpen
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(13.dp, 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier.size(44.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    if (item.isVideo) Icons.Filled.Movie else Icons.Filled.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(21.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    item.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    listOf(
-                        TimeFormatter.format(item.durationMs),
-                        formatSize(item.sizeBytes),
-                        containerOf(item)
-                    ).filter { it.isNotBlank() }.joinToString("  ·  "),
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
         }
     }
 }
