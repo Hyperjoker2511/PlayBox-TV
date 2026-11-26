@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
@@ -29,7 +30,6 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -41,11 +41,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-// ---------- ZEPH Home (M3 Expressive 1.7.0) ----------
-// A NEW Home, not the 1.6.0 arrangement. M3 Expressive throughout:
-// a tonal clock pill, a quick-actions chip row (Library, Folders,
-// Network, Refresh), a big expressive hero with a tertiary "Featured"
-// chip, larger carousel cards, M3 section headers with See-all.
+// ---------- ZEPH Home (M3 Expressive 1.8.0) ----------
+// A NEW structure, not a repaint of 1.6.0/1.7.0. Built on the
+// approved M3 full-app design (playbox-m3-full-app.html, "Its
+// perfect / make it default in a future update"):
+//   - NO greeting. A top app bar: logo mark + "Zeph Player" + the
+//     clock in a tonal pill on the right.
+//   - NO single static hero. A hero CAROUSEL — swipe through the
+//     featured / continue-watching videos, each a large card.
+//   - NO vertical list of rows. All videos in a GRID (2 columns
+//     on a phone, 3 on a wide screen).
+// The rail is on the RIGHT as a floating pill (RailLayout).
 // The data is the same as before (MediaLibrary + resume store) —
 // only the design is new.
 
@@ -67,20 +73,27 @@ internal fun M3HomeScreen(
     val continueWatching = videos.filter { resume.containsKey(it.path) }
         .sortedByDescending { resumeTime[it.path] ?: 0L }
     val all = videos + audio
-    val servers = remember { SmbNetwork.servers(context).size }
-    val hero = continueWatching.firstOrNull() ?: videos.firstOrNull()
+    // Hero carousel: resume items first, then the newest videos,
+    // up to 5 large cards to swipe through.
+    val featured = remember(continueWatching, videos) {
+        (continueWatching + videos.filter { v -> v !in continueWatching }).take(5)
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wide = maxWidth >= 700.dp
         val hPad = if (wide) (maxWidth * 0.05f).coerceIn(34.dp, 88.dp) else 18.dp
         val topPad = if (wide) 46.dp else 22.dp
         val bottomPad = if (wide) 56.dp else 40.dp
-        val heroHeight = if (wide) 360.dp else 230.dp
+        val heroHeight = if (wide) 360.dp else 240.dp
+        val heroWidth = if (wide) maxWidth * 0.78f else maxWidth * 0.92f
+        val gridCols = if (wide) 3 else 2
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = hPad)
         ) {
-            // Header: greeting + a tonal clock pill, then the counts.
+            // Top app bar: logo mark + Zeph Player + clock pill.
+            // No greeting — the greeting is the thing that made
+            // every version look the same.
             item {
                 Spacer(modifier = Modifier.height(topPad))
                 Row(
@@ -88,12 +101,26 @@ internal fun M3HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        greeting(),
-                        style = MaterialTheme.typography.displaySmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    // The clock sits in a tonal pill — M3 Expressive.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier.size(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Text(
+                            "Zeph Player",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
@@ -103,13 +130,6 @@ internal fun M3HomeScreen(
                         HomeClock(color = MaterialTheme.colorScheme.primary)
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    "${videos.size} videos  •  ${audio.size} tracks" +
-                        if (servers > 0) "  •  $servers network servers" else "",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 if (permissionDenied) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
@@ -122,8 +142,7 @@ internal fun M3HomeScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
 
-            // Quick actions: M3 AssistChips — Library, Folders/USB,
-            // Network, Refresh. A dashboard strip, new in 1.7.0.
+            // Quick actions: M3 AssistChips.
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -153,139 +172,34 @@ internal fun M3HomeScreen(
                 Spacer(modifier = Modifier.height(28.dp))
             }
 
-            // Hero: the featured video — full-bleed cover, tertiary
-            // "Featured" chip, big title, resume progress, Play +
-            // Details in expressive pill buttons.
-            if (hero != null) {
-                val heroResumeMs = resume[hero.path] ?: 0L
-                val heroFraction =
-                    if (hero.durationMs > 0) heroResumeMs.toFloat() / hero.durationMs else 0f
+            // Hero carousel: swipe through the featured videos.
+            if (featured.isNotEmpty()) {
                 item {
-                    ZephCard(
-                        modifier = Modifier.fillMaxWidth().height(heroHeight),
-                        onClick = { onOpen(hero, all) }
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            VideoThumb(hero, Modifier.fillMaxSize())
-                            // Scrim so the title stays readable.
-                            Box(
-                                modifier = Modifier.fillMaxSize().background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            Color(0x400F1513),
-                                            Color(0xE60F1513)
-                                        )
-                                    )
-                                )
-                            )
-                            Column(
-                                modifier = Modifier.align(Alignment.BottomStart)
-                                    .fillMaxWidth()
-                                    .padding(24.dp)
-                            ) {
-                                // Tertiary chip — the warm peach, the
-                                // third hue that makes M3 read as M3.
-                                Box(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        if (heroResumeMs > 0L) "Continue watching" else "Featured",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    hero.name,
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    color = Color.White,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    listOf(
-                                        TimeFormatter.format(hero.durationMs),
-                                        formatSize(hero.sizeBytes),
-                                        containerOf(hero)
-                                    ).filter { it.isNotBlank() }.joinToString("  •  "),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.85f)
-                                )
-                                if (heroResumeMs > 0L) {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    ZephLinearProgress(progress = heroFraction)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        "Resume at ${TimeFormatter.format(heroResumeMs)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.85f)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    ZephButton(
-                                        text = if (heroResumeMs > 0L) "Resume" else "Play",
-                                        onClick = { onPlay(hero, all) },
-                                        icon = Icons.Filled.PlayArrow
-                                    )
-                                    ZephTonalButton(
-                                        text = "Details",
-                                        onClick = { onOpen(hero, all) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(32.dp))
-                }
-            }
-
-            // Continue watching carousel — larger cards, See-all.
-            if (continueWatching.isNotEmpty()) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        ZephSectionTitle(
-                            "Continue watching",
-                            "${continueWatching.size} in progress"
-                        )
-                        TextButton(onClick = { onLibrary("Videos") }) {
-                            Text(
-                                "See all",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
+                    ZephSectionTitle(
+                        if (continueWatching.isNotEmpty()) "Continue watching" else "Featured",
+                        "${featured.size} to pick from — swipe"
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
                 }
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        items(continueWatching, key = { it.path }) { item ->
+                        items(featured, key = { it.path }) { item ->
+                            val resumeMs = resume[item.path] ?: 0L
                             val fraction =
-                                if (item.durationMs > 0) (resume[item.path] ?: 0L).toFloat() / item.durationMs
-                                else 0f
-                            M3ContinueCard(
+                                if (item.durationMs > 0) resumeMs.toFloat() / item.durationMs else 0f
+                            M3HeroCard(
                                 item = item,
+                                resumeMs = resumeMs,
                                 resumeFraction = fraction,
-                                resumeMs = resume[item.path] ?: 0L,
                                 onPlay = { onPlay(item, all) },
-                                onOpen = { onOpen(item, all) }
+                                onOpen = { onOpen(item, all) },
+                                modifier = Modifier.width(heroWidth).height(heroHeight)
                             )
                         }
                     }
                     Spacer(modifier = Modifier.height(32.dp))
                 }
             } else if (videos.isEmpty() && audio.isEmpty()) {
-                // Empty state: nothing in the library yet.
                 item {
                     ZephEmptyState(
                         title = if (loading) "Loading your files…" else "No videos yet",
@@ -310,14 +224,14 @@ internal fun M3HomeScreen(
                 }
             }
 
-            // All videos.
+            // All videos — a GRID, not a vertical list of rows.
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    ZephSectionTitle("All videos", "${all.size} files")
+                    ZephSectionTitle("All videos", "${all.size} files  •  ${videos.size} videos  •  ${audio.size} tracks")
                     ZephTonalButton("Refresh", onClick = onRefresh, icon = Icons.Filled.Refresh)
                 }
                 Spacer(modifier = Modifier.height(12.dp))
@@ -331,16 +245,29 @@ internal fun M3HomeScreen(
                     )
                 }
             } else {
-                items(all, key = { it.path }) { item ->
-                    val resumeMs = resume[item.path] ?: 0L
-                    val fraction =
-                        if (item.durationMs > 0) resumeMs.toFloat() / item.durationMs else 0f
-                    M3VideoRow(
-                        item = item,
-                        resumeFraction = fraction,
-                        onOpen = { onOpen(item, all) }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                val rows = all.chunked(gridCols)
+                items(rows, key = { row -> row.first().path }) { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        row.forEach { item ->
+                            val resumeMs = resume[item.path] ?: 0L
+                            val fraction =
+                                if (item.durationMs > 0) resumeMs.toFloat() / item.durationMs else 0f
+                            M3GridCard(
+                                item = item,
+                                resumeFraction = fraction,
+                                onOpen = { onOpen(item, all) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        // Pad the last row so the grid stays aligned.
+                        repeat(gridCols - row.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
             item {
@@ -382,19 +309,103 @@ private fun M3QuickChip(
     )
 }
 
-/** A Continue watching card: wide 16:9 cover, title, resume bar. */
+/** One hero card in the carousel: full-bleed cover, tertiary
+ * chip, big title, resume progress, Play + Details. */
 @Composable
-private fun M3ContinueCard(
+private fun M3HeroCard(
+    item: VideoItem,
+    resumeMs: Long,
+    resumeFraction: Float,
+    onPlay: () -> Unit,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    ZephCard(modifier = modifier, onClick = onOpen) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            VideoThumb(item, Modifier.fillMaxSize())
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color(0x400F1513),
+                            Color(0xE60F1513)
+                        )
+                    )
+                )
+            )
+            Column(
+                modifier = Modifier.align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(24.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.tertiaryContainer)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        if (resumeMs > 0L) "Continue watching" else "Featured",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    item.name,
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    listOf(
+                        TimeFormatter.format(item.durationMs),
+                        formatSize(item.sizeBytes),
+                        containerOf(item)
+                    ).filter { it.isNotBlank() }.joinToString("  •  "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.85f)
+                )
+                if (resumeMs > 0L) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ZephLinearProgress(progress = resumeFraction)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Resume at ${TimeFormatter.format(resumeMs)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ZephButton(
+                        text = if (resumeMs > 0L) "Resume" else "Play",
+                        onClick = onPlay,
+                        icon = Icons.Filled.PlayArrow
+                    )
+                    ZephTonalButton(
+                        text = "Details",
+                        onClick = onOpen
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One card in the All videos grid: 16:9 cover, title, meta,
+ * resume bar. */
+@Composable
+private fun M3GridCard(
     item: VideoItem,
     resumeFraction: Float,
-    resumeMs: Long,
-    onPlay: () -> Unit,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    ZephCard(
-        modifier = Modifier.width(320.dp),
-        onClick = onOpen
-    ) {
+    ZephCard(modifier = modifier, onClick = onOpen) {
         Column {
             Box(
                 modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -407,93 +418,25 @@ private fun M3ContinueCard(
                         )
                     )
                 )
-                // Play button on the cover.
-                Box(
-                    modifier = Modifier.align(Alignment.Center)
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.PlayArrow, contentDescription = "Play",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                Text(
-                    TimeFormatter.format(item.durationMs),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White,
-                    modifier = Modifier.align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .clip(MaterialTheme.shapes.small)
-                        .background(Color(0xB3000000))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    item.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                ZephLinearProgress(progress = resumeFraction)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Resume at ${TimeFormatter.format(resumeMs)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-/** An All videos row: cover tile, title + meta, resume bar. */
-@Composable
-private fun M3VideoRow(
-    item: VideoItem,
-    resumeFraction: Float,
-    onOpen: () -> Unit
-) {
-    ZephCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onOpen
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier.size(120.dp, 68.dp)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            ) {
-                VideoThumb(item, Modifier.fillMaxSize())
                 if (item.isVideo && item.durationMs > 0L) {
                     Text(
                         TimeFormatter.format(item.durationMs),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = Color.White,
                         modifier = Modifier.align(Alignment.BottomEnd)
-                            .padding(4.dp)
+                            .padding(8.dp)
                             .clip(MaterialTheme.shapes.small)
                             .background(Color(0xB3000000))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Text(
                     item.name,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -513,12 +456,6 @@ private fun M3VideoRow(
                     ZephLinearProgress(progress = resumeFraction)
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Icon(
-                Icons.Filled.PlayArrow, contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
         }
     }
 }
