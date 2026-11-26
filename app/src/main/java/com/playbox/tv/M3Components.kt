@@ -1,5 +1,9 @@
 package com.playbox.tv
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.LocalSharedTransitionScope
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -7,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,11 +48,14 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,10 +63,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -68,30 +82,217 @@ import kotlinx.coroutines.delay
 // one design, not a pile of screens. Motion is transform + opacity
 // only (scale on focus, fade on press), 60fps, no live blur.
 
-/** The Zeph focus treatment for TV: a small scale-up + a ring in
- * the primary colour when focused. Use on any clickable surface.
- * The scale runs on M3's own spatial spring (the theme's
- * MotionScheme.expressive()), so focus travel IS Material 3 motion. */
+/** The AnimatedVisibilityScope of the tab AnimatedContent in
+ * MainActivity — the scope grid/row covers share with the Details
+ * hero for the container transform (S14). Provided by MainActivity;
+ * null outside the tab content. */
+internal val LocalTabAnimatedVisibilityScope =
+    compositionLocalOf<AnimatedVisibilityScope?> { null }
+
+/** A shared-element modifier for a cover (S14): the cover morphs
+ * into the Details hero. A plain Modifier when the shared
+ * transition is not available (outside the tab content). */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+internal fun coverSharedModifier(key: String): Modifier {
+    val scope = LocalSharedTransitionScope.current ?: return Modifier
+    val animScope = LocalTabAnimatedVisibilityScope.current ?: return Modifier
+    val state = scope.rememberSharedContentState(key = key)
+    return with(scope) { Modifier.sharedElement(state, animScope) }
+}
+
+/** The same, with an explicit AnimatedVisibilityScope — for the
+ * Details hero, which lives in the Details overlay, not the tab
+ * content. */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+internal fun sharedModifier(key: String, animScope: AnimatedVisibilityScope?): Modifier {
+    val scope = LocalSharedTransitionScope.current ?: return Modifier
+    if (animScope == null) return Modifier
+    val state = scope.rememberSharedContentState(key = key)
+    return with(scope) { Modifier.sharedElement(state, animScope) }
+}
+
+/** The Home SearchBar (H1): 56dp pill, surface-high, search icon
+ * + "Search videos, music…" + mic in a 38dp secondaryContainer
+ * circle. Tapping it opens Search — the container transform grows
+ * it into the Search field (S14). */
+@Composable
+internal fun ZephSearchBar(
+    onClick: () -> Unit,
+    onVoice: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth().height(56.dp)
+            .then(coverSharedModifier("search-bar"))
+            .clip(RoundedCornerShape(28.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable { onClick() }
+            .padding(start = 18.dp, end = 8.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Search, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(23.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                "Search videos, music…",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1
+            )
+            if (onVoice != null) {
+                Box(
+                    modifier = Modifier.size(38.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .clickable { onVoice() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Mic, contentDescription = "Voice search",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A settings row with an M3 Switch (Se3/Se6/Se8): title +
+ * subtitle on the left, the Switch on the right. */
+@Composable
+internal fun ZephSwitchRow(
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (subtitle != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
+        )
+    }
+}
+
+/** A settings slider row (Se7 Brightness): title + Dim/Bright
+ * labels + a Slider. `value` is 0..1. */
+@Composable
+internal fun ZephSliderRow(
+    title: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    startLabel: String = "Dim",
+    endLabel: String = "Bright",
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                startLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+            )
+            Text(
+                endLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** The Zeph focus treatment for TV: scale 1.04 + a 3dp primary
+ * ring + a soft glow when focused, and a press to 0.96 that springs
+ * back (S6). The scale and press run on M3's own spatial spring
+ * (the theme's MotionScheme.expressive()), so focus travel IS
+ * Material 3 motion. Use on any clickable surface. */
 @Composable
 internal fun Modifier.zephFocus(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true
 ): Modifier {
     val focused by interactionSource.collectIsFocusedAsState()
+    val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         if (focused && enabled) DesignFocusScale else 1f,
         Motion.spatial(), label = "zephFocusScale"
     )
+    val pressScale by animateFloatAsState(
+        if (pressed && enabled) 0.96f else 1f,
+        Motion.spatial(), label = "zephFocusPress"
+    )
     return this
-        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .graphicsLayer { scaleX = scale * pressScale; scaleY = scale * pressScale }
         .then(
             if (focused && enabled) {
-                Modifier.border(
-                    2.dp, MaterialTheme.colorScheme.primary,
-                    MaterialTheme.shapes.large
-                )
+                Modifier
+                    .shadow(
+                        12.dp, MaterialTheme.shapes.large,
+                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                    )
+                    .border(
+                        3.dp, MaterialTheme.colorScheme.primary,
+                        MaterialTheme.shapes.large
+                    )
             } else Modifier
         )
+}
+
+/** Shape-morphing button radius (S7): a button is a pill at rest
+ * and morphs squarer on focus (16dp) and press (12dp), on M3's
+ * spatial spring — the M3 Expressive signature for a media app. */
+@Composable
+internal fun morphRadius(interactionSource: MutableInteractionSource): Dp {
+    val focused by interactionSource.collectIsFocusedAsState()
+    val pressed by interactionSource.collectIsPressedAsState()
+    val target = when {
+        pressed -> 12.dp
+        focused -> 16.dp
+        else -> 28.dp
+    }
+    return animateDpAsState(target, Motion.spatial(), label = "morphRadius").value
 }
 
 /** Zeph primary button — expressive filled button, violet. */
@@ -109,7 +310,7 @@ internal fun ZephButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = CircleShape,
+        shape = RoundedCornerShape(morphRadius(interaction)),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -141,7 +342,7 @@ internal fun ZephTonalButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = CircleShape,
+        shape = RoundedCornerShape(morphRadius(interaction)),
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -173,7 +374,7 @@ internal fun ZephOutlinedButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = CircleShape,
+        shape = RoundedCornerShape(morphRadius(interaction)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = 24.dp, vertical = 14.dp
@@ -210,8 +411,9 @@ internal fun ZephTextButton(
     }
 }
 
-/** Zeph card — expressive rounded card, surface container fill.
- * Clickable when onClick is given; focused state gets the ring. */
+/** Zeph card — expressive rounded card, surface container fill,
+ * 24dp radius + a 1px outline-variant border (S9). Clickable when
+ * onClick is given; focused state gets the ring. */
 @Composable
 internal fun ZephCard(
     modifier: Modifier = Modifier,
@@ -227,7 +429,8 @@ internal fun ZephCard(
                     .clickable(interactionSource = interaction, indication = null) { onClick() }
             } else Modifier
         ),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurface
@@ -253,16 +456,20 @@ internal fun ZephFilterChip(
         selected = selected,
         onClick = onClick,
         label = { Text(label, style = MaterialTheme.typography.labelLarge) },
-        leadingIcon = if (leadingIcon != null) {
-            { Icon(leadingIcon, contentDescription = null, modifier = Modifier.size(18.dp)) }
-        } else null,
+        leadingIcon = {
+            if (selected) {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            } else if (leadingIcon != null) {
+                Icon(leadingIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+        },
         modifier = modifier.zephFocus(interaction),
         interactionSource = interaction,
-        shape = CircleShape,
+        shape = RoundedCornerShape(12.dp),
         colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             labelColor = MaterialTheme.colorScheme.onSurface
         ),
@@ -324,17 +531,86 @@ internal fun M3EngineDoor(
                 onClick = { onChoice(engine) },
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
                 icon = {
-                    if (choice == engine) {
-                        Icon(
-                            Icons.Filled.Check, contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
+                    when {
+                        engine == PlayerEngine.MEDIA3 || engine == PlayerEngine.VLC -> {
+                            Icon(
+                                Icons.Filled.PlayCircle, contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        choice == engine -> {
+                            Icon(
+                                Icons.Filled.Check, contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             ) {
                 Text(label, style = MaterialTheme.typography.labelLarge)
             }
         }
+    }
+}
+
+/** The shared TV top bar (S12): 52dp primaryContainer logo tile +
+ * screen name 26sp semibold + clock pill. Every TV screen draws
+ * this same bar — Home ("Zeph Player"), Library, Search, Sources,
+ * Settings, Details. */
+@Composable
+internal fun ZephScreenTopBar(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(52.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.PlayArrow, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Text(
+            title,
+            fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface, fontFamily = AppFont,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        ClockPill()
+    }
+}
+
+/** Clock in a pill (S11): 19sp semibold, surface-high background,
+ * full radius. `dark` = the player HUD variant (black .45 pill,
+ * white text). */
+@Composable
+internal fun ClockPill(
+    dark: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(
+                if (dark) Color.Black.copy(alpha = 0.45f)
+                else MaterialTheme.colorScheme.surfaceContainerHigh
+            )
+            .padding(horizontal = 22.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        HomeClock(
+            color = if (dark) Color.White else MaterialTheme.colorScheme.primary
+        )
     }
 }
 
@@ -505,20 +781,21 @@ internal fun M3TvButton(
     onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val radius = morphRadius(interaction)
     androidx.compose.foundation.layout.Box(
         modifier = modifier
             .zephFocus(interaction)
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(radius))
             .background(
                 if (active) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.surfaceContainerHigh,
-                CircleShape
+                RoundedCornerShape(radius)
             )
             .border(
                 1.dp,
                 if (active) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outline,
-                CircleShape
+                RoundedCornerShape(radius)
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 28.dp, vertical = 14.dp),
@@ -534,10 +811,12 @@ internal fun M3TvButton(
     }
 }
 
-/** The M3 top tab strip for narrow screens (phone portrait) — the
- * rail's counterpart. Brand + a Player button on top, then the four
- * tabs with icons, labels and a selected underline. Modelled on the
- * old Nova tab strip's structure, restyled in M3. */
+/** The phone bottom navigation bar (Ph1–Ph5): 4 items — Home /
+ * Search / Library / Settings (Sources is not in the phone nav;
+ * it is reached from Home's Folders/USB tile). 10sp labels; the
+ * active item is onSurface, inactive is onSurfaceVariant — no
+ * underline bar, no Player button, no brand row. `onPlayer` is
+ * kept for API stability. */
 @Composable
 internal fun M3TabStrip(
     tab: Tab,
@@ -545,72 +824,41 @@ internal fun M3TabStrip(
     onPlayer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "Zeph",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Box(
-                modifier = Modifier.size(44.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable { onPlayer() },
-                contentAlignment = Alignment.Center
+    Row(
+        modifier = modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+    ) {
+        listOf(Tab.Home, Tab.Search, Tab.Library, Tab.Settings).forEach { t ->
+            val selected = tab == t
+            Column(
+                modifier = Modifier.weight(1f).clickable { onTab(t) }
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = "Player",
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    designIconFor(t),
+                    contentDescription = designLabelFor(t),
+                    tint = if (selected) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp)
                 )
-            }
-        }
-        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-            // v5: Home / Search / Sources / Library / Settings.
-            listOf(Tab.Home, Tab.Search, Tab.Sources, Tab.Library, Tab.Settings).forEach { t ->
-                val selected = tab == t
-                Column(
-                    modifier = Modifier.weight(1f).clickable { onTab(t) }
-                        .padding(vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        designIconFor(t),
-                        contentDescription = designLabelFor(t),
-                        tint = if (selected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        designLabelFor(t),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (selected) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Box(
-                        modifier = Modifier.width(48.dp).height(3.dp)
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outlineVariant,
-                                RoundedCornerShape(2.dp)
-                            )
-                    )
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    designLabelFor(t),
+                    fontSize = 10.sp,
+                    color = if (selected) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = AppFont
+                )
             }
         }
     }
 }
 
-/** A large live clock (HH:mm). The state lives inside this
- * composable so only it recomposes, once a second. Used by the Home
- * header and the player HUD. */
+/** A live clock (HH:mm), 19sp semibold (S11). The state lives
+ * inside this composable so only it recomposes, once a second.
+ * Used by the top bar's clock pill and the player HUD. */
 @Composable
 internal fun HomeClock(
     color: Color,
@@ -625,7 +873,7 @@ internal fun HomeClock(
     }
     Text(
         now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
-        fontSize = 30.sp, color = color, fontWeight = FontWeight.Bold,
+        fontSize = 19.sp, color = color, fontWeight = FontWeight.SemiBold,
         fontFamily = AppFont, modifier = modifier
     )
 }
