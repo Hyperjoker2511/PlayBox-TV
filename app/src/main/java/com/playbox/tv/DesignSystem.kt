@@ -1,8 +1,7 @@
 package com.playbox.tv
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,28 +21,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FolderShared
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.QueueMusic
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,8 +59,8 @@ import androidx.compose.ui.unit.sp
 // files, and text-glyph "icons" (⌂ ⌕ ▣ ⚙). P1 makes them ONE system:
 //   - One navigation rail (DesignRail below), one focus treatment,
 //     one glass treatment, one spacing scale, one set of radii.
-//   - One font across the app: Plus Jakarta Sans (OFL, bundled in
-//     res/font/plus_jakarta_sans.ttf), applied app-wide through
+//   - One font across the app: Roboto Flex (OFL, bundled in
+//     res/font/roboto_flex.ttf), applied app-wide through
 //     LocalTextStyle in MainActivity.
 //   - One line-icon set: Material Outlined icons (designIconFor).
 //   - The three designs are now PALETTES (colour + accent) on top of
@@ -71,13 +71,14 @@ import androidx.compose.ui.unit.sp
 // patches (P2–P8) rebuild onto this system, one patch at a time.
 // Motion stays transform + opacity only, 60fps, no live blur.
 
-/** One font across the app: Plus Jakarta Sans (variable font — the
- * FontWeight entries pick the matching weight instance). */
+/** One font across the app: Roboto Flex (variable font, OFL —
+ * the 2.0.0 design's typeface). The FontWeight entries pick the
+ * matching weight instance from the variable file. */
 internal val AppFont = FontFamily(
-    Font(R.font.plus_jakarta_sans, FontWeight.Normal),
-    Font(R.font.plus_jakarta_sans, FontWeight.Medium),
-    Font(R.font.plus_jakarta_sans, FontWeight.SemiBold),
-    Font(R.font.plus_jakarta_sans, FontWeight.Bold)
+    Font(R.font.roboto_flex, FontWeight.Normal),
+    Font(R.font.roboto_flex, FontWeight.Medium),
+    Font(R.font.roboto_flex, FontWeight.SemiBold),
+    Font(R.font.roboto_flex, FontWeight.Bold)
 )
 
 /** Shared spacing scale — one scale for every screen. */
@@ -98,15 +99,15 @@ internal object DsRadius {
     val pill = 28.dp
 }
 
-/** The rail: one width collapsed (icon-only), one expanded (labels).
- * Expanded is 132dp with 15sp sofa-sized labels (v5 design) — a TV
- * rail, not a tablet rail. */
-internal val DesignRailCollapsedWidth = 76.dp
-internal val DesignRailExpandedWidth = 132.dp
+/** The rail (2.0.0 design): one fixed width, 88dp, compact — the
+ * design's rail is a flat surface strip with a 56×32 pill + a 12sp
+ * label per item. Labels are always on; there is no collapsed mode. */
+internal val DesignRailWidth = 88.dp
 
-/** Shared focus: a small scale-up on focus + a ring in the palette's
- * focus colour. Transform + opacity only. */
-internal const val DesignFocusScale = 1.04f
+/** Shared focus (2.0.0 design): scale 1.06 on focus + a 3dp ring
+ * in the M3 secondary colour + a black lift shadow. Transform +
+ * opacity only. */
+internal const val DesignFocusScale = 1.06f
 
 /** A design palette — the ONLY thing that differs between Nova, Qwen
  * and Aura now. Structure (rail, glass, focus, spacing, font, icons)
@@ -155,25 +156,37 @@ internal val ZephPalette = DesignPalette(
 )
 
 
-/** One line-icon set (Material Outlined) for the navigation. */
+/** One line-icon set (Material Outlined) for the navigation —
+ * 2.0.0 rail: Home / Video / Audio / Browse / Playlists /
+ * Settings, plus Search as a button under the logo. */
 internal fun designIconFor(tab: Tab): ImageVector = when (tab) {
     Tab.Home -> Icons.Outlined.Home
-    Tab.Search -> Icons.Outlined.Search
-    Tab.Sources -> Icons.Outlined.FolderShared
-    Tab.Library -> Icons.Outlined.VideoLibrary
+    Tab.Video -> Icons.Outlined.Movie
+    Tab.Audio -> Icons.Outlined.MusicNote
+    Tab.Browse -> Icons.Outlined.FolderShared
+    Tab.Playlists -> Icons.Outlined.QueueMusic
     Tab.Settings -> Icons.Outlined.Settings
-    // Explore is not in the rail (a local player has no Explore
-    // section) but the tab still exists for old screens.
-    Tab.Explore -> Icons.Outlined.Search
+    Tab.Search -> Icons.Outlined.Search
 }
 
 internal fun designLabelFor(tab: Tab): String = when (tab) {
     Tab.Home -> "Home"
-    Tab.Search -> "Search"
-    Tab.Sources -> "Sources"
-    Tab.Library -> "Library"
+    Tab.Video -> "Video"
+    Tab.Audio -> "Audio"
+    Tab.Browse -> "Browse"
+    Tab.Playlists -> "Playlists"
     Tab.Settings -> "Settings"
-    Tab.Explore -> "Explore"
+    Tab.Search -> "Search"
+}
+
+/** 2.0.0: the design shows a wifi icon at the rail's base. It is
+ * real — shown only when the device is actually on wifi
+ * (ConnectivityManager), never a decoration. */
+internal fun isWifiConnected(context: android.content.Context): Boolean {
+    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+        as? android.net.ConnectivityManager ?: return false
+    val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+    return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
 }
 
 // ---------- P2 — FLOATING RAIL + MENU LABELS (2026-11-24, plan v2 Patch 2) ----------
@@ -291,171 +304,232 @@ internal const val FloatingRailHideDelayMs = 5000L
 // hides after a few seconds). The rail's inner content is shared
 // (DesignRailContent) so both modes look and behave the same.
 
-/** The rail's inner content: logo tile and the five tab items.
- * Shared by the docked rail. `expanded` decides whether labels
- * show; `onInteract` is called on every rail interaction (focus,
- * tap); `focusRequester` is attached to the current tab's item.
- * `onPlayer` is kept for API stability — the rail no longer shows
- * a Player button (v5).
- * v7: the content scrolls vertically, so Settings is always
- * reachable on a short phone-landscape screen (S2); items are
- * stacked — a 66×38 pill behind the icon, label below it (S3);
- * there is no wordmark (S4); the logo tile is 48dp. */
+/** The rail's inner content (2.0.0 design): the Zeph logo tile at
+ * the top, a Search button under it, then the six rail items
+ * centred, then the wifi icon at the base (only when on wifi).
+ * Each item is a 56×32 pill (secondaryContainer when selected,
+ * scaling in over 450ms emphasized) with a 12sp label below it.
+ * Labels are always on. The items area scrolls, so every item
+ * stays reachable on a short phone-landscape screen. */
 @Composable
 private fun DesignRailContent(
     tab: Tab,
     onTab: (Tab) -> Unit,
-    onPlayer: () -> Unit,
+    onSearch: () -> Unit,
+    wifiConnected: Boolean,
     palette: DesignPalette,
-    expanded: Boolean,
-    onInteract: () -> Unit,
-    focusRequester: androidx.compose.ui.focus.FocusRequester,
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = DsSpace.xl, horizontal = DsSpace.md),
-        verticalArrangement = Arrangement.spacedBy(DsSpace.sm)
+        modifier = modifier.padding(vertical = DsSpace.lg),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Zeph logo: a 36dp primaryContainer tile with a play
+        // triangle in onPrimaryContainer (the design's ZephLogo).
         Box(
-            modifier = Modifier.size(48.dp)
-                .clip(RoundedCornerShape(DsRadius.button))
-                .background(palette.primary),
+            modifier = Modifier.size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(palette.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Filled.PlayArrow, contentDescription = null,
-                tint = palette.onPrimary, modifier = Modifier.size(24.dp)
+                Icons.Filled.PlayArrow, contentDescription = "Zeph Player",
+                tint = palette.onSecondaryContainer, modifier = Modifier.size(20.dp)
             )
         }
-        Spacer(modifier = Modifier.height(DsSpace.xl))
-        // v5: Home / Search / Sources / Library / Settings. No
-        // Explore — a local player has no Explore section — and no
-        // Player button at the base. Sources is where content
-        // arrives (folders, USB, SMB/FTP/SFTP, DLNA).
-        listOf(Tab.Home, Tab.Search, Tab.Sources, Tab.Library, Tab.Settings).forEach { t ->
-            val selected = tab == t
-            val interaction = remember { MutableInteractionSource() }
-            val focused by interaction.collectIsFocusedAsState()
-            val scale by animateFloatAsState(
-                if (focused) DesignFocusScale else 1f,
-                Motion.spatial(), label = "designRailScale"
-            )
+        Spacer(modifier = Modifier.height(16.dp))
+        // Search lives under the logo, NOT in the item list — the
+        // design puts it there, and on the Search route the rail's
+        // active item is Home.
+        RailCircleButton(
+            icon = Icons.Outlined.Search,
+            label = "Search",
+            selected = tab == Tab.Search,
+            onClick = onSearch
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        // The six items, vertically centred; the area scrolls when
+        // the screen is too short for all of them.
+        Box(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
             Column(
-                modifier = Modifier.fillMaxWidth()
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .then(if (t == tab) Modifier.focusRequester(focusRequester) else Modifier)
-                    .onFocusChanged { if (it.hasFocus) onInteract() }
-                    .clickable(interactionSource = interaction, indication = null) {
-                        onInteract(); onTab(t)
-                    }
-                    .padding(vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(if (expanded) 66.dp else 52.dp).height(38.dp)
-                        .shadow(
-                            if (focused) 12.dp else 0.dp,
-                            RoundedCornerShape(DsRadius.pill),
-                            spotColor = palette.focusGlow
-                        )
-                        .clip(RoundedCornerShape(DsRadius.pill))
-                        .background(if (selected) palette.secondaryContainer else Color.Transparent)
-                        .border(
-                            if (focused) 3.dp else 0.dp, palette.focusBorder,
-                            RoundedCornerShape(DsRadius.pill)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        designIconFor(t), contentDescription = designLabelFor(t),
-                        tint = if (selected) palette.onSecondaryContainer else palette.muted,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                if (expanded) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        designLabelFor(t), fontSize = 15.sp,
-                        color = palette.onSurface,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        fontFamily = AppFont, maxLines = 1
+                listOf(Tab.Home, Tab.Video, Tab.Audio, Tab.Browse, Tab.Playlists, Tab.Settings).forEach { t ->
+                    RailPillItem(
+                        tab = t,
+                        // On the Search route the rail's active item is Home.
+                        selected = if (tab == Tab.Search) t == Tab.Home else tab == t,
+                        palette = palette,
+                        onClick = { onTab(t) }
                     )
                 }
             }
         }
+        if (wifiConnected) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Icon(
+                Icons.Outlined.Wifi, contentDescription = "Wi-Fi connected",
+                tint = palette.muted, modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
-/** The docked rail (RailMode.DOCKED): always present, content
- * reflows around it. This is the P1 rail, now honouring labelMode:
- * OFF keeps it collapsed and icon-only, FOCUSED expands + labels
- * while it has focus, ALWAYS keeps it expanded with labels. v7:
- * the default is ALWAYS — the design always draws it expanded. */
+/** One rail item (2.0.0 design): a 56×32 pill + a 12sp label
+ * below it. The selected pill is secondaryContainer and scales in
+ * over 450ms emphasized; the icon is filled when selected. Focus
+ * scales the whole item 1.06 with a 3dp secondary ring + shadow. */
+@Composable
+private fun RailPillItem(
+    tab: Tab,
+    selected: Boolean,
+    palette: DesignPalette,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val scale by animateFloatAsState(
+        if (focused) DesignFocusScale else 1f,
+        Motion.spatial(), label = "railItemScale"
+    )
+    // The selected pill scales in behind the icon (450ms emphasized).
+    val pillScale by animateFloatAsState(
+        if (selected) 1f else 0.85f,
+        tween(durationMillis = 450, easing = Motion.Emphasized), label = "railPillScale"
+    )
+    val focusRing = MaterialTheme.colorScheme.secondary
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(56.dp, 32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize()
+                    .graphicsLayer { scaleX = pillScale; scaleY = pillScale }
+                    .shadow(
+                        if (focused) 12.dp else 0.dp,
+                        RoundedCornerShape(DsRadius.pill),
+                        spotColor = Color.Black.copy(alpha = 0.6f),
+                        ambientColor = Color.Black.copy(alpha = 0.6f)
+                    )
+                    .clip(RoundedCornerShape(DsRadius.pill))
+                    .background(if (selected) palette.secondaryContainer else Color.Transparent)
+                    .border(
+                        if (focused) 3.dp else 0.dp, focusRing,
+                        RoundedCornerShape(DsRadius.pill)
+                    )
+            )
+            Icon(
+                designIconFor(tab), contentDescription = designLabelFor(tab),
+                tint = if (selected) palette.onSecondaryContainer else palette.muted,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            designLabelFor(tab), fontSize = 12.sp,
+            color = if (selected) palette.onSurface else palette.muted,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fontFamily = AppFont, maxLines = 1
+        )
+    }
+}
+
+/** The Search button under the logo (2.0.0 design): a 40dp circle,
+ * onSurfaceVariant icon, same focus treatment as the rail items. */
+@Composable
+private fun RailCircleButton(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val scale by animateFloatAsState(
+        if (focused) DesignFocusScale else 1f,
+        Motion.spatial(), label = "railCircleScale"
+    )
+    val focusRing = MaterialTheme.colorScheme.secondary
+    Box(
+        modifier = Modifier.size(40.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .shadow(
+                if (focused) 12.dp else 0.dp, CircleShape,
+                spotColor = Color.Black.copy(alpha = 0.6f),
+                ambientColor = Color.Black.copy(alpha = 0.6f)
+            )
+            .clip(CircleShape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
+            )
+            .border(if (focused) 3.dp else 0.dp, focusRing, CircleShape)
+            .clickable(interactionSource = interaction, indication = null) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon, contentDescription = label,
+            tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+/** The docked rail (2.0.0 design): a flat 88dp surface strip, left,
+ * labels always on. `labelMode` is kept for API stability — the
+ * design always draws labels, so the mode no longer changes the
+ * rail. (The setting itself is removed in Patch 8.) */
 @Composable
 internal fun DesignRail(
     tab: Tab,
     onTab: (Tab) -> Unit,
-    onPlayer: () -> Unit,
+    onSearch: () -> Unit,
+    wifiConnected: Boolean,
     palette: DesignPalette,
     labelMode: RailLabelMode = RailLabelMode.ALWAYS,
     modifier: Modifier = Modifier
 ) {
-    var railFocused by remember { mutableStateOf(false) }
-    val expanded = when (labelMode) {
-        RailLabelMode.OFF -> false
-        RailLabelMode.FOCUSED -> railFocused
-        RailLabelMode.ALWAYS -> true
-    }
-    val width by animateDpAsState(
-        if (expanded) DesignRailExpandedWidth else DesignRailCollapsedWidth,
-        spring(dampingRatio = 0.85f, stiffness = 300f), label = "designRailWidth"
-    )
-    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     DesignRailContent(
-        tab = tab, onTab = onTab, onPlayer = onPlayer, palette = palette,
-        expanded = expanded, onInteract = {}, focusRequester = focusRequester,
-        // No background here — the RailLayout wrapper paints the
-        // floating pill around the rail, so a square background
-        // would cover its rounded corners.
-        modifier = modifier.width(width).fillMaxHeight()
-            .onFocusChanged { railFocused = it.hasFocus }
+        tab = tab, onTab = onTab, onSearch = onSearch, wifiConnected = wifiConnected,
+        palette = palette,
+        modifier = modifier.width(DesignRailWidth).fillMaxHeight()
     )
 }
 
-/** The rail + content layout for a wide screen. v7: one rail,
- * docked, left — the design has no floating mode, so the live
- * path always renders the docked rail. (RailMode / FloatingRail
- * survive only for the legacy screens that still reference them.)
- * `content` is the tab's screen. Narrow screens do not use this —
- * they keep the bottom navigation bar, unchanged. */
+/** The rail + content layout (2.0.0 design): the rail is a flat
+ * 88dp surface strip on the left — no pill, no border — and the
+ * content fills the rest. The same rail on every screen size: the
+ * phone gets this rail too (the §11 correction), scrolling when
+ * the screen is short. `content` is the tab's screen. */
 @Composable
 internal fun RailLayout(
     labelMode: RailLabelMode,
     tab: Tab,
     onTab: (Tab) -> Unit,
-    onPlayer: () -> Unit,
+    onSearch: () -> Unit,
+    wifiConnected: Boolean,
     palette: DesignPalette,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    // v5: the rail lives on the LEFT — TV navigation lives on the
-    // left in every TV app, including PlayBox. The 1.8.0 right-side
-    // floating pill is gone. Content sits on the right; the rail is
-    // a rounded surfaceContainer pill with a gap around it. D-pad:
-    // ◀ from the content reaches it.
     Row(modifier = modifier.fillMaxSize()) {
         Box(
-            modifier = Modifier
-                .padding(top = DsSpace.lg, bottom = DsSpace.lg, start = DsSpace.md, end = DsSpace.sm)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(DsRadius.sheet))
-                .background(palette.surface)
-                .border(1.dp, palette.outline, RoundedCornerShape(DsRadius.sheet))
+            modifier = Modifier.width(DesignRailWidth).fillMaxHeight()
+                .background(MaterialTheme.colorScheme.surface)
         ) {
-            DesignRail(tab = tab, onTab = onTab, onPlayer = onPlayer, palette = palette, labelMode = labelMode)
+            DesignRail(tab = tab, onTab = onTab, onSearch = onSearch, wifiConnected = wifiConnected, palette = palette, labelMode = labelMode)
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content() }
     }
