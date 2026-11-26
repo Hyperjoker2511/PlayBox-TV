@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -543,12 +544,10 @@ internal fun VlcPlayerScreen(
     // Patch 7: the design's transport prev / next. Prev restarts
     // the video if more than 5s in, else plays the previous video.
     fun playPrev() {
-        if (positionMs > 5000) {
-            runCatching { engine?.player?.setTime(0) }
-            positionMs = 0
-        } else if (prevItem != null) {
-            onPlayNext(prevItem)
-        }
+        // The VLC screen has no previous item (no queue) — Prev
+        // just restarts the video from the start.
+        runCatching { engine?.player?.setTime(0) }
+        positionMs = 0
         pokeControls()
     }
     fun playNext() {
@@ -787,7 +786,7 @@ internal fun VlcPlayerScreen(
             },
             abActive = abA != null,
             engineLabel = when (dockEngine) {
-                null -> "Auto"
+                null, PlayerEngine.AUTO -> "Auto"
                 PlayerEngine.MEDIA3 -> "Media3"
                 PlayerEngine.VLC -> "VLC"
             },
@@ -1174,8 +1173,6 @@ internal fun VlcPlayerScreen(
                 }
             }
         }
-    }
-
     }
     } else {
         // The VLC engine could not start at all (LibVLC threw during
