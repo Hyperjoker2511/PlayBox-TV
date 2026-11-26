@@ -40,11 +40,14 @@ class Patch9Test {
 
     @Test
     fun tabSlideDirection_forwardIsPositiveBackIsNegative() {
-        assertEquals(1, tabSlideDirection(Tab.Home, Tab.Search))
-        assertEquals(1, tabSlideDirection(Tab.Search, Tab.Library))
-        assertEquals(1, tabSlideDirection(Tab.Library, Tab.Settings))
+        assertEquals(1, tabSlideDirection(Tab.Home, Tab.Video))
+        assertEquals(1, tabSlideDirection(Tab.Video, Tab.Audio))
+        assertEquals(1, tabSlideDirection(Tab.Audio, Tab.Browse))
+        assertEquals(1, tabSlideDirection(Tab.Browse, Tab.Playlists))
+        assertEquals(1, tabSlideDirection(Tab.Playlists, Tab.Settings))
+        assertEquals(1, tabSlideDirection(Tab.Settings, Tab.Search))
         assertEquals(-1, tabSlideDirection(Tab.Search, Tab.Home))
-        assertEquals(-1, tabSlideDirection(Tab.Settings, Tab.Library))
+        assertEquals(-1, tabSlideDirection(Tab.Settings, Tab.Playlists))
     }
 
     @Test
