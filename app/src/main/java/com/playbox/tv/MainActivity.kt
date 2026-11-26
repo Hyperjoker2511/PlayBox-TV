@@ -19,12 +19,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -272,11 +279,19 @@ private fun PlayBoxApp() {
     var fallbackDoneFor by remember { mutableStateOf<String?>(null) }
     // 1.4.2 (Nova, now official): the whole-app design — Nova (from
     // scratch, the default) or Qwen (the kept option). Kept in state
-    // P2: rail mode (docked / floating) + menu labels (off / focused /
-    // always). Kept in state so changing them in Settings re-renders
-    // the rail immediately; saved to prefs so they survive a restart.
-    var railMode by remember { mutableStateOf(railMode(context)) }
+    // v7: the rail is docked-only (the design has no floating mode)
+    // and its labels default to ALWAYS (the design always draws it
+    // expanded). Kept in state so changing it in Settings re-renders
+    // the rail immediately; saved to prefs so it survives a restart.
     var railLabelMode by remember { mutableStateOf(railLabelMode(context)) }
+    // v7 (Sources "Add a source"): the Network screen's add-server
+    // form, opened from Sources. A nonce — each tap opens the form
+    // again even if it was already shown once.
+    var networkAddFormRequest by remember { mutableStateOf(0) }
+    // v7 (Home SearchBar mic): the mic on Home opens Search AND
+    // starts voice input there. A nonce — each tap starts a new
+    // listen, even if Search is already open.
+    var voiceSearchRequest by remember { mutableStateOf(0) }
     // v5 (1.9.0): the theme choice — preset + custom seed. Kept in
     // state so changing it in Settings re-renders the whole app at
     // once; saved to prefs so it survives a restart.
@@ -443,7 +458,10 @@ private fun PlayBoxApp() {
                                 fallbackDoneFor = playing!!.path
                                 engineOverride = playing!!.path to PlayerEngine.MEDIA3
                             }
-                        }
+                        },
+                        // 1.9.1 (P11): "See all" in the dock's Up Next
+                        // exits the player and opens the Library.
+                        onSeeAllUpNext = { playing = null; tab = Tab.Library }
                     )
                 } else {
                     PlayerScreen(
@@ -470,26 +488,12 @@ private fun PlayBoxApp() {
                                 fallbackDoneFor = playing!!.path
                                 engineOverride = playing!!.path to PlayerEngine.VLC
                             }
-                        }
+                        },
+                        // 1.9.1 (P11): "See all" in the dock's Up Next
+                        // exits the player and opens the Library.
+                        onSeeAllUpNext = { playing = null; tab = Tab.Library }
                     )
                 }
-            } else if (details != null) {
-                // M3 redesign Phase 5: Details is the new M3 screen —
-                // one design, no per-design branches.
-                M3DetailsScreen(
-                    item = details!!,
-                    list = detailList.ifEmpty { all },
-                    onBack = { details = null },
-                    onPlay = { item, fromStart ->
-                        playing = item
-                        playList = mergeQueue(detailList.ifEmpty { all }, queued)
-                        queued = emptyList()
-                        playFromStart = fromStart
-                        details = null
-                    },
-                    onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
-                    onOpen = { item -> details = item }
-                )
             } else if (settingsPage == "privacy") {
                 // Patch 4 (Jio): Privacy Policy, opened from Settings → About.
                 M3PrivacyPolicyScreen(onBack = { settingsPage = null })
@@ -519,16 +523,20 @@ private fun PlayBoxApp() {
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                             onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
                             onFolders = { tab = Tab.Sources },
-                            onRefresh = { refreshNonce++ }
+                            onRefresh = { refreshNonce++ },
+                            onSearch = { tab = Tab.Search },
+                            onVoice = { voiceSearchRequest++; tab = Tab.Search }
                         )
                         Tab.Search -> M3SearchScreen(
                             items = all, search = search, onSearch = { search = it },
+                            voiceRequest = voiceSearchRequest,
                             onOpen = { item, list -> details = item; detailList = list }
                         )
                         // v5 (1.9.0): Sources — where content arrives
                         // (folders, USB, SMB/FTP/SFTP, DLNA). Each row
                         // opens in Library, where the browsing lives.
                         Tab.Sources -> M3SourcesScreen(
+                            videos = videos,
                             onOpenFolder = { file ->
                                 libraryMode = "Folders / USB"
                                 libraryFolder = file
@@ -541,7 +549,12 @@ private fun PlayBoxApp() {
                                 libraryFolder = null
                                 tab = Tab.Library
                             },
-                            onOpenNetwork = {
+                            // v7 (So11): "Add a source" opens the
+                            // Network screen's add-server form, not
+                            // just the screen — the nonce re-opens it
+                            // on every tap.
+                            onAddNetworkServer = {
+                                networkAddFormRequest++
                                 libraryMode = "Network"
                                 tab = Tab.Library
                             },
@@ -567,6 +580,7 @@ private fun PlayBoxApp() {
                             folder = libraryFolder, onFolder = { libraryFolder = it },
                             safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
                             listState = libraryListState,
+                            addFormRequest = networkAddFormRequest,
                             networkServer = networkServer, onNetworkServer = { networkServer = it },
                             networkPath = networkPath, onNetworkPath = { networkPath = it },
                             ftpServer = ftpServer, onFtpServer = { ftpServer = it },
@@ -581,6 +595,7 @@ private fun PlayBoxApp() {
                             folder = libraryFolder, onFolder = { libraryFolder = it },
                             safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
                             listState = libraryListState,
+                            addFormRequest = networkAddFormRequest,
                             networkServer = networkServer, onNetworkServer = { networkServer = it },
                             networkPath = networkPath, onNetworkPath = { networkPath = it },
                             ftpServer = ftpServer, onFtpServer = { ftpServer = it },
@@ -590,8 +605,6 @@ private fun PlayBoxApp() {
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
                         )
                         Tab.Settings -> M3SettingsScreen(
-                            railMode = railMode,
-                            onRailModeChange = { railMode = it; saveRailMode(context, it) },
                             labelMode = railLabelMode,
                             onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
                             onPrivacy = { settingsPage = "privacy" },
@@ -603,70 +616,127 @@ private fun PlayBoxApp() {
                         )
                     }
                 }
-                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                    if (maxWidth >= 700.dp) {
-                        // P2: rail mode (docked / floating) + menu labels.
-                        RailLayout(
-                            railMode = railMode, labelMode = railLabelMode,
-                            tab = tab, onTab = { tab = it }, onPlayer = onPlayer,
-                            palette = ZephPalette
-                        ) {
-                            AnimatedContent(
-                                targetState = tab,
-                                transitionSpec = {
-                                    // M3 shared-axis X (v5): direction-aware slide
-                                    // + fade + a small scale settle (in from 1.02,
-                                    // out to 0.98), on M3's 300ms emphasized
-                                    // easing (Motion.soft()). Reduce motion swaps
-                                    // it for a plain fade.
-                                    if (isReduceMotion(context)) {
-                                        fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
-                                    } else {
-                                        val dir = tabSlideDirection(initialState, targetState)
-                                        val enter = slideInHorizontally(Motion.soft()) { if (dir >= 0) it / 4 else -it / 4 } +
-                                            fadeIn(Motion.soft()) +
-                                            scaleIn(Motion.soft(), initialScale = 1.02f)
-                                        val exit = slideOutHorizontally(Motion.soft()) { if (dir >= 0) -it / 4 else it / 4 } +
-                                            fadeOut(Motion.soft()) +
-                                            scaleOut(Motion.soft(), targetScale = 0.98f)
-                                        enter togetherWith exit
+                // v7: the tab content lives in a SharedTransitionLayout
+                // so a video cover can morph into the Details hero
+                // (S14), and Details opens as an overlay BESIDE the
+                // rail (D1) instead of replacing the whole screen.
+                // The overlay keeps the last item while it exits, so
+                // the hero can morph back to its card.
+                var lastDetails by remember { mutableStateOf<VideoItem?>(null) }
+                LaunchedEffect(details) { if (details != null) lastDetails = details }
+                val tabSwitch: AnimatedContentTransitionScope<Tab>.() -> ContentTransform = {
+                    // M3 fade-through (S13): a 200ms crossfade, no
+                    // slide — the shared-axis slide is gone, the
+                    // container transform carries the motion.
+                    fadeIn(Motion.fadeThrough()) togetherWith fadeOut(Motion.fadeThrough())
+                }
+                val detailsPlay: (VideoItem, Boolean) -> Unit = { item, fromStart ->
+                    playing = item
+                    playList = mergeQueue(detailList.ifEmpty { all }, queued)
+                    queued = emptyList()
+                    playFromStart = fromStart
+                    details = null
+                }
+                SharedTransitionLayout(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                        // Ph6: a short screen (a phone in landscape)
+                        // gets the wide layout only when it is tall
+                        // enough too — a 360dp-tall landscape phone
+                        // gets the bottom tab strip instead, so the
+                        // rail never clips Settings off.
+                        if (maxWidth >= 700.dp && maxHeight >= 420.dp) {
+                            RailLayout(
+                                labelMode = railLabelMode,
+                                tab = tab, onTab = { tab = it }, onPlayer = onPlayer,
+                                palette = ZephPalette
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    AnimatedContent(
+                                        targetState = tab,
+                                        transitionSpec = tabSwitch,
+                                        label = "m3TabSwitch"
+                                    ) { currentTab ->
+                                        CompositionLocalProvider(LocalTabAnimatedVisibilityScope provides this) {
+                                            m3Content(currentTab)
+                                        }
                                     }
-                                },
-                                label = "m3TabSwitch"
-                            ) { currentTab -> m3Content(currentTab) }
-                        }
-                    } else {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            M3TabStrip(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
-                            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
-                                AnimatedContent(
-                                    targetState = tab,
-                                transitionSpec = {
-                                    // M3 shared-axis X (v5): direction-aware slide
-                                    // + fade + a small scale settle (in from 1.02,
-                                    // out to 0.98), on M3's 300ms emphasized
-                                    // easing (Motion.soft()). Reduce motion swaps
-                                    // it for a plain fade.
-                                    if (isReduceMotion(context)) {
-                                        fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
-                                    } else {
-                                        val dir = tabSlideDirection(initialState, targetState)
-                                        val enter = slideInHorizontally(Motion.soft()) { if (dir >= 0) it / 4 else -it / 4 } +
-                                            fadeIn(Motion.soft()) +
-                                            scaleIn(Motion.soft(), initialScale = 1.02f)
-                                        val exit = slideOutHorizontally(Motion.soft()) { if (dir >= 0) -it / 4 else it / 4 } +
-                                            fadeOut(Motion.soft()) +
-                                            scaleOut(Motion.soft(), targetScale = 0.98f)
-                                        enter togetherWith exit
+                                    DetailsOverlay(
+                                        details = details, lastDetails = lastDetails,
+                                        detailList = detailList, all = all, queued = queued,
+                                        onPlay = detailsPlay,
+                                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                                        onOpen = { item -> details = item },
+                                        onBack = { details = null }
+                                    )
+                                }
+                            }
+                        } else {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Box(modifier = Modifier.weight(1f).fillMaxSize()) {
+                                    AnimatedContent(
+                                        targetState = tab,
+                                        transitionSpec = tabSwitch,
+                                        label = "m3TabSwitch"
+                                    ) { currentTab ->
+                                        CompositionLocalProvider(LocalTabAnimatedVisibilityScope provides this) {
+                                            m3Content(currentTab)
+                                        }
                                     }
-                                },
-                                    label = "m3TabSwitch"
-                                ) { currentTab -> m3Content(currentTab) }
+                                    DetailsOverlay(
+                                        details = details, lastDetails = lastDetails,
+                                        detailList = detailList, all = all, queued = queued,
+                                        onPlay = detailsPlay,
+                                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                                        onOpen = { item -> details = item },
+                                        onBack = { details = null }
+                                    )
+                                }
+                                M3TabStrip(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/** v7 (D1/S14): Details opens as an overlay over the tab content —
+ * the rail (or the bottom tab strip on a phone) stays visible, and
+ * the hero morphs from the video cover that opened it. The last
+ * item is kept while the overlay exits, so the hero can morph back
+ * to its card. A plain composable: the hero reads the shared
+ * transition from the composition local, it needs no scope here. */
+@Composable
+private fun DetailsOverlay(
+    details: VideoItem?,
+    lastDetails: VideoItem?,
+    detailList: List<VideoItem>,
+    all: List<VideoItem>,
+    queued: List<VideoItem>,
+    onPlay: (VideoItem, Boolean) -> Unit,
+    onQueue: (VideoItem) -> Unit,
+    onOpen: (VideoItem) -> Unit,
+    onBack: () -> Unit
+) {
+    AnimatedVisibility(
+        visible = details != null,
+        enter = fadeIn(Motion.soft()) + scaleIn(Motion.soft(), initialScale = 0.98f),
+        exit = fadeOut(Motion.soft()) + scaleOut(Motion.soft(), targetScale = 0.98f),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        val item = lastDetails ?: return@AnimatedVisibility
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            M3DetailsScreen(
+                item = item,
+                list = detailList.ifEmpty { all },
+                onBack = onBack,
+                onPlay = onPlay,
+                onQueue = onQueue,
+                onOpen = onOpen,
+                onSeeAll = { details = null; tab = Tab.Library },
+                animatedVisibilityScope = this
+            )
         }
     }
 }
