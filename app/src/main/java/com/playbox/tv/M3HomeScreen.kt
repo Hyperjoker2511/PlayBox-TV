@@ -98,14 +98,20 @@ import java.util.Locale
 //   - New in your library: unwatched videos, newest first.
 //   - Recently played: audio grouped by folder as "albums".
 // Honest mappings (the design is a streaming mock; Zeph is local):
-//   - "Hardware decoding" reflects the real default engine — Media3
-//     hardware-decodes via MediaCodec; tap opens Settings, where
-//     Patch 8 adds the real HW switch (Off/Decode/Full).
+//   - "Hardware decoding" is the real HW-decode setting (Off /
+//     Decode / Full, default Full) — a decoder setting, NOT the
+//     engine (VLC hardware-decodes too); tap opens Settings, where
+//     Patch 8 adds the segmented control. It shows on every width:
+//     on a phone it sits in a second row under the greeting.
 //   - "112 GB free" is the real free space on this device (StatFs);
 //     "3 servers found" is the real saved SMB+FTP server count.
-//   - Album art is a hue gradient from the folder name (the design's
-//     procedural AlbumArt); there is no HDR badge — Zeph has no
-//     per-file HDR flag until playback.
+//   - Album art is the design's layered AlbumArt from the folder
+//     name's hue; there is no HDR badge — Zeph has no per-file HDR
+//     flag until playback.
+//   - Card / row meta lines show file data (duration · size ·
+//     container) — the design's genre · year · resolution does not
+//     exist in the scan (no media tags are read). "Newest" sorts by
+//     date added, not release year, for the same reason.
 //   - The hero Details button opens Zeph's Details (onOpen), and the
 //     stream dialog plays through the same URL path as the Network
 //     screen (http/https/rtsp/rtmp/nfs).
@@ -126,11 +132,13 @@ internal fun M3HomeScreen(
 ) {
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
-    val resumeTime = remember { resumeTimes(context) }
     fun fractionOf(item: VideoItem): Float =
         if (item.durationMs > 0) ((resume[item.path] ?: 0L).toFloat() / item.durationMs).coerceIn(0f, 1f) else 0f
+    // Continue watching: in progress, sorted by progress desc —
+    // the design sorts by progress (the hero rotates by progress,
+    // so the row and the hero agree).
     val continueWatching = videos.filter { resume.containsKey(it.path) }
-        .sortedByDescending { resumeTime[it.path] ?: 0L }
+        .sortedByDescending { fractionOf(it) }
     val all = videos + audio
     // Featured: the top 3 resume items by progress — the hero rotates
     // through these; with nothing in progress the newest video leads.
@@ -166,7 +174,7 @@ internal fun M3HomeScreen(
     val serverCount = remember {
         SmbNetwork.servers(context).size + FtpNetwork.servers(context).size
     }
-    val hwDecoding = remember { defaultEnginePref(context) == PlayerEngine.MEDIA3 }
+    val hwDecoding = remember { hwDecPref(context) != "off" }
     val newVideos = videos.filter { (resume[it.path] ?: 0L) <= 0L }
         .sortedByDescending { it.dateAddedSec }
     // Albums: Zeph's audio list is flat — group by parent folder, the
@@ -180,64 +188,120 @@ internal fun M3HomeScreen(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wide = maxWidth >= 700.dp
-        val hPad = if (wide) (maxWidth * 0.05f).coerceIn(34.dp, 88.dp) else 18.dp
-        val topPad = if (wide) 46.dp else 22.dp
+        // The design's screen padding: px-6 (24dp) on the 960dp
+        // canvas, pt-5 (20dp) at the top.
+        val hPad = if (wide) 24.dp else 18.dp
+        val topPad = 20.dp
         val bottomPad = if (wide) 56.dp else 40.dp
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = hPad)
         ) {
-            // Header: greeting + clock pill (+ HW chip on wide screens).
+            // Header: greeting + clock pill + HW chip. The design
+            // has them in one row (greeting left, chip + clock
+            // right); on a narrow phone the chip + clock drop to a
+            // second row under the greeting. Greeting rises at 0ms,
+            // the chip + clock at 80ms (the design's delays).
             item {
                 Spacer(modifier = Modifier.height(topPad))
-                Row(
-                    modifier = Modifier.fillMaxWidth().riseIn(0),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            greeting,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            "Pick up where you left off",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                if (wide) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        if (wide) {
+                        Column(modifier = Modifier.weight(1f).riseIn(0)) {
+                            Text(
+                                greeting,
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Pick up where you left off",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.riseIn(80),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             ZephFilterChip(
                                 label = "Hardware decoding",
                                 selected = hwDecoding,
                                 onClick = onSettings
                             )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
                             ) {
-                                Icon(
-                                    Icons.Filled.Schedule, contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    clockText,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Schedule, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        clockText,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.riseIn(0)) {
+                            Text(
+                                greeting,
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Pick up where you left off",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.riseIn(80),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ZephFilterChip(
+                                label = "Hardware decoding",
+                                selected = hwDecoding,
+                                onClick = onSettings
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Schedule, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        clockText,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         }
                     }
@@ -251,7 +315,7 @@ internal fun M3HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             // Hero carousel.
@@ -265,7 +329,7 @@ internal fun M3HomeScreen(
                         heroIndex = heroI,
                         onPlay = { onPlay(heroItem, all) },
                         onOpen = { onOpen(heroItem, all) },
-                        modifier = Modifier.riseIn(80)
+                        modifier = Modifier.riseIn(120)
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                 }
@@ -427,6 +491,7 @@ internal fun M3HomeScreen(
                                 M3HomeAlbumCard(
                                     name = name,
                                     tracks = tracks,
+                                    index = albums.indexOfFirst { it.first == name },
                                     onClick = { onPlayFromStart(tracks.first(), tracks) }
                                 )
                             }
@@ -469,7 +534,12 @@ private fun M3HomeHero(
 ) {
     val resumeFocus = remember { FocusRequester() }
     var resumeFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { resumeFocus.requestFocus() }
+    // The design focuses the first element 380ms after navigation
+    // (App.tsx) — after the screen fade-through, not during it.
+    LaunchedEffect(Unit) {
+        delay(380)
+        resumeFocus.requestFocus()
+    }
     LaunchedEffect(item.path) {
         if (resumeFocused) resumeFocus.requestFocus()
     }
@@ -483,8 +553,9 @@ private fun M3HomeHero(
         AnimatedContent(
             targetState = item,
             transitionSpec = {
+                // The design's container-in: 480ms, scale 0.88.
                 (fadeIn(animationSpec = tween(480, easing = Motion.EmphasizedDecelerate)) +
-                    scaleIn(animationSpec = tween(480, easing = Motion.EmphasizedDecelerate), initialScale = 0.97f)) togetherWith
+                    scaleIn(animationSpec = tween(480, easing = Motion.EmphasizedDecelerate), initialScale = 0.88f)) togetherWith
                     fadeOut(animationSpec = tween(200, easing = Motion.Emphasized))
             },
             label = "homeHero"
@@ -519,7 +590,7 @@ private fun M3HomeHero(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .fillMaxWidth(0.6f)
-                        .padding(start = 28.dp, top = 16.dp, bottom = 16.dp)
+                        .padding(28.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -531,7 +602,7 @@ private fun M3HomeHero(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            if (resumeFraction > 0f) "CONTINUE WATCHING" else "FEATURED",
+                            "CONTINUE WATCHING",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -547,33 +618,37 @@ private fun M3HomeHero(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         listOf(
-                            TimeFormatter.format(heroItem.durationMs),
+                            containerOf(heroItem),
                             formatSize(heroItem.sizeBytes),
-                            containerOf(heroItem)
+                            TimeFormatter.format(heroItem.durationMs)
                         ).filter { it.isNotBlank() }.joinToString("  ·  "),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (resumeFraction > 0f) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(modifier = Modifier.width(192.dp)) {
-                                ZephLinearProgress(progress = resumeFraction)
-                            }
-                            Text(
-                                "${TimeFormatter.format((heroItem.durationMs * (1f - resumeFraction)).toLong())} left",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    // The progress row is ALWAYS shown (the design's
+                    // hero always shows progress + "X left", even at
+                    // 0 — the overline never switches to FEATURED).
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(modifier = Modifier.width(192.dp)) {
+                            ZephLinearProgress(
+                                progress = resumeFraction,
+                                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
                             )
                         }
+                        Text(
+                            "${TimeFormatter.format((heroItem.durationMs * (1f - resumeFraction)).toLong())} left",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ZephButton(
                             text = if (resumeFraction > 0f) "Resume ${TimeFormatter.format(resumeMs)}" else "Play",
                             onClick = onPlay,
@@ -628,7 +703,8 @@ private data class M3HomeQuickAction(
 )
 
 /** One quick-access card: 72dp, surface-container-high, 16dp radius,
- * 40dp primaryContainer icon circle, title + sub. */
+ * 40dp primaryContainer icon circle, title + sub. The design's
+ * quick cards carry lift-sm (focus 1.03), not the full 1.06. */
 @Composable
 private fun M3HomeQuickCard(
     title: String,
@@ -643,7 +719,7 @@ private fun M3HomeQuickCard(
             .height(72.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .zephFocus(interaction)
+            .zephFocus(interaction, focusScale = 1.03f, cornerRadius = 16.dp)
             .clickable(interactionSource = interaction, indication = null) { onClick() }
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart
@@ -668,7 +744,6 @@ private fun M3HomeQuickCard(
                 Text(
                     title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -685,8 +760,9 @@ private fun M3HomeQuickCard(
     }
 }
 
-/** A section header: titleLarge bold + an optional text-button
- * action on the right (the design's SectionTitle). */
+/** A section header: title-l (22sp Regular) + an optional
+ * text-button action on the right (the design's SectionTitle:
+ * mb-3, px-1 — the 12dp below comes from the caller's spacer). */
 @Composable
 private fun M3HomeSectionHeader(
     title: String,
@@ -695,14 +771,13 @@ private fun M3HomeSectionHeader(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
             title,
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
         if (actionLabel != null && onAction != null) {
@@ -817,7 +892,6 @@ internal fun M3VideoCard(
                 Text(
                     item.name,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -837,53 +911,52 @@ internal fun M3VideoCard(
     }
 }
 
-/** One "album": a 140dp square of procedural art (the design's
- * AlbumArt — a hue gradient from the folder name) with the folder
- * name + track count below. Focus lands on the art. */
+/** One "album": a 140dp square of the design's layered AlbumArt
+ * (the folder name's hue) with the folder name + artist below.
+ * The WHOLE card is the focusable element (lift 1.06) — the
+ * design's album button, not just the art. The artist is the
+ * grandparent folder (the album is the parent folder); the
+ * design's "artist · year" has no year in a local scan, so the
+ * artist stands alone. */
 @Composable
 private fun M3HomeAlbumCard(
     name: String,
     tracks: List<VideoItem>,
+    index: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hue = ((name.hashCode() % 360) + 360) % 360
-    Column(modifier = modifier.width(140.dp)) {
-        Box(
+    val artist = remember(tracks) {
+        tracks.firstOrNull()?.let {
+            File(it.path).parentFile?.parentFile?.name?.takeIf { n -> n.isNotBlank() }
+        } ?: "Unknown artist"
+    }
+    Column(
+        modifier = modifier.width(140.dp)
+            .zephFocus(interaction, cornerRadius = 16.dp)
+            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .riseIn(minOf(index, 8) * 50)
+    ) {
+        M3AlbumArt(
+            hue = hue,
+            iconSize = 44.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            Color.hsl(hue.toFloat(), 0.6f, 0.38f),
-                            Color.hsl(((hue + 30) % 360).toFloat(), 0.65f, 0.22f)
-                        )
-                    )
-                )
-                .zephFocus(interaction)
-                .clickable(interactionSource = interaction, indication = null) { onClick() },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Filled.MusicNote, contentDescription = null,
-                tint = Color.White.copy(alpha = 0.9f),
-                modifier = Modifier.size(44.dp)
-            )
-        }
+        )
         Text(
             name,
             style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 2.dp, end = 2.dp, top = 8.dp)
         )
         Text(
-            "${tracks.size} tracks",
+            artist,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -937,19 +1010,19 @@ internal fun M3NetworkStreamDialog(
         icon = {
             Icon(
                 Icons.Filled.Stream, contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
+                tint = MaterialTheme.colorScheme.secondary
             )
         },
         title = { Text("Open network stream") },
         text = {
             Column {
                 Text(
-                    "Paste an HTTP, HTTPS, RTSP, HLS, or MMS address.",
+                    "Paste an HTTP, HTTPS, RTSP, RTMP, or NFS address.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                TextField(
+                OutlinedTextField(
                     value = url,
                     onValueChange = { url = it; error = null },
                     label = { Text("Stream URL") },
@@ -963,16 +1036,8 @@ internal fun M3NetworkStreamDialog(
                         imeAction = ImeAction.Go
                     ),
                     keyboardActions = KeyboardActions(onGo = { play() }),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
                 )
                 error?.let {
                     Spacer(modifier = Modifier.height(8.dp))
