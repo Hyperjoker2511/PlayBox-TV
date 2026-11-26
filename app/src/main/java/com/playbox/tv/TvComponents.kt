@@ -227,13 +227,6 @@ internal fun RemoteHints(modifier: Modifier = Modifier) {
     }
 }
 
-/** Qwen's top navigation: logo + glass pills. The Player pill opens the
- * video that is playing (or the last one watched). Patch 1.3.0: the
- * pills scroll horizontally inside the remaining space, so on a phone
- * in landscape the Player pill is never pushed off the right edge
- * (its label used to be clipped). On a TV everything fits, so nothing
- * scrolls there. */
-@Composable
 // ---------- Thumbnails (Batch 2, restyled Batch 3) ----------
 
 /** Batch 2: the video's thumbnail, loaded on IO and cached (see
