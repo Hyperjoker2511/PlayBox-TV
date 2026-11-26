@@ -258,11 +258,12 @@ internal fun M3SettingsScreen(
             Text("Player", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { ZephFilterChip(label = "Auto", selected = defaultEngine == PlayerEngine.AUTO, onClick = { defaultEngine = PlayerEngine.AUTO; save { putString("default_engine", "auto") } }) }
                 item { ZephFilterChip(label = "Media3", selected = defaultEngine == PlayerEngine.MEDIA3, onClick = { defaultEngine = PlayerEngine.MEDIA3; save { putString("default_engine", "media3") } }) }
                 item { ZephFilterChip(label = "VLC", selected = defaultEngine == PlayerEngine.VLC, onClick = { defaultEngine = PlayerEngine.VLC; save { putString("default_engine", "vlc") } }) }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Media3 plays the common formats. VLC takes over on its own for FTP/SFTP files and formats Media3 cannot play — and any file can be given its own player on its Details page.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Auto is the default: Zeph picks the engine per file — Media3 for the common formats, VLC for HDR, FTP/SFTP files and formats Media3 cannot play. Any file can be given its own player on its Details page.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(20.dp))
             // Se6: Remember volume — per video.
             ZephSwitchRow(
