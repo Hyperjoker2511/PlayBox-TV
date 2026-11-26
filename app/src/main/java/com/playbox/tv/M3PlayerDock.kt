@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +27,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -200,15 +200,15 @@ private fun M3WavySeekBar(
     }
     val amplitude by animateDpAsState(
         if (focused) 6.dp else 3.5.dp,
-        spring(dampingRatio = 0.62f, stiffness = 520f), label = "waveAmp"
+        Motion.spatial(), label = "waveAmp"
     )
     val strokeWidth by animateDpAsState(
         if (focused) 5.dp else 4.dp,
-        spring(dampingRatio = 0.62f, stiffness = 520f), label = "waveStroke"
+        Motion.spatial(), label = "waveStroke"
     )
     val thumbRadius by animateDpAsState(
         if (focused) 9.dp else 0.dp,
-        spring(dampingRatio = 0.62f, stiffness = 520f), label = "thumb"
+        Motion.spatial(), label = "thumb"
     )
 
     BoxWithConstraints(
@@ -358,6 +358,10 @@ private fun M3DockPlayButton(
         if (pressed) 0.94f else if (focused) 1.12f else 1f,
         Motion.spatial(), label = "scale"
     )
+    // The morph spec is read here (in composition) because a
+    // transitionSpec lambda is not a @Composable context — it can
+    // only USE a spec, not read the theme's scheme.
+    val morphSpec = Motion.spatial<Float>()
     Box(
         modifier = modifier
             .size(72.dp)
@@ -374,7 +378,7 @@ private fun M3DockPlayButton(
         AnimatedContent(
             targetState = isPlaying,
             transitionSpec = {
-                (scaleIn(Motion.spatial(), initialScale = 0.4f) + fadeIn(tween(120))) togetherWith
+                (scaleIn(morphSpec, initialScale = 0.4f) + fadeIn(tween(120))) togetherWith
                     (scaleOut(tween(120), targetScale = 0.4f) + fadeOut(tween(90)))
             },
             label = "playPause"
