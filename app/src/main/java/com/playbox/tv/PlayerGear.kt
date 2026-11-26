@@ -145,6 +145,11 @@ internal fun GearSheet(
     onSubOption: (SubOption) -> Unit,
     audioLabel: String,
     onCycleAudio: () -> Unit,
+    // Patch 7: the design's pill row has no volume pill, so the
+    // per-video volume lives here in the gear (Audio tab) — the
+    // VLC gear already has it.
+    volumePct: Int,
+    onVolume: (Int) -> Unit,
     audioFx: AudioFx?,
     eqEnabled: Boolean,
     onEqEnabled: (Boolean) -> Unit,
@@ -426,6 +431,17 @@ internal fun GearSheet(
                     }
                 }
                 "Audio" -> {
+                    item {
+                        M3GearSection("Volume") {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                M3GearButton("−") { onVolume((volumePct - 10).coerceAtLeast(0)) }
+                                Text(if (volumePct == 0) "Off" else "$volumePct%", fontSize = 20.sp, color = White, modifier = Modifier.width(70.dp))
+                                M3GearButton("+") { onVolume((volumePct + 10).coerceAtMost(100)) }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("The device volume for this video. Remembered per video when \"Remember volume\" is on.", fontSize = 16.sp, color = Muted)
+                        }
+                    }
                     item {
                         M3GearSection("Track") {
                             M3GearButton(audioLabel) { onCycleAudio() }
