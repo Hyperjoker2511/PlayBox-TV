@@ -197,7 +197,7 @@ internal fun remainingLabel(durationMs: Long, positionMs: Long): String =
 
 @OptIn(UnstableApi::class)
 @Composable
-internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null, onEngineFailed: () -> Unit = {}) {
+internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null, onEngineFailed: () -> Unit = {}, onEngineDoor: ((PlayerEngine?) -> Unit)? = null) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
     val skipSec = settings.getInt("skip_seconds", 10)
@@ -210,6 +210,8 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var status by remember { mutableStateOf("") }
     var panel by remember { mutableStateOf<String?>(null) }
     var ended by remember { mutableStateOf(false) }
+    // v5: the dock's engine door — the per-file choice (null = Auto).
+    var dockEngine by remember(item.path) { mutableStateOf(chosenEngine(context, item.path)) }
     var subsOn by remember { mutableStateOf(settings.getBoolean("subtitles_on", true)) }
     // B6: any remote interaction restarts the controls auto-hide countdown.
     var interactionTick by remember { mutableStateOf(0) }
@@ -782,7 +784,8 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             badge = if (videoSize.height > 0) "${videoSize.height}p" else containerOf(item),
             streamInfo = if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}  •  ${containerOf(item)}" else containerOf(item),
             visible = showControls && panel == null && !ended && !locked,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
+            onBack = onExit
         )
         M3PlayerDock(
             positionMs = positionMs,
@@ -807,6 +810,15 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             status = status,
             onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
             onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
+            activeEngine = PlayerEngine.MEDIA3,
+            engineChoice = dockEngine,
+            onEngineChange = { eng ->
+                dockEngine = eng
+                chooseEngine(context, item.path, eng)
+                onEngineDoor?.invoke(eng)
+            },
+            upNext = queue.drop(queueIndex + 1).take(4),
+            onPlayUpNext = { onPlayNext(it) },
             modifier = Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = 24.dp)
         )
