@@ -30,10 +30,33 @@ class Patch4Test {
     }
 
     @Test
+    fun aspectSize_stretch_fillsScreen() {
+        // Stretch distorts the video to the screen size exactly.
+        assertEquals(1920 to 1080, aspectSize(320, 240, 1920, 1080, AspectMode.STRETCH))
+    }
+
+    @Test
+    fun aspectSize_ratio16x9_fitsInto16x9Box() {
+        // A 4:3 video on a 1920x1080 screen: the 16:9 box is the
+        // whole screen, so the video letterboxes inside it.
+        assertEquals(1440 to 1080, aspectSize(320, 240, 1920, 1080, AspectMode.RATIO_16_9))
+    }
+
+    @Test
+    fun aspectSize_ratio4x3_fitsInto4x3Box() {
+        // A 16:9 video on a 1920x1080 screen: the 4:3 box is
+        // 1440x1080, so the video letterboxes inside it.
+        assertEquals(1440 to 810, aspectSize(1920, 1080, 1920, 1080, AspectMode.RATIO_4_3))
+    }
+
+    @Test
     fun nextAspect_cycles() {
         assertEquals(AspectMode.FILL, nextAspect(AspectMode.FIT))
         assertEquals(AspectMode.ZOOM, nextAspect(AspectMode.FILL))
-        assertEquals(AspectMode.FIT, nextAspect(AspectMode.ZOOM))
+        assertEquals(AspectMode.STRETCH, nextAspect(AspectMode.ZOOM))
+        assertEquals(AspectMode.RATIO_16_9, nextAspect(AspectMode.STRETCH))
+        assertEquals(AspectMode.RATIO_4_3, nextAspect(AspectMode.RATIO_16_9))
+        assertEquals(AspectMode.FIT, nextAspect(AspectMode.RATIO_4_3))
     }
 
     @Test
