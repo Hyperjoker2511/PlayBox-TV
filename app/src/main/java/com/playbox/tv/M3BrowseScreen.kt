@@ -1035,7 +1035,7 @@ private fun M3BrowseSmbFolderView(
                 add(
                     BrowseRow(
                         name = entry.name,
-                        info = "${entry.name.substringAfterLast('.', \"\").uppercase().ifBlank { \"FILE\" }} · ${formatSize(entry.size)}",
+                        info = "${entry.name.substringAfterLast('.', "").uppercase().ifBlank { "FILE" }} · ${formatSize(entry.size)}",
                         kind = BrowseRowKind.OTHER,
                         icon = Icons.Filled.Lightbulb,
                         onClick = null
@@ -1137,7 +1137,7 @@ private fun M3BrowseFtpFolderView(
                 add(
                     BrowseRow(
                         name = entry.name,
-                        info = "${entry.name.substringAfterLast('.', \"\").uppercase().ifBlank { \"FILE\" }} · ${formatSize(entry.size)}",
+                        info = "${entry.name.substringAfterLast('.', "").uppercase().ifBlank { "FILE" }} · ${formatSize(entry.size)}",
                         kind = BrowseRowKind.OTHER,
                         icon = Icons.Filled.Lightbulb,
                         onClick = null
