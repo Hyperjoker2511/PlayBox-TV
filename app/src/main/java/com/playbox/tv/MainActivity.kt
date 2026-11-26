@@ -171,11 +171,11 @@ private fun PermissionRationaleScreen(onAllow: () -> Unit, onNotNow: () -> Unit)
     }
 }
 
-/** Tab order for the slide direction: Home 0, Search 1, Library 2,
- * Settings 3. Positive = forward (the new screen slides in from the
- * right), negative = back, zero = same tab. (unit-tested) */
+/** Tab order for the slide direction: Home 0, Search 1, Sources 2,
+ * Library 3, Settings 4. Positive = forward (the new screen slides
+ * in from the right), negative = back, zero = same tab. (unit-tested) */
 internal fun tabSlideDirection(from: Tab, to: Tab): Int {
-    val order = listOf(Tab.Home, Tab.Search, Tab.Library, Tab.Settings)
+    val order = listOf(Tab.Home, Tab.Search, Tab.Sources, Tab.Library, Tab.Settings)
     return (order.indexOf(to) - order.indexOf(from)).coerceIn(-1, 1)
 }
 
@@ -277,6 +277,11 @@ private fun PlayBoxApp() {
     // the rail immediately; saved to prefs so they survive a restart.
     var railMode by remember { mutableStateOf(railMode(context)) }
     var railLabelMode by remember { mutableStateOf(railLabelMode(context)) }
+    // v5 (1.9.0): the theme choice — preset + custom seed. Kept in
+    // state so changing it in Settings re-renders the whole app at
+    // once; saved to prefs so it survives a restart.
+    var theme by remember { mutableStateOf(themePreset(context)) }
+    var themeSeedHex by remember { mutableStateOf(themeSeed(context)) }
     // Patch 7 (PiP): MainActivity's onUserLeaveHint reads this.
     LaunchedEffect(playing) { pipPlaying.value = playing != null }
     val activity = LocalContext.current as? Activity
@@ -347,8 +352,9 @@ private fun PlayBoxApp() {
     // M3 redesign Phase 1: the whole app now runs under ZephTheme —
     // the new Material 3 expressive design system (M3Theme.kt). The
     // old screens keep rendering (they use their own palettes) until
-    // each one is rebuilt in M3, phase by phase.
-    ZephTheme {
+    // each one is rebuilt in M3, phase by phase. v5: the theme choice
+    // (preset + custom seed) and M3 Expressive motion scheme live here.
+    ZephTheme(preset = theme, seedHex = themeSeedHex) {
         Box(modifier = Modifier.fillMaxSize().background(Bg)) {
             if (showExitDialog) {
                 ExitConfirmDialog(
@@ -421,6 +427,12 @@ private fun PlayBoxApp() {
                         onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
                         onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.MEDIA3 },
                         onEnterPip = enterPip,
+                        // v5: the dock's engine door — Auto clears the
+                        // override (the default + format rules decide),
+                        // Media3 / VLC switch to that engine now.
+                        onEngineDoor = { eng ->
+                            engineOverride = if (eng == null) null else playing!!.path to eng
+                        },
                         // Patch 1.3.1: the VLC engine could not start —
                         // open the same file on Media3 instead of crashing.
                         // 1.4.5 Patch B: guarded — fires once per file,
@@ -443,6 +455,12 @@ private fun PlayBoxApp() {
                         onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
                         onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.VLC },
                         onEnterPip = enterPip,
+                        // v5: the dock's engine door — Auto clears the
+                        // override (the default + format rules decide),
+                        // Media3 / VLC switch to that engine now.
+                        onEngineDoor = { eng ->
+                            engineOverride = if (eng == null) null else playing!!.path to eng
+                        },
                         // 1.4.5 Patch B: Media3 failed to play this
                         // file — retry it on LibVLC instead of
                         // showing an error. Guarded to once per file,
@@ -500,12 +518,46 @@ private fun PlayBoxApp() {
                             onOpen = { item, list -> details = item; detailList = list },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
                             onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
-                            onFolders = { tab = Tab.Library },
+                            onFolders = { tab = Tab.Sources },
                             onRefresh = { refreshNonce++ }
                         )
                         Tab.Search -> M3SearchScreen(
                             items = all, search = search, onSearch = { search = it },
                             onOpen = { item, list -> details = item; detailList = list }
+                        )
+                        // v5 (1.9.0): Sources — where content arrives
+                        // (folders, USB, SMB/FTP/SFTP, DLNA). Each row
+                        // opens in Library, where the browsing lives.
+                        Tab.Sources -> M3SourcesScreen(
+                            onOpenFolder = { file ->
+                                libraryMode = "Folders / USB"
+                                libraryFolder = file
+                                librarySafFolder = null
+                                tab = Tab.Library
+                            },
+                            onOpenSafFolder = { uri ->
+                                libraryMode = "Folders / USB"
+                                librarySafFolder = uri
+                                libraryFolder = null
+                                tab = Tab.Library
+                            },
+                            onOpenNetwork = {
+                                libraryMode = "Network"
+                                tab = Tab.Library
+                            },
+                            onOpenSmbServer = { server ->
+                                libraryMode = "Network"
+                                networkServer = server
+                                networkPath = null
+                                tab = Tab.Library
+                            },
+                            onOpenFtpServer = { server ->
+                                libraryMode = "Network"
+                                ftpServer = server
+                                ftpPath = null
+                                tab = Tab.Library
+                            },
+                            onRefresh = { refreshNonce++ }
                         )
                         // One design has no Explore view, so Explore
                         // falls back to Library.
@@ -543,7 +595,11 @@ private fun PlayBoxApp() {
                             labelMode = railLabelMode,
                             onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
                             onPrivacy = { settingsPage = "privacy" },
-                            onLicences = { settingsPage = "licences" }
+                            onLicences = { settingsPage = "licences" },
+                            theme = theme,
+                            onThemeChange = { theme = it; saveThemePreset(context, it) },
+                            themeSeedHex = themeSeedHex,
+                            onThemeSeedChange = { themeSeedHex = it; saveThemeSeed(context, it) }
                         )
                     }
                 }
@@ -558,12 +614,11 @@ private fun PlayBoxApp() {
                             AnimatedContent(
                                 targetState = tab,
                                 transitionSpec = {
-                                    // The tab switch rides the shared Soft spring —
-                                    // direction-aware slide + fade + a small scale
-                                    // settle (in from 1.02, out to 0.98). Springs
-                                    // follow the velocity, so a second tab press
-                                    // mid-flight redirects the motion instead of
-                                    // queueing. Reduce motion swaps it for a plain fade.
+                                    // M3 shared-axis X (v5): direction-aware slide
+                                    // + fade + a small scale settle (in from 1.02,
+                                    // out to 0.98), on M3's 300ms emphasized
+                                    // easing (Motion.soft()). Reduce motion swaps
+                                    // it for a plain fade.
                                     if (isReduceMotion(context)) {
                                         fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
                                     } else {
@@ -587,12 +642,11 @@ private fun PlayBoxApp() {
                                 AnimatedContent(
                                     targetState = tab,
                                 transitionSpec = {
-                                    // The tab switch rides the shared Soft spring —
-                                    // direction-aware slide + fade + a small scale
-                                    // settle (in from 1.02, out to 0.98). Springs
-                                    // follow the velocity, so a second tab press
-                                    // mid-flight redirects the motion instead of
-                                    // queueing. Reduce motion swaps it for a plain fade.
+                                    // M3 shared-axis X (v5): direction-aware slide
+                                    // + fade + a small scale settle (in from 1.02,
+                                    // out to 0.98), on M3's 300ms emphasized
+                                    // easing (Motion.soft()). Reduce motion swaps
+                                    // it for a plain fade.
                                     if (isReduceMotion(context)) {
                                         fadeIn(Motion.soft()) togetherWith fadeOut(Motion.soft())
                                     } else {
