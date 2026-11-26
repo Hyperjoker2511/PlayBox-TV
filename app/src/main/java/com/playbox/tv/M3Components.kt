@@ -839,7 +839,7 @@ internal fun M3TabStrip(
             .background(MaterialTheme.colorScheme.surfaceContainer)
             .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
-        listOf(Tab.Home, Tab.Search, Tab.Library, Tab.Settings).forEach { t ->
+        listOf(Tab.Home, Tab.Video, Tab.Audio, Tab.Browse, Tab.Playlists, Tab.Settings).forEach { t ->
             val selected = tab == t
             Column(
                 modifier = Modifier.weight(1f).clickable { onTab(t) }
