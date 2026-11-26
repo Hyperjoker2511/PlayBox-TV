@@ -1,7 +1,11 @@
 package com.playbox.tv
 
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,9 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,7 +59,13 @@ internal fun M3SettingsScreen(
     onLabelModeChange: (RailLabelMode) -> Unit = {},
     // Patch 4 (Jio): open the in-app Privacy Policy and Licences screens.
     onPrivacy: () -> Unit = {},
-    onLicences: () -> Unit = {}
+    onLicences: () -> Unit = {},
+    // v5 (1.9.0): the theme choice — preset + custom seed. MainActivity
+    // holds it in state so changing it re-renders the whole app.
+    theme: String = ThemePresetViolet,
+    onThemeChange: (String) -> Unit = {},
+    themeSeedHex: String = "#6750A4",
+    onThemeSeedChange: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -71,6 +86,9 @@ internal fun M3SettingsScreen(
     // 1.4.2 (Nova in the 1.4.x line): the default player engine, same
     // pref as the old Settings — Media3 unless changed.
     var defaultEngine by remember { mutableStateOf(defaultEnginePref(context)) }
+    // v5 (1.9.0): the custom seed hex the user types, + a validation note.
+    var seedInput by remember(themeSeedHex) { mutableStateOf(themeSeedHex) }
+    var seedError by remember { mutableStateOf<String?>(null) }
 
     fun save(block: android.content.SharedPreferences.Editor.() -> Unit) {
         prefs.edit().apply { block(); apply() }
@@ -229,6 +247,83 @@ internal fun M3SettingsScreen(
             Spacer(modifier = Modifier.height(28.dp))
         }
         item {
+            ZephSectionTitle("Theme", "Colour is your choice — Violet is the default")
+            Spacer(modifier = Modifier.height(12.dp))
+            // Preset swatches — tap a colour.
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ThemePresets.forEach { (preset, label) ->
+                    val selected = theme == preset
+                    Box(
+                        modifier = Modifier.size(44.dp)
+                            .clip(CircleShape)
+                            .background(presetPrimary(preset), CircleShape)
+                            .border(
+                                if (selected) 3.dp else 1.dp,
+                                if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline,
+                                CircleShape
+                            )
+                            .clickable { onThemeChange(preset) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selected) {
+                            Icon(
+                                Icons.Filled.Check, contentDescription = "$label selected",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ThemePresets.forEach { (preset, label) ->
+                    item {
+                        ZephFilterChip(label = label, selected = theme == preset, onClick = { onThemeChange(preset) })
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+            ZephTonalButton(
+                text = if (theme == ThemePresetDynamic) "Dynamic colour: On" else "Dynamic colour: Off",
+                onClick = {
+                    onThemeChange(if (theme == ThemePresetDynamic) ThemePresetViolet else ThemePresetDynamic)
+                }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Dynamic follows your device's wallpaper colours (Android 12+). Off goes back to Violet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Custom colour", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ZephSearchField(
+                    value = seedInput,
+                    onValueChange = { seedInput = it; seedError = null },
+                    placeholder = "#6750A4",
+                    modifier = Modifier.weight(1f)
+                )
+                ZephButton(text = "Apply", onClick = {
+                    val hex = seedInput.trim()
+                    if (Regex("^#?[0-9a-fA-F]{6}$").matches(hex)) {
+                        val fixed = if (hex.startsWith("#")) hex else "#$hex"
+                        onThemeSeedChange(fixed)
+                        onThemeChange(ThemePresetCustom)
+                        seedError = null
+                    } else {
+                        seedError = "Use 6 hex digits, like #6750A4."
+                    }
+                })
+            }
+            seedError?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Any hex colour becomes the app's seed — the tonal scheme is derived from it.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(28.dp))
+        }
+        item {
             ZephSectionTitle("Appearance")
             Spacer(modifier = Modifier.height(12.dp))
             Text("Navigation rail", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -264,7 +359,7 @@ internal fun M3SettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Text("Skips the Search stretch and the focus zoom. The app still animates, just less.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("More themes arrive after Jio approval — Aurora is the first.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("The colour themes live in the Theme section above — presets, dynamic colour and a custom seed.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(28.dp))
         }
         item {
