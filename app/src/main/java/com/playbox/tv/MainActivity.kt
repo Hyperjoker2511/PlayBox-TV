@@ -570,25 +570,41 @@ private fun PlayBoxApp() {
                             },
                             onRefresh = { refreshNonce++ }
                         )
-                        // 2.0.0 (Patch 1 placeholder): Video, Audio
-                        // and Playlists share the library screen
-                        // until Patch 3 (Video/Audio) and Patch 5
-                        // (Playlists) rebuild them.
-                        Tab.Video, Tab.Audio, Tab.Playlists -> M3LibraryScreen(
-                            videos = videos, audio = audio, loading = !libraryLoaded,
-                            mode = libraryMode, onMode = { goLibraryMode(it) },
-                            folder = libraryFolder, onFolder = { libraryFolder = it },
-                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
-                            listState = libraryListState,
-                            addFormRequest = networkAddFormRequest,
-                            networkServer = networkServer, onNetworkServer = { networkServer = it },
-                            networkPath = networkPath, onNetworkPath = { networkPath = it },
-                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
-                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
-                            onOpen = { item, list -> details = item; detailList = list },
-                            onRefresh = { refreshNonce++ },
-                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
+                        // 2.0.0 (Patch 3): Video and Audio are the
+                        // design's screens. The library screen
+                        // stays for two things until Patches 4–5:
+                        // folder/network browsing (reached from
+                        // Browse, which sets libraryMode + tab
+                        // Video) and the Playlists tab.
+                        Tab.Audio -> M3AudioScreen(
+                            audio = audio, loading = !libraryLoaded,
+                            playing = playing,
+                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null }
                         )
+                        Tab.Video, Tab.Playlists -> {
+                            if (currentTab == Tab.Video && libraryMode != "Folders / USB" && libraryMode != "Network") {
+                                M3VideoScreen(
+                                    videos = videos, loading = !libraryLoaded,
+                                    onOpen = { item, list -> details = item; detailList = list }
+                                )
+                            } else {
+                                M3LibraryScreen(
+                                    videos = videos, audio = audio, loading = !libraryLoaded,
+                                    mode = libraryMode, onMode = { goLibraryMode(it) },
+                                    folder = libraryFolder, onFolder = { libraryFolder = it },
+                                    safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
+                                    listState = libraryListState,
+                                    addFormRequest = networkAddFormRequest,
+                                    networkServer = networkServer, onNetworkServer = { networkServer = it },
+                                    networkPath = networkPath, onNetworkPath = { networkPath = it },
+                                    ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                                    ftpPath = ftpPath, onFtpPath = { ftpPath = it },
+                                    onOpen = { item, list -> details = item; detailList = list },
+                                    onRefresh = { refreshNonce++ },
+                                    onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
+                                )
+                            }
+                        }
                         Tab.Settings -> M3SettingsScreen(
                             labelMode = railLabelMode,
                             onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
