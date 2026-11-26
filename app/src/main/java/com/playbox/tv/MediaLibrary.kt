@@ -180,6 +180,22 @@ object MediaLibrary {
         return dirs to media
     }
 
+    /** The non-media files in a SAF folder (the design's "file"
+     * type) — listed so Browse can show them as OTHER rows
+     * instead of hiding them. Kept separate from listSafFolder
+     * so its callers (and their Pair destructuring) don't change. */
+    fun listSafOtherFiles(context: Context, treeUri: Uri): List<VideoItem> {
+        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList()
+        val children = try {
+            root.listFiles()
+        } catch (e: Exception) {
+            Log.w(TAG, "listSafOtherFiles failed for $treeUri", e)
+            return emptyList()
+        }
+        return children.filter { it.isFile && !VideoFilter.isMediaFile(it.name ?: "") }
+            .map { VideoItem(path = it.uri.toString(), name = it.name ?: "File", sizeBytes = it.length(), dateAddedSec = it.lastModified() / 1000) }
+    }
+
     fun safFolderName(context: Context, treeUri: Uri): String =
         DocumentFile.fromTreeUri(context, treeUri)?.name ?: treeUri.lastPathSegment ?: "Folder"
 
