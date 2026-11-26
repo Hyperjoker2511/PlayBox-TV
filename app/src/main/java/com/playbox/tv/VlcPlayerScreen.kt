@@ -87,7 +87,11 @@ internal fun VlcPlayerScreen(
     // crashing.
     onEngineFailed: () -> Unit = {},
     onEngineDoor: ((PlayerEngine?) -> Unit)? = null,
-    onSeeAllUpNext: () -> Unit = {}
+    onSeeAllUpNext: () -> Unit = {},
+    // 2.0.0 (fix pass): reports the playing state up to
+    // MainActivity, so the Audio screen's EqBars show the real
+    // paused state (the design's .paused.eq-bar).
+    onPlayingChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
@@ -173,7 +177,7 @@ internal fun VlcPlayerScreen(
     }
 
     val view = LocalView.current
-    LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying }
+    LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying; onPlayingChange(isPlaying) }
     DisposableEffect(Unit) { onDispose { view.keepScreenOn = false } }
 
     // The engine. The event handler runs on the main thread already
