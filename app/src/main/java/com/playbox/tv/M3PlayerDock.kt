@@ -22,30 +22,35 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -72,13 +77,13 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.math.PI
-import kotlin.math.roundToInt
 import kotlin.math.sin
+import java.util.Locale
 
 // ---------- ZEPH Player dock + HUD (M3 Expressive, v5 / 1.9.0) ----------
 // ONE bottom dock only. The dock is a single M3 container
@@ -86,28 +91,34 @@ import kotlin.math.sin
 //   - the WAVY scrubber (the M3 Expressive signature — it moves
 //     while the video plays),
 //   - the time row (current / total, engine),
-//   - the transport (skip back, a 72dp hero Play/Pause, skip
-//     forward, Prev/Next at the ends),
+//   - the transport (Replay10, a 74dp hero Play/Pause,
+//     Forward10 — no Prev/Next, no text),
 //   - the ENGINE row (Auto / Media3 / VLC — the same door as
 //     Details, Auto first),
-//   - the options chips (speed, audio, subtitles, Up Next, aspect,
-//     gear),
+//   - the options chips (speed, audio, subtitles, Up Next,
+//     volume — AssistChips with icons),
 //   - the UP NEXT carousel (a horizontal row of cards, not a grid),
 //   - the remote hints.
 // The HUD at the top carries the back button, title, stream info,
-// badge and live clock (plan v2 P8). No Resume button here —
-// Resume lives on Home and Details. All transform + opacity only.
+// clock pill, gear and the status pill (plan v2 P8). No Resume
+// button here — Resume lives on Home and Details. All transform
+// + opacity only.
 
-/** The HUD: back + title + stream info on the left, badge + live
- * clock on the right. Shown with the controls, hidden with them. */
+/** The HUD (P1–P4): back + title + stream info on the left, the
+ * clock pill and the gear on the right. No "NOW PLAYING" label,
+ * no badge pill. The title is 20sp semibold; the stream info
+ * carries codecs ("1080p · H.264 · AAC stereo"). The status (a
+ * transient note — "Resumed at…", a track change, an error) shows
+ * as a small pill under the row while it lasts. */
 @Composable
 internal fun M3PlayerHud(
     title: String,
-    badge: String,
     streamInfo: String,
     visible: Boolean,
     modifier: Modifier = Modifier,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    onGear: (() -> Unit)? = null,
+    status: String = ""
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -115,10 +126,9 @@ internal fun M3PlayerHud(
         exit = fadeOut(Motion.soft()) + slideOutVertically(Motion.soft()) { -it },
         modifier = modifier
     ) {
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val w = (maxWidth * 0.90f).coerceAtMost(1160.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
-                Modifier.width(w).align(Alignment.Center),
+                Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -132,13 +142,9 @@ internal fun M3PlayerHud(
                 }
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "NOW PLAYING",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
                         title,
-                        style = MaterialTheme.typography.headlineSmall,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -146,22 +152,42 @@ internal fun M3PlayerHud(
                     if (streamInfo.isNotBlank()) {
                         Text(
                             streamInfo,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.78f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-                Text(
-                    badge,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White,
-                    modifier = Modifier.clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                )
-                HomeClock(color = Color.White)
+                ClockPill(dark = true)
+                if (onGear != null) {
+                    IconButton(onClick = onGear) {
+                        Icon(
+                            Icons.Filled.Settings, contentDescription = "Player settings",
+                            tint = Color.White, modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
+            // P14: the status lives here now, not in the dock — a
+            // small pill under the HUD while the note lasts.
+            if (status.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -170,8 +196,9 @@ internal fun M3PlayerHud(
 /** The M3 Expressive wavy seek bar: the track is a wave, not a
  * straight line, and the wave MOVES while the video plays (the
  * phase advances on a timer, only while playing). The wave grows
- * on focus, a thumb pops in, and a time bubble follows it.
- * Left / Right seek by the skip setting. */
+ * on focus. The stroke is 5dp always, the thumb is 8dp and ALWAYS
+ * visible (P6), the track is surface-highest, and there is no time
+ * bubble (P7). Left / Right seek by the skip setting. */
 @Composable
 private fun M3WavySeekBar(
     positionMs: Long,
@@ -188,6 +215,7 @@ private fun M3WavySeekBar(
     val focused by interaction.collectIsFocusedAsState()
     val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val primary = MaterialTheme.colorScheme.primary
+    val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
     val onSurface = MaterialTheme.colorScheme.onSurface
     // The wave phase advances while playing (20fps, cheap) and
     // freezes when paused.
@@ -202,16 +230,12 @@ private fun M3WavySeekBar(
         if (focused) 6.dp else 3.5.dp,
         Motion.spatial(), label = "waveAmp"
     )
-    val strokeWidth by animateDpAsState(
-        if (focused) 5.dp else 4.dp,
-        Motion.spatial(), label = "waveStroke"
-    )
-    val thumbRadius by animateDpAsState(
-        if (focused) 9.dp else 0.dp,
-        Motion.spatial(), label = "thumb"
-    )
+    // P6: the stroke is 5dp always and the thumb is 8dp, always
+    // visible — the design's scrubber never hides its thumb.
+    val strokeWidth = 5.dp
+    val thumbRadius = 8.dp
 
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .height(32.dp)
             .focusRequester(seekFocus)
@@ -226,8 +250,6 @@ private fun M3WavySeekBar(
                 }
             }
     ) {
-        val widthPx = constraints.maxWidth
-        val bubbleWidth = 76.dp
         Canvas(Modifier.fillMaxWidth()) {
             val ampPx = amplitude.toPx()
             val strokePx = strokeWidth.toPx()
@@ -247,7 +269,7 @@ private fun M3WavySeekBar(
             val style = Stroke(width = strokePx, cap = StrokeCap.Round)
             drawPath(
                 path = wavePath(size.width),
-                color = onSurface.copy(alpha = 0.18f),
+                color = trackColor,
                 style = style
             )
             if (bufferedFraction > 0f) {
@@ -273,73 +295,41 @@ private fun M3WavySeekBar(
                 drawCircle(color = Color.White, radius = r, center = c)
             }
         }
-        AnimatedVisibility(
-            visible = focused,
-            enter = fadeIn() + scaleIn(Motion.spatial(), initialScale = 0.6f),
-            exit = fadeOut() + scaleOut(targetScale = 0.6f),
-            modifier = Modifier.offset {
-                val bw = bubbleWidth.roundToPx()
-                val x = ((widthPx * fraction).roundToInt() - bw / 2)
-                    .coerceIn(0, (widthPx - bw).coerceAtLeast(0))
-                IntOffset(x, -34.dp.roundToPx())
-            }
-        ) {
-            Box(
-                Modifier.width(bubbleWidth)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape)
-                    .padding(vertical = 5.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(TimeFormatter.format(positionMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
-            }
-        }
     }
 }
 
-/** An M3 tonal dock button: translucent fill, primary border when
- * focused, spring scale. */
+/** An options chip for the dock row (P10): a real AssistChip
+ * with an icon and a label — "Speed · 1.0×", "Audio · Stereo",
+ * "Subtitles · English", "Up Next", "Volume · 80%". */
 @Composable
-private fun M3DockButton(
+private fun M3DockChip(
     label: String,
+    icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        if (pressed) 0.94f else if (focused) 1.05f else 1f,
-        Motion.spatial(), label = "scale"
-    )
-    Box(
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingIcon = {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        },
         modifier = modifier
-            .height(44.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(CircleShape)
-            .background(
-                if (focused) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
-            )
-            .border(
-                if (focused) 2.dp else 1.dp,
-                if (focused) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.20f),
-                CircleShape
-            )
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            color = if (focused) MaterialTheme.colorScheme.onPrimary else Color.White,
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+            .height(48.dp)
+            .zephFocus(interaction),
+        shape = RoundedCornerShape(12.dp),
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = Color.White.copy(alpha = 0.12f),
+            labelColor = Color.White,
+            leadingIconContentColor = Color.White
+        ),
+        border = AssistChipDefaults.assistChipBorder(
+            enabled = true,
+            borderColor = Color.White.copy(alpha = 0.4f)
+        ),
+        interactionSource = interaction
+    )
 }
 
 /** The big filled play / pause button — the hero of the dock:
@@ -364,7 +354,7 @@ private fun M3DockPlayButton(
     val morphSpec = Motion.spatial<Float>()
     Box(
         modifier = modifier
-            .size(72.dp)
+            .size(74.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary)
@@ -394,11 +384,12 @@ private fun M3DockPlayButton(
 }
 
 /** A tonal transport circle (skip back / forward): secondary
- * container fill, 56dp, with a text label ("-10s") that shows the
- * real skip value. */
+ * container fill, 56dp, with an icon (Replay10 / Forward10) —
+ * the design's transport has icons, not "-10s" text (P8). */
 @Composable
 private fun M3TransportButton(
-    label: String,
+    icon: ImageVector,
+    contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -421,44 +412,54 @@ private fun M3TransportButton(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            label,
-            color = if (focused) MaterialTheme.colorScheme.onPrimary
+        Icon(
+            icon, contentDescription = contentDescription,
+            tint = if (focused) MaterialTheme.colorScheme.onPrimary
             else MaterialTheme.colorScheme.onSecondaryContainer,
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1
+            modifier = Modifier.size(26.dp)
         )
     }
 }
 
-/** A Prev / Next button. When there is no previous or next item,
- * it is replaced by an invisible twin of the SAME size, so the
- * play button stays dead centre. */
+/** The centre play/pause indicator (P5): a 76dp translucent
+ * circle with the glyph that flashes over the middle of the
+ * video for ~700ms each time playback toggles. It does not show
+ * on the first composition — only on a real toggle. */
 @Composable
-private fun M3PrevNextButton(
-    onClick: (() -> Unit)?,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
+internal fun M3CentreIndicator(
+    isPlaying: Boolean,
     modifier: Modifier = Modifier
 ) {
-    if (onClick != null) {
-        IconButton(onClick = onClick, modifier = modifier) {
-            Icon(
-                icon, contentDescription = contentDescription,
-                tint = Color.White,
-                modifier = Modifier.size(28.dp)
-            )
+    var visible by remember { mutableStateOf(false) }
+    var shownPlaying by remember { mutableStateOf(isPlaying) }
+    var first by remember { mutableStateOf(true) }
+    LaunchedEffect(isPlaying) {
+        if (first) {
+            first = false
+            return@LaunchedEffect
         }
-    } else {
+        shownPlaying = isPlaying
+        visible = true
+        delay(700)
+        visible = false
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(Motion.soft()) + scaleIn(Motion.soft(), initialScale = 0.8f),
+        exit = fadeOut(Motion.soft()),
+        modifier = modifier
+    ) {
         Box(
-            modifier = modifier.size(48.dp)
-                .graphicsLayer { alpha = 0f },
+            Modifier.size(76.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.45f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                icon, contentDescription = null,
-                tint = Color.Transparent,
-                modifier = Modifier.size(28.dp)
+                if (shownPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(36.dp)
             )
         }
     }
@@ -472,10 +473,10 @@ private fun M3UpNextCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    ZephCard(modifier = modifier.width(200.dp), onClick = onClick) {
+    ZephCard(modifier = modifier.width(220.dp), onClick = onClick) {
         Column {
             Box(
-                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                modifier = Modifier.fillMaxWidth().height(96.dp)
             ) {
                 if (item.isVideo) {
                     VideoThumb(item, Modifier.fillMaxSize())
@@ -529,11 +530,14 @@ private fun M3UpNextCard(
     }
 }
 
-/** The M3 dock (v5): one large container with clear groups — wavy
- * scrubber + time row, transport with a hero Play, the engine row,
- * the options chips, the Up Next carousel, the remote hints. Up
- * from any button enters the timeline; Down from the timeline
- * returns to Play. Slides up with the controls. */
+/** The M3 dock (v5 + 1.9.1 design pass): one large container
+ * with clear groups — wavy scrubber + time row, transport with
+ * a hero Play, the engine row, the options chips, the Up Next
+ * carousel, the remote hints. Up from any button enters the
+ * timeline; Down from the timeline returns to Play. Slides up
+ * with the controls. The dock is full content width (P13); the
+ * status line lives in the HUD now (P14); Prev / Next left the
+ * dock (P8) — they stay on the queue and the media keys. */
 @Composable
 internal fun M3PlayerDock(
     positionMs: Long,
@@ -544,31 +548,28 @@ internal fun M3PlayerDock(
     skipSec: Int,
     subLabel: String,
     audioLabel: String,
-    aspectLabel: String,
+    volumePct: Int,
     onSeekBy: (Long) -> Unit,
     onPlayPause: () -> Unit,
     onCycleSpeed: () -> Unit,
     onSubtitles: () -> Unit,
     onAudio: () -> Unit,
-    onAspect: () -> Unit,
-    onGear: () -> Unit,
+    onVolume: () -> Unit,
     playFocus: FocusRequester,
     seekFocus: FocusRequester,
     visible: Boolean,
-    status: String = "",
-    onPlayPrev: (() -> Unit)? = null,
-    onPlayNext: (() -> Unit)? = null,
     // v5: the engine door (same control as Details) + Up Next.
     activeEngine: PlayerEngine = PlayerEngine.MEDIA3,
     engineChoice: PlayerEngine? = null,
     onEngineChange: ((PlayerEngine?) -> Unit)? = null,
     upNext: List<VideoItem> = emptyList(),
     onPlayUpNext: (VideoItem) -> Unit = {},
+    onSeeAllUpNext: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val skipMs = skipSec * 1_000L
     val upToSeek = Modifier.focusProperties { up = seekFocus }
-    var showUpNext by remember { mutableStateOf(true) }
+    val firstUpNextFocus = remember { FocusRequester() }
     val engineText = (if (activeEngine == PlayerEngine.MEDIA3) "Media3" else "VLC") +
         if (engineChoice == null) " · Auto" else ""
     AnimatedVisibility(
@@ -577,22 +578,20 @@ internal fun M3PlayerDock(
         exit = fadeOut(Motion.soft()) + slideOutVertically(Motion.soft()) { it / 2 },
         modifier = modifier
     ) {
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val w = (maxWidth * 0.90f).coerceAtMost(1160.dp)
-            Column(
-                Modifier.width(w).align(Alignment.Center)
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                        RoundedCornerShape(32.dp)
-                    )
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.outlineVariant,
-                        RoundedCornerShape(32.dp)
-                    )
-                    .padding(horizontal = 20.dp, vertical = 14.dp)
-            ) {
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(32.dp))
+                .background(
+                    MaterialTheme.colorScheme.surfaceContainerHigh,
+                    RoundedCornerShape(32.dp)
+                )
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant,
+                    RoundedCornerShape(32.dp)
+                )
+                .padding(horizontal = 20.dp, vertical = 14.dp)
+        ) {
                 // Wavy scrubber + time row.
                 M3WavySeekBar(
                     positionMs = positionMs,
@@ -619,15 +618,18 @@ internal fun M3PlayerDock(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                // Transport — centred on the hero Play.
+                // Transport — centred on the hero Play (P8):
+                // Replay10 / Play 74dp / Forward10, 20dp gaps.
+                // Prev / Next left the dock — queue + media keys.
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    M3PrevNextButton(onPlayPrev, Icons.Filled.SkipPrevious, "Previous", modifier = upToSeek)
-                    Spacer(modifier = Modifier.width(20.dp))
-                    M3TransportButton("-${skipSec}s", onClick = { onSeekBy(-skipMs) }, modifier = upToSeek)
+                    M3TransportButton(
+                        Icons.Filled.Replay10, "Back ${skipSec} seconds",
+                        onClick = { onSeekBy(-skipMs) }, modifier = upToSeek
+                    )
                     Spacer(modifier = Modifier.width(20.dp))
                     M3DockPlayButton(
                         isPlaying = isPlaying,
@@ -635,9 +637,10 @@ internal fun M3PlayerDock(
                         modifier = upToSeek.focusRequester(playFocus)
                     )
                     Spacer(modifier = Modifier.width(20.dp))
-                    M3TransportButton("+${skipSec}s", onClick = { onSeekBy(skipMs) }, modifier = upToSeek)
-                    Spacer(modifier = Modifier.width(20.dp))
-                    M3PrevNextButton(onPlayNext, Icons.Filled.SkipNext, "Next", modifier = upToSeek)
+                    M3TransportButton(
+                        Icons.Filled.Forward10, "Forward ${skipSec} seconds",
+                        onClick = { onSeekBy(skipMs) }, modifier = upToSeek
+                    )
                 }
                 // Engine row — the door, Auto first.
                 if (onEngineChange != null) {
@@ -658,31 +661,39 @@ internal fun M3PlayerDock(
                         )
                     }
                 }
-                // Options chips.
+                // Options chips (P10): AssistChips with icons and
+                // labels. The aspect chip is gone — aspect lives in
+                // the gear sheet; the gear button moved to the HUD.
+                // The "Up Next" chip moves focus to the carousel.
                 Spacer(Modifier.height(14.dp))
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    M3DockButton("${speed}x", onClick = onCycleSpeed, modifier = upToSeek)
-                    M3DockButton(audioLabel, onClick = onAudio, modifier = upToSeek)
-                    M3DockButton(subLabel, onClick = onSubtitles, modifier = upToSeek)
+                    M3DockChip(
+                        "Speed · ${"%.1f".format(Locale.US, speed)}×",
+                        Icons.Filled.Speed, onClick = onCycleSpeed, modifier = upToSeek
+                    )
+                    M3DockChip(audioLabel, Icons.Filled.MusicNote, onClick = onAudio, modifier = upToSeek)
+                    M3DockChip(subLabel, Icons.Filled.ClosedCaption, onClick = onSubtitles, modifier = upToSeek)
                     if (upNext.isNotEmpty()) {
-                        M3DockButton("Up Next", onClick = { showUpNext = !showUpNext }, modifier = upToSeek)
-                    }
-                    M3DockButton(aspectLabel, onClick = onAspect, modifier = upToSeek)
-                    Spacer(modifier = Modifier.weight(1f))
-                    IconButton(onClick = onGear, modifier = upToSeek) {
-                        Icon(
-                            Icons.Filled.Settings, contentDescription = "Player settings",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
+                        M3DockChip(
+                            "Up Next", Icons.Filled.QueueMusic,
+                            onClick = { firstUpNextFocus.requestFocus() },
+                            modifier = upToSeek
                         )
                     }
+                    M3DockChip(
+                        if (volumePct == 0) "Volume · Off" else "Volume · $volumePct%",
+                        if (volumePct == 0) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                        onClick = onVolume, modifier = upToSeek
+                    )
                 }
-                // Up Next carousel.
-                if (showUpNext && upNext.isNotEmpty()) {
+                // Up Next carousel (P11): always shown while the
+                // queue is non-empty — no toggle. Cards are 220dp
+                // wide with a 96dp cover.
+                if (upNext.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(14.dp))
                     Row(
                         Modifier.fillMaxWidth(),
@@ -694,34 +705,28 @@ internal fun M3PlayerDock(
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Text(
-                            "${upNext.size} queued",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        ZephTextButton("See all", onClick = onSeeAllUpNext)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(upNext, key = { it.path }) { next ->
-                            M3UpNextCard(item = next, onClick = { onPlayUpNext(next) })
+                        itemsIndexed(upNext, key = { _, it -> it.path }) { index, next ->
+                            M3UpNextCard(
+                                item = next,
+                                onClick = { onPlayUpNext(next) },
+                                modifier = if (index == 0) Modifier.focusRequester(firstUpNextFocus) else Modifier
+                            )
                         }
                     }
                 }
-                // Remote hints + status.
+                // Remote hints (P12): centred, with glyphs.
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "OK: play / pause  ·  Left / Right: seek ${skipSec}s  ·  Up / Down: volume  ·  Back: exit player",
+                    "OK — play / pause  ·  ◀ ▶ — seek ${skipSec} s  ·  ▲ ▼ — volume  ·  Back — exit player",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
-                if (status.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        status,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
     }
