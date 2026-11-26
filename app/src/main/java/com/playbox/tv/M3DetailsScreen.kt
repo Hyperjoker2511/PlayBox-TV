@@ -1,13 +1,19 @@
 package com.playbox.tv
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,14 +21,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,25 +38,39 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
-// ---------- ZEPH Details (M3 redesign, from scratch) ----------
-// A NEW Details page, not a Nova/Qwen/Aura port. One M3 system: a
-// big expressive cover, the title + meta, the actions stacked full
-// width, then the Player door, Audio, Subtitles, Add to playlist
-// and Up next as M3 sections. The data is the same as before
-// (resume store, probed tracks, per-file engine, playlists) —
-// only the design is new.
+// ---------- ZEPH Details (v7, 1.9.1) ----------
+// The design, copied 100 percent: a 220dp hero the cover morphs
+// into (S14), a 28sp title + an honest description written from
+// real facts only, a 60dp Play FAB (focused first) beside the
+// title, the engine door with its design heading + caption, audio
+// and subtitles as ONE chip row, an actions row (Play / Add to Up
+// next / Share), and Up next as a 3-col grid with See all. The
+// rail stays visible (D1 — Details is an overlay beside it, not
+// a full-screen replacement), so there is no Back button: the rail
+// and system Back are the way back. Working app-only features
+// (Play from start, Favourites, Add to playlist, the "May not
+// play" note) are kept and restyled, not deleted.
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun M3DetailsScreen(
     item: VideoItem,
@@ -58,10 +78,13 @@ internal fun M3DetailsScreen(
     onBack: () -> Unit,
     onPlay: (VideoItem, Boolean) -> Unit,
     onQueue: (VideoItem) -> Unit,
-    onOpen: (VideoItem) -> Unit
+    onOpen: (VideoItem) -> Unit,
+    onSeeAll: () -> Unit = {},
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     BackHandler { onBack() }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val saved = remember { savedResumePosition(context, item.path) }
     val resumeFraction = if (item.durationMs > 0) saved.toFloat() / item.durationMs else 0f
     var isFav by remember { mutableStateOf(LibraryStores.isFavourite(context, item.path)) }
@@ -76,11 +99,13 @@ internal fun M3DetailsScreen(
     var audioTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
     var subTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
     var tracksProbed by remember { mutableStateOf(false) }
+    var videoMeta by remember { mutableStateOf<VideoMeta?>(null) }
     LaunchedEffect(item.path) {
         val (a, s) = withContext(Dispatchers.IO) { probeTracks(context, item) }
         audioTracks = a
         subTracks = s
         tracksProbed = true
+        videoMeta = withContext(Dispatchers.IO) { probeVideoMeta(context, item) }
     }
     var chosenAudio by remember { mutableStateOf(chosenAudioTrack(context, item.path)) }
     var chosenSub by remember { mutableStateOf(chosenSubtitleTrack(context, item.path)) }
@@ -92,18 +117,74 @@ internal fun M3DetailsScreen(
         if (idx < 0) list.take(6)
         else (list.drop(idx + 1) + list.take(idx)).take(6)
     }
+    // D14: focus starts on the Play FAB.
+    val fabFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { fabFocus.requestFocus() }
+    val fabInteraction = remember { MutableInteractionSource() }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        item {
-            Spacer(modifier = Modifier.height(24.dp))
-            ZephTonalButton("Back", onClick = onBack, icon = Icons.Filled.ArrowBack)
-            Spacer(modifier = Modifier.height(20.dp))
+    // D6: the description is written from real facts only — no
+    // invented synopsis. Duration, format, size, folder, codecs.
+    val description = remember(item, videoMeta) {
+        val folder = when {
+            item.path.startsWith("content://") -> ""
+            else -> {
+                val parent = File(item.path).parent ?: ""
+                when (parent) {
+                    "/storage/emulated/0" -> "Internal storage"
+                    "" -> ""
+                    else -> File(parent).name
+                }
+            }
         }
-        // Cover + title + meta.
-        item {
-            Column(modifier = Modifier.fillMaxWidth()) {
+        buildString {
+            append("A ${TimeFormatter.format(item.durationMs)} ${containerOf(item)} ${if (item.isVideo) "video" else "audio track"} (${formatSize(item.sizeBytes)})")
+            if (folder.isNotBlank()) append(" in $folder")
+            val meta = videoMeta
+            if (meta != null) {
+                append(". ${meta.resolution} · ${meta.videoCodec}")
+                if (meta.audioCodec.isNotBlank()) append(" · ${meta.audioCodec}")
+            }
+            append(".")
+        }
+    }
+    // D8: Share — the file itself when MediaStore knows it (a
+    // content:// URI, never a raw file://), else the name + path
+    // as text. No FileProvider exists in the app.
+    fun shareItem() {
+        scope.launch(Dispatchers.IO) {
+            val uri = mediaStoreUriFor(context, item)
+            withContext(Dispatchers.Main) {
+                val intent = if (uri != null) {
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = if (item.isVideo) "video/*" else "audio/*"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                } else {
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, "${item.name}\n${item.path}")
+                    }
+                }
+                context.startActivity(Intent.createChooser(intent, "Share ${item.name}"))
+            }
+        }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val gridCols = if (maxWidth >= 700.dp) 3 else 2
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+            // Hero: a fixed 220dp band (D3/D15), the cover morphing
+            // in from the grid (S14), a centred 64dp play circle
+            // and a duration badge — plus a slim resume bar at the
+            // bottom when there is a position to resume (D9).
+            item {
                 Box(
-                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                    modifier = Modifier.fillMaxWidth().height(220.dp)
+                        .then(sharedModifier("cover:${item.path}", animatedVisibilityScope))
                         .clip(MaterialTheme.shapes.extraLarge)
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 ) {
@@ -121,270 +202,342 @@ internal fun M3DetailsScreen(
                             )
                         }
                     }
+                    Box(
+                        modifier = Modifier.size(64.dp).align(Alignment.Center)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable { onPlay(item, false) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow, contentDescription = "Play",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    if (item.isVideo && item.durationMs > 0L) {
+                        Text(
+                            TimeFormatter.format(item.durationMs),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            modifier = Modifier.align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                                .clip(MaterialTheme.shapes.small)
+                                .background(Color(0xB8000000))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    if (saved > 5_000L && isResumeOn(context)) {
+                        ZephLinearProgress(
+                            progress = resumeFraction,
+                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(20.dp))
+            }
+            // Title + description, with the Play FAB beside them.
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            item.name,
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 33.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            listOfNotNull(
+                                if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null,
+                                formatSize(item.sizeBytes).ifBlank { null },
+                                containerOf(item).ifBlank { null },
+                                videoMeta?.resolution,
+                                videoMeta?.videoCodec,
+                                videoMeta?.audioCodec?.ifBlank { null }
+                            ).joinToString("  ·  "),
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            description,
+                            fontSize = 14.sp,
+                            lineHeight = 21.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (item.likelyUnsupported) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                "May not play on this player yet — try the Media3 engine from the player's gear.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // D7: the Play FAB — 60dp, 18dp radius, focused
+                    // first. Playing resumes (fromStart = false).
+                    Box(
+                        modifier = Modifier.size(60.dp)
+                            .focusRequester(fabFocus)
+                            .zephFocus(fabInteraction)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable(
+                                interactionSource = fabInteraction,
+                                indication = null
+                            ) { onPlay(item, false) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow, contentDescription = "Play",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            // Engine door (D10): the design's heading + caption.
+            item {
                 Text(
-                    item.name,
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    "Engine — the door for this file",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                M3EngineDoor(
+                    choice = engineChoice,
+                    onChoice = { engine ->
+                        engineChoice = engine
+                        chooseEngine(context, item.path, engine)
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    listOfNotNull(
-                        if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null,
-                        containerOf(item),
-                        formatSize(item.sizeBytes).ifBlank { null },
-                        if (item.isVideo) "Video" else "Audio"
-                    ).joinToString("  •  "),
-                    style = MaterialTheme.typography.bodyLarge,
+                    "Auto is the default: Media3 leads, and VLC steps in on its own for network shares and formats Media3 can't play. Per file you can pin Media3 or VLC instead — Auto, Media3 or VLC, the choice is remembered.",
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (saved > 5_000L && isResumeOn(context)) {
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+            // Audio & subtitles (D11): one chip row.
+            item {
+                Text(
+                    "Audio & subtitles",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                if (!tracksProbed) {
+                    Text(
+                        "Reading tracks…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (audioTracks.isEmpty()) {
+                            ZephFilterChip(
+                                label = "Audio · Default",
+                                selected = true,
+                                onClick = {}
+                            )
+                        } else {
+                            audioTracks.forEach { track ->
+                                ZephFilterChip(
+                                    label = "Audio · ${track.label}",
+                                    selected = chosenAudio == track.ordinal,
+                                    onClick = {
+                                        chosenAudio = track.ordinal
+                                        chooseAudioTrack(context, item.path, track.ordinal)
+                                    }
+                                )
+                            }
+                        }
+                        ZephFilterChip(
+                            label = "Subtitles · Off",
+                            selected = chosenSub == -1,
+                            onClick = {
+                                chosenSub = -1
+                                chooseSubtitleTrack(context, item.path, -1)
+                            }
+                        )
+                        subTracks.forEach { track ->
+                            ZephFilterChip(
+                                label = "Subtitles · ${track.label}",
+                                selected = chosenSub == track.ordinal,
+                                onClick = {
+                                    chosenSub = track.ordinal
+                                    chooseSubtitleTrack(context, item.path, track.ordinal)
+                                }
+                            )
+                        }
+                    }
+                    if (subTracks.isEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "No subtitles inside this file — load one from the player.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            // Actions row (D8): Play / Add to Up next / Share.
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ZephButton(
+                        text = "Play",
+                        onClick = { onPlay(item, false) },
+                        icon = Icons.Filled.PlayArrow
+                    )
+                    ZephTonalButton(
+                        text = "Add to Up next",
+                        onClick = {
+                            onQueue(item)
+                            addedNote = "Added to Up next"
+                        },
+                        icon = Icons.Filled.PlaylistAdd
+                    )
+                    ZephOutlinedButton(
+                        text = "Share",
+                        onClick = { shareItem() },
+                        icon = Icons.Filled.Share
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            // Kept working features, restyled: Play from start +
+            // Favourites in one row, then Add to playlist chips.
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ZephTonalButton(
+                        text = "Play from start",
+                        onClick = { onPlay(item, true) }
+                    )
+                    ZephOutlinedButton(
+                        text = if (isFav) "Favourite" else "Add to favourites",
+                        onClick = { isFav = LibraryStores.toggleFavourite(context, item.path) },
+                        icon = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder
+                    )
+                }
+                addedNote?.let {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Resume at ${TimeFormatter.format(saved)}  •  ${(resumeFraction * 100).toInt()}% watched",
+                        it,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ZephLinearProgress(progress = resumeFraction)
                 }
-                if (item.likelyUnsupported) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "May not play on this player yet — try the Media3 engine from the player's gear.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-        // Actions, stacked full width.
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ZephButton(
-                    text = if (saved > 5_000L && isResumeOn(context)) "Resume at ${TimeFormatter.format(saved)}" else "Play",
-                    onClick = { onPlay(item, false) },
-                    modifier = Modifier.fillMaxWidth(),
-                    icon = Icons.Filled.PlayArrow
-                )
-                ZephTonalButton(
-                    text = "Play from start",
-                    onClick = { onPlay(item, true) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                ZephTonalButton(
-                    text = "Add to queue",
-                    onClick = {
-                        onQueue(item)
-                        addedNote = "Added to queue"
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    icon = Icons.Filled.QueueMusic
-                )
-                ZephOutlinedButton(
-                    text = if (isFav) "Favourite" else "Add to favourites",
-                    onClick = { isFav = LibraryStores.toggleFavourite(context, item.path) },
-                    modifier = Modifier.fillMaxWidth(),
-                    icon = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder
-                )
-            }
-            addedNote?.let {
-                Spacer(modifier = Modifier.height(8.dp))
+            item {
                 Text(
-                    it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            Spacer(modifier = Modifier.height(28.dp))
-        }
-        // Per-file player door — Auto first (Media3 leads, VLC
-        // steps in on its own), as a real M3 SegmentedButton.
-        item {
-            ZephSectionTitle("Player", "Auto lets the Settings default and the format rules decide — Media3 leads, VLC steps in on its own for network shares and formats Media3 can't play")
-            Spacer(modifier = Modifier.height(12.dp))
-            M3EngineDoor(
-                choice = engineChoice,
-                onChoice = { engine ->
-                    engineChoice = engine
-                    chooseEngine(context, item.path, engine)
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-        // Audio tracks.
-        item {
-            ZephSectionTitle("Audio")
-            Spacer(modifier = Modifier.height(12.dp))
-            if (!tracksProbed) {
-                Text(
-                    "Reading tracks…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else if (audioTracks.isEmpty()) {
-                Text(
-                    "Default audio",
-                    style = MaterialTheme.typography.bodyMedium,
+                    "Add to playlist",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    audioTracks.forEach { track ->
-                        M3TrackRow(
-                            label = track.label,
-                            chosen = chosenAudio == track.ordinal,
-                            onClick = {
-                                chosenAudio = track.ordinal
-                                chooseAudioTrack(context, item.path, track.ordinal)
-                            }
-                        )
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    playlistNames.forEach { name ->
+                        ZephFilterChip(label = name, selected = false, onClick = {
+                            LibraryStores.addToPlaylist(context, name, item.path)
+                            addedNote = "Added to $name"
+                        })
                     }
-                }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-        // Subtitle tracks.
-        item {
-            ZephSectionTitle("Subtitles")
-            Spacer(modifier = Modifier.height(12.dp))
-            if (!tracksProbed) {
-                Text(
-                    "Reading tracks…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    M3TrackRow(
-                        label = "Off",
-                        chosen = chosenSub == -1,
-                        onClick = {
-                            chosenSub = -1
-                            chooseSubtitleTrack(context, item.path, -1)
-                        }
-                    )
-                    subTracks.forEach { track ->
-                        M3TrackRow(
-                            label = track.label,
-                            chosen = chosenSub == track.ordinal,
-                            onClick = {
-                                chosenSub = track.ordinal
-                                chooseSubtitleTrack(context, item.path, track.ordinal)
-                            }
-                        )
-                    }
-                }
-                if (subTracks.isEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "No subtitles inside this file — load one from the player.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-        // Add to playlist.
-        item {
-            ZephSectionTitle("Add to playlist")
-            Spacer(modifier = Modifier.height(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                playlistNames.forEach { name ->
-                    M3TrackRow(label = name, chosen = false, onClick = {
+                    ZephFilterChip(label = "New playlist", selected = false, onClick = {
+                        val name = LibraryStores.nextPlaylistName(context)
                         LibraryStores.addToPlaylist(context, name, item.path)
+                        playlistNames = LibraryStores.playlistNames(context)
                         addedNote = "Added to $name"
                     })
                 }
-                M3TrackRow(label = "New playlist", chosen = false, onClick = {
-                    val name = LibraryStores.nextPlaylistName(context)
-                    LibraryStores.addToPlaylist(context, name, item.path)
-                    playlistNames = LibraryStores.playlistNames(context)
-                    addedNote = "Added to $name"
-                })
+                Spacer(modifier = Modifier.height(28.dp))
             }
-            Spacer(modifier = Modifier.height(28.dp))
-        }
-        // Up next.
-        if (upNext.isNotEmpty()) {
+            // Up next (D12): a 3-col grid of small cards + See all.
+            if (upNext.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Up next",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        ZephTextButton(
+                            text = "See all",
+                            onClick = onSeeAll
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                val rows = upNext.chunked(gridCols)
+                items(rows, key = { row -> row.first().path }) { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        row.forEach { next ->
+                            M3DetailsUpNextCard(
+                                item = next,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                onOpen = { onOpen(next) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        repeat(gridCols - row.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+            }
             item {
-                ZephSectionTitle("Up next", "${upNext.size}")
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-            items(upNext, key = { it.path }) { next ->
-                M3DetailsUpNextRow(next, onClick = { onOpen(next) })
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Remote: OK to play, Back to go back.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-/** A track / playlist row: label + check when chosen. */
-@Composable
-private fun M3TrackRow(
-    label: String,
-    chosen: Boolean,
-    onClick: () -> Unit
-) {
-    ZephCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (chosen) {
-                Spacer(modifier = Modifier.width(12.dp))
-                Icon(
-                    Icons.Filled.Check, contentDescription = "Selected",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
 }
 
-/** An Up next row: cover tile, title + meta. */
+/** An Up next card: 118dp cover with a duration badge, 15sp
+ * title, "duration · size" meta. The cover morphs into the hero
+ * when the card opens (S14). */
 @Composable
-private fun M3DetailsUpNextRow(
+private fun M3DetailsUpNextCard(
     item: VideoItem,
-    onClick: () -> Unit
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    ZephCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    ZephCard(modifier = modifier, onClick = onOpen) {
+        Column {
             Box(
-                modifier = Modifier.size(120.dp, 68.dp)
+                modifier = Modifier.fillMaxWidth().height(118.dp)
+                    .then(sharedModifier("cover:${item.path}", animatedVisibilityScope))
                     .clip(MaterialTheme.shapes.medium)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             ) {
@@ -402,20 +555,35 @@ private fun M3DetailsUpNextRow(
                         )
                     }
                 }
+                if (item.isVideo && item.durationMs > 0L) {
+                    Text(
+                        TimeFormatter.format(item.durationMs),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(Color(0xB8000000))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Text(
                     item.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    tileSub(item) ?: "",
-                    style = MaterialTheme.typography.bodySmall,
+                    listOf(
+                        if (item.isVideo) TimeFormatter.format(item.durationMs) else "Audio",
+                        formatSize(item.sizeBytes)
+                    ).filter { it.isNotBlank() }.joinToString("  ·  "),
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
