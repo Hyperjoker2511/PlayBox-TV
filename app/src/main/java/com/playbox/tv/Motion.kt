@@ -1,11 +1,18 @@
 package com.playbox.tv
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 // ---------- ZEPH motion — Material 3, not custom springs ----------
 // "Full Material 3" means the motion is M3's own: the theme sets
@@ -38,6 +45,9 @@ internal object Motion {
     // emphasized-decelerate easing (the design's fade-through holds
     // opacity at 0 for the first 35% — see MainActivity's tabSwitch).
     const val ScreenFadeThroughMs = 420
+    // 2.0.0 design: rise — 520ms, translateY 22dp + scale 0.97→1
+    // (the design's anim-rise, staggered 30–70ms/item).
+    const val RiseMs = 520
 
     // M3 emphasized easings (cubic-bezier from the M3 motion spec).
     val Emphasized: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -86,4 +96,33 @@ internal object Motion {
 
     fun <T> snap(): FiniteAnimationSpec<T> =
         tween(durationMillis = FadeThroughMs, easing = Emphasized)
+}
+
+// 2.0.0 design: rise — the design's anim-rise as a Modifier.
+// 520ms emphasized-decelerate, translateY 22dp + scale 0.97→1 +
+// fade, staggered by delayMs. Under reduce motion it is just a
+// fade (no movement), like the design's reduce-motion mode.
+@Composable
+internal fun Modifier.riseIn(delayMs: Int): Modifier {
+    val reduceMotion = isReduceMotion(LocalContext.current)
+    val progress = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (!reduceMotion) {
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = Motion.RiseMs,
+                    delayMillis = delayMs,
+                    easing = Motion.EmphasizedDecelerate
+                )
+            )
+        }
+    }
+    return this.graphicsLayer {
+        val p = progress.value
+        alpha = p
+        translationY = (1f - p) * 22.dp.toPx()
+        scaleX = 0.97f + 0.03f * p
+        scaleY = 0.97f + 0.03f * p
+    }
 }
