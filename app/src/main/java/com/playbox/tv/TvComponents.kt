@@ -234,42 +234,6 @@ internal fun RemoteHints(modifier: Modifier = Modifier) {
  * (its label used to be clipped). On a TV everything fits, so nothing
  * scrolls there. */
 @Composable
-internal fun TopNav(
-    tab: Tab,
-    onTab: (Tab) -> Unit,
-    onPlayer: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // 1.4.0: the logo mark — a violet rounded square with the
-        // play glyph, so the brand reads at TV distance.
-        Box(
-            modifier = Modifier.background(Primary, RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("▶", fontSize = 22.sp, color = White)
-        }
-        Text("Zeph", fontSize = 26.sp, color = White)
-        Spacer(modifier = Modifier.width(28.dp))
-        Row(
-            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            val pills = listOf(Tab.Home to "Home", Tab.Video to "Video", Tab.Search to "Search", Tab.Settings to "Settings")
-            pills.forEach { (t, label) ->
-                GlassButton(label, active = tab == t) { onTab(t) }
-            }
-        }
-        GlassButton("▶  Player") { onPlayer() }
-    }
-}
-
 // ---------- Thumbnails (Batch 2, restyled Batch 3) ----------
 
 /** Batch 2: the video's thumbnail, loaded on IO and cached (see
