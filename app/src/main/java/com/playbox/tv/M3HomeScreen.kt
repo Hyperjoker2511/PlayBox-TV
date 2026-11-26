@@ -900,7 +900,7 @@ private fun M3HomeAlbumCard(
  * autofocused: on a TV the keyboard must appear only when the user
  * wants to type (the v7 keyboard lesson). */
 @Composable
-private fun M3NetworkStreamDialog(
+internal fun M3NetworkStreamDialog(
     onClose: () -> Unit,
     onOpen: (VideoItem, List<VideoItem>) -> Unit
 ) {
