@@ -25,12 +25,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.FolderShared
+import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.MusicNote
-import androidx.compose.material.icons.outlined.QueueMusic
+import androidx.compose.material.icons.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Wifi
@@ -91,11 +97,14 @@ internal object DsSpace {
     val xxl = 32.dp
 }
 
-/** Shared corner radii. */
+/** Shared corner radii — the design's scale (index.css): xs 4,
+ * sm 8, md 12, lg 16, xl 28, 2xl 36. Cards are lg (16dp), sheets
+ * and dialogs are xl (28dp), buttons and pills are full (28dp
+ * here is effectively a pill for a 40dp button). */
 internal object DsRadius {
-    val card = 20.dp
-    val button = 14.dp
-    val sheet = 24.dp
+    val card = 16.dp
+    val button = 28.dp
+    val sheet = 28.dp
     val pill = 28.dp
 }
 
@@ -156,16 +165,19 @@ internal val ZephPalette = DesignPalette(
 )
 
 
-/** One line-icon set (Material Outlined) for the navigation —
- * 2.0.0 rail: Home / Video / Audio / Browse / Playlists /
- * Settings, plus Search as a button under the logo. */
-internal fun designIconFor(tab: Tab): ImageVector = when (tab) {
-    Tab.Home -> Icons.Outlined.Home
-    Tab.Video -> Icons.Outlined.Movie
-    Tab.Audio -> Icons.Outlined.MusicNote
-    Tab.Browse -> Icons.Outlined.FolderShared
-    Tab.Playlists -> Icons.Outlined.QueueMusic
-    Tab.Settings -> Icons.Outlined.Settings
+/** One icon set for the navigation — the design's rail glyphs
+ * (chrome.tsx ITEMS): Home / Video (movie) / Audio (music_note) /
+ * Browse (folder) / Playlists (playlist_play) / Settings, plus
+ * Search as a button under the logo. The icon is FILLED when the
+ * item is selected, outlined when it is not (the design's Icon
+ * fill={sel}). */
+internal fun designIconFor(tab: Tab, selected: Boolean = false): ImageVector = when (tab) {
+    Tab.Home -> if (selected) Icons.Filled.Home else Icons.Outlined.Home
+    Tab.Video -> if (selected) Icons.Filled.Movie else Icons.Outlined.Movie
+    Tab.Audio -> if (selected) Icons.Filled.MusicNote else Icons.Outlined.MusicNote
+    Tab.Browse -> if (selected) Icons.Filled.Folder else Icons.Outlined.Folder
+    Tab.Playlists -> if (selected) Icons.Filled.PlaylistPlay else Icons.Outlined.PlaylistPlay
+    Tab.Settings -> if (selected) Icons.Filled.Settings else Icons.Outlined.Settings
     Tab.Search -> Icons.Outlined.Search
 }
 
@@ -177,16 +189,6 @@ internal fun designLabelFor(tab: Tab): String = when (tab) {
     Tab.Playlists -> "Playlists"
     Tab.Settings -> "Settings"
     Tab.Search -> "Search"
-}
-
-/** 2.0.0: the design shows a wifi icon at the rail's base. It is
- * real — shown only when the device is actually on wifi
- * (ConnectivityManager), never a decoration. */
-internal fun isWifiConnected(context: android.content.Context): Boolean {
-    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
-        as? android.net.ConnectivityManager ?: return false
-    val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-    return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
 }
 
 // ---------- P2 — FLOATING RAIL + MENU LABELS (2026-11-24, plan v2 Patch 2) ----------
@@ -304,47 +306,48 @@ internal const val FloatingRailHideDelayMs = 5000L
 // hides after a few seconds). The rail's inner content is shared
 // (DesignRailContent) so both modes look and behave the same.
 
-/** The rail's inner content (2.0.0 design): the Zeph logo tile at
- * the top, a Search button under it, then the six rail items
- * centred, then the wifi icon at the base (only when on wifi).
- * Each item is a 56×32 pill (secondaryContainer when selected,
- * scaling in over 450ms emphasized) with a 12sp label below it.
- * Labels are always on. The items area scrolls, so every item
- * stays reachable on a short phone-landscape screen. */
+/** The rail's inner content (2.0.0 design, chrome.tsx NavRail):
+ * the Zeph logo tile at the top (30dp, 9dp radius), a Search
+ * button under it (never selected, on-surface icon), then the six
+ * rail items centred (12dp apart), then the wifi icon at the base
+ * — always shown, 18dp, on-surface-variant. The colours come from
+ * the current theme (MaterialTheme), NOT a fixed palette, so the
+ * rail follows the theme when it changes. Labels are always on.
+ * The items area scrolls, so every item stays reachable on a
+ * short phone-landscape screen. */
 @Composable
 private fun DesignRailContent(
     tab: Tab,
     onTab: (Tab) -> Unit,
     onSearch: () -> Unit,
-    wifiConnected: Boolean,
-    palette: DesignPalette,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.padding(vertical = DsSpace.lg),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Zeph logo: a 36dp primaryContainer tile with a play
-        // triangle in onPrimaryContainer (the design's ZephLogo).
+        // Zeph logo: the design's ZephLogo at size 36 — its SVG is
+        // a 48×48 viewBox rendered at 36, so the tile is 30dp with
+        // a 9dp radius and a ~10×13dp triangle.
         Box(
-            modifier = Modifier.size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(palette.primaryContainer),
+            modifier = Modifier.size(30.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 Icons.Filled.PlayArrow, contentDescription = "Zeph Player",
-                tint = palette.onSecondaryContainer, modifier = Modifier.size(20.dp)
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(12.dp)
             )
         }
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         // Search lives under the logo, NOT in the item list — the
         // design puts it there, and on the Search route the rail's
         // active item is Home.
         RailCircleButton(
             icon = Icons.Outlined.Search,
             label = "Search",
-            selected = tab == Tab.Search,
             onClick = onSearch
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -357,57 +360,61 @@ private fun DesignRailContent(
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 listOf(Tab.Home, Tab.Video, Tab.Audio, Tab.Browse, Tab.Playlists, Tab.Settings).forEach { t ->
                     RailPillItem(
                         tab = t,
                         // On the Search route the rail's active item is Home.
                         selected = if (tab == Tab.Search) t == Tab.Home else tab == t,
-                        palette = palette,
                         onClick = { onTab(t) }
                     )
                 }
             }
         }
-        if (wifiConnected) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Icon(
-                Icons.Outlined.Wifi, contentDescription = "Wi-Fi connected",
-                tint = palette.muted, modifier = Modifier.size(20.dp)
-            )
-        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Icon(
+            Icons.Outlined.Wifi, contentDescription = "Wi-Fi",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 
-/** One rail item (2.0.0 design): a 56×32 pill + a 12sp label
- * below it. The selected pill is secondaryContainer and scales in
- * over 450ms emphasized; the icon is filled when selected. Focus
- * scales the whole item 1.06 with a 3dp secondary ring + shadow. */
+/** One rail item (2.0.0 design, chrome.tsx NavRail): a 72dp-wide
+ * button (rounded-lg = 16dp, 2dp vertical padding) with a 56×32
+ * pill + a label-m label below it. The selected pill is
+ * secondaryContainer and sweeps in over 450ms emphasized —
+ * scaleX 0→1, scaleY 0.75→1 — and the icon is filled when
+ * selected, outlined when not. The label is label-m (12sp,
+ * 0.5 tracking), Bold + on-surface when selected, on-surface-
+ * variant when not. Focus is the design's [data-f] WITHOUT lift:
+ * the rail items carry no lift class — a 3dp secondary outline
+ * (offset 3dp) around the whole item + a 0.12 on-surface state
+ * layer on the pill, no scale, no shadow. */
 @Composable
 private fun RailPillItem(
     tab: Tab,
     selected: Boolean,
-    palette: DesignPalette,
     onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    val scale by animateFloatAsState(
-        if (focused) DesignFocusScale else 1f,
-        Motion.spatial(), label = "railItemScale"
+    val pressed by interaction.collectIsPressedAsState()
+    // The selected pill sweeps in (scaleX 0→1, scaleY 0.75→1).
+    val pillScaleX by animateFloatAsState(
+        if (selected) 1f else 0f,
+        tween(durationMillis = 450, easing = Motion.Emphasized), label = "railPillScaleX"
     )
-    // The selected pill scales in behind the icon (450ms emphasized).
-    val pillScale by animateFloatAsState(
-        if (selected) 1f else 0.85f,
-        tween(durationMillis = 450, easing = Motion.Emphasized), label = "railPillScale"
+    val pillScaleY by animateFloatAsState(
+        if (selected) 1f else 0.75f,
+        tween(durationMillis = 450, easing = Motion.Emphasized), label = "railPillScaleY"
     )
-    val focusRing = MaterialTheme.colorScheme.secondary
     Column(
-        modifier = Modifier.fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+        modifier = Modifier.width(72.dp)
+            .zephFocus(interaction, focusScale = 1f, cornerRadius = 16.dp)
             .clickable(interactionSource = interaction, indication = null) { onClick() }
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -416,72 +423,62 @@ private fun RailPillItem(
         ) {
             Box(
                 modifier = Modifier.fillMaxSize()
-                    .graphicsLayer { scaleX = pillScale; scaleY = pillScale }
-                    .shadow(
-                        if (focused) 12.dp else 0.dp,
-                        RoundedCornerShape(DsRadius.pill),
-                        spotColor = Color.Black.copy(alpha = 0.6f),
-                        ambientColor = Color.Black.copy(alpha = 0.6f)
-                    )
-                    .clip(RoundedCornerShape(DsRadius.pill))
-                    .background(if (selected) palette.secondaryContainer else Color.Transparent)
-                    .border(
-                        if (focused) 3.dp else 0.dp, focusRing,
-                        RoundedCornerShape(DsRadius.pill)
+                    .graphicsLayer { scaleX = pillScaleX; scaleY = pillScaleY }
+                    .clip(CircleShape)
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.secondaryContainer
+                        else Color.Transparent
                     )
             )
+            // State layer: on-surface at 0.12 when focused or
+            // pressed (the design's .sl::after on the pill).
+            if (focused || pressed) {
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                )
+            }
             Icon(
-                designIconFor(tab), contentDescription = designLabelFor(tab),
-                tint = if (selected) palette.onSecondaryContainer else palette.muted,
+                designIconFor(tab, selected), contentDescription = designLabelFor(tab),
+                tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(24.dp)
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            designLabelFor(tab), fontSize = 12.sp,
-            color = if (selected) palette.onSurface else palette.muted,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            fontFamily = AppFont, maxLines = 1
+            designLabelFor(tab),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1
         )
     }
 }
 
-/** The Search button under the logo (2.0.0 design): a 40dp circle,
- * onSurfaceVariant icon, same focus treatment as the rail items. */
+/** The Search button under the logo (2.0.0 design, chrome.tsx):
+ * a 40dp circle with an on-surface icon. It is NEVER selected —
+ * the design's Search IconButton carries no selected state.
+ * Focus is the [data-f] outline only (no lift, no shadow). */
 @Composable
 private fun RailCircleButton(
     icon: ImageVector,
     label: String,
-    selected: Boolean,
     onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val scale by animateFloatAsState(
-        if (focused) DesignFocusScale else 1f,
-        Motion.spatial(), label = "railCircleScale"
-    )
-    val focusRing = MaterialTheme.colorScheme.secondary
     Box(
         modifier = Modifier.size(40.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .shadow(
-                if (focused) 12.dp else 0.dp, CircleShape,
-                spotColor = Color.Black.copy(alpha = 0.6f),
-                ambientColor = Color.Black.copy(alpha = 0.6f)
-            )
+            .zephFocus(interaction, focusScale = 1f, cornerRadius = 20.dp)
             .clip(CircleShape)
-            .background(
-                if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
-            )
-            .border(if (focused) 3.dp else 0.dp, focusRing, CircleShape)
             .clickable(interactionSource = interaction, indication = null) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             icon, contentDescription = label,
-            tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(24.dp)
         )
     }
@@ -496,14 +493,11 @@ internal fun DesignRail(
     tab: Tab,
     onTab: (Tab) -> Unit,
     onSearch: () -> Unit,
-    wifiConnected: Boolean,
-    palette: DesignPalette,
     labelMode: RailLabelMode = RailLabelMode.ALWAYS,
     modifier: Modifier = Modifier
 ) {
     DesignRailContent(
-        tab = tab, onTab = onTab, onSearch = onSearch, wifiConnected = wifiConnected,
-        palette = palette,
+        tab = tab, onTab = onTab, onSearch = onSearch,
         modifier = modifier.width(DesignRailWidth).fillMaxHeight()
     )
 }
@@ -519,8 +513,6 @@ internal fun RailLayout(
     tab: Tab,
     onTab: (Tab) -> Unit,
     onSearch: () -> Unit,
-    wifiConnected: Boolean,
-    palette: DesignPalette,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -529,7 +521,7 @@ internal fun RailLayout(
             modifier = Modifier.width(DesignRailWidth).fillMaxHeight()
                 .background(MaterialTheme.colorScheme.surface)
         ) {
-            DesignRail(tab = tab, onTab = onTab, onSearch = onSearch, wifiConnected = wifiConnected, palette = palette, labelMode = labelMode)
+            DesignRail(tab = tab, onTab = onTab, onSearch = onSearch, labelMode = labelMode)
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content() }
     }
