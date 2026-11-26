@@ -195,6 +195,14 @@ private fun PlayBoxApp() {
     var details by remember { mutableStateOf<VideoItem?>(null) }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
     var playList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    // Patch 5: the full Now Playing screen is showing (audio only).
+    // When false and audio is playing, the MiniPlayer shows over the
+    // tabs instead. Video ignores this — the video player always
+    // shows full-screen.
+    var nowPlayingOpen by remember { mutableStateOf(false) }
+    // Patch 5: the sleep timer, shared by Now Playing and the
+    // MiniPlayer so collapsing does not lose a set timer.
+    val audioSleep = remember { AudioSleepState() }
     // 2.0.0 (fix pass): the player screens report their playing
     // state up here, so the Audio screen's EqBars show the real
     // paused state instead of animating forever. The shuffle
@@ -254,7 +262,7 @@ private fun PlayBoxApp() {
     LaunchedEffect(pendingView) {
         if (pendingView != null) {
             MediaLibrary.videoItemFromUri(context, pendingView)?.let { item ->
-                playing = item; playList = listOf(item); playFromStart = false; playStartSpeed = null
+                playing = item; playList = listOf(item); playFromStart = false; playStartSpeed = null; nowPlayingOpen = true
             }
             viewUri.value = null
         }
@@ -265,7 +273,7 @@ private fun PlayBoxApp() {
     val pendingCast = CastInbox.item.value
     LaunchedEffect(pendingCast) {
         if (pendingCast != null) {
-            playing = pendingCast; playList = listOf(pendingCast); playFromStart = false; playStartSpeed = 1f
+            playing = pendingCast; playList = listOf(pendingCast); playFromStart = false; playStartSpeed = 1f; nowPlayingOpen = true
             CastInbox.item.value = null
         }
     }
@@ -367,6 +375,30 @@ private fun PlayBoxApp() {
         context.stopService(Intent(context, PlaybackService::class.java))
         activity?.finish()
     }
+    // Patch 5: the engine for the playing item, computed once here
+    // so the routing (video player vs Now Playing) and the player
+    // both use the same value. Audio on Media3 opens Now Playing;
+    // audio that needs VLC (FTP/RTSP/NFS/unsupported/HDR) still
+    // opens the video player, as before.
+    val playingVlcAvailable = !hasStaleVlcAttempt(context)
+    val playingHdr = remember(playing?.path) { playing?.let { HdrDetect.isHdr(it.path) } ?: false }
+    val playingEngine = if (playing != null) engineFor(
+        playing,
+        engineOverride?.takeIf { it.first == playing.path }?.second
+            ?: chosenEngine(context, playing.path),
+        playingVlcAvailable,
+        defaultEnginePref(context),
+        hdr = playingHdr
+    ) else PlayerEngine.MEDIA3
+    // 1.4.0 (crash fix): the breadcrumb and the VLC attempt marker
+    // are written here — before any player screen composes and the
+    // engine is created.
+    LaunchedEffect(playing?.path, playingEngine) {
+        if (playing != null) {
+            CrashLog.step(context, "engine chosen: $playingEngine for ${playing.name}")
+            if (playingEngine == PlayerEngine.VLC) markVlcAttempt(context)
+        }
+    }
     // Patch 4 (exit confirm): Back only asks on Home. Back from
     // Details, the player, Library or Settings just goes back to
     // Home — the player and details screens have their own
@@ -377,6 +409,13 @@ private fun PlayBoxApp() {
         } else {
             showExitDialog = true
         }
+    }
+    // Patch 5: Back while audio plays in the MiniPlayer asks to
+    // exit (the same clean-exit dialog as Back on Home). Now
+    // Playing has its own Back (collapse to the MiniPlayer) and
+    // the video player has its own Back (exit the player).
+    BackHandler(enabled = playing != null && !playing.isVideo && playingEngine == PlayerEngine.MEDIA3 && !nowPlayingOpen && details == null && settingsPage == null) {
+        showExitDialog = true
     }
 
     // M3 redesign Phase 1: the whole app now runs under ZephTheme —
@@ -416,38 +455,29 @@ private fun PlayBoxApp() {
                         showRationale = false
                     }
                 )
-            } else if (playing != null) {
-                // Patch 1.3.2 (crash guard): if the last VLC open
-                // killed the process, the stale marker is still set —
-                // force Media3 this time instead of crashing again.
-                // The gear's explicit engine choice still wins.
-                val vlcAvailable = !hasStaleVlcAttempt(context)
-                // 1.4.0: Media3 is the default again (see engineFor);
-                // the gear's override wins, then the file's own
-                // Details-page choice, then the Settings default.
-                // 1.4.6 Patch D: HDR files go to VLC for tone
-                // mapping — detected once per path (cached) from the
-                // file header, so a local file costs one fast read.
-                val isHdr = remember(playing!!.path) { HdrDetect.isHdr(playing!!.path) }
-                val engine = engineFor(
-                    playing!!,
-                    engineOverride?.takeIf { it.first == playing!!.path }?.second
-                        ?: chosenEngine(context, playing!!.path),
-                    vlcAvailable,
-                    defaultEnginePref(context),
-                    hdr = isHdr
-                )
-                // 1.4.0 (crash fix): the breadcrumb and the VLC
-                // attempt marker are written HERE — before the
-                // player screen composes and the engine is created.
-                // The 1.3.2 marker was written in a later setup
-                // step, so a death during engine creation left no
-                // marker and the guard never fired.
-                LaunchedEffect(playing!!.path, engine) {
-                    CrashLog.step(context, "engine chosen: $engine for ${playing!!.name}")
-                    if (engine == PlayerEngine.VLC) markVlcAttempt(context)
-                }
-                if (engine == PlayerEngine.VLC) {
+            } else if (playing != null && (playing.isVideo || playingEngine != PlayerEngine.MEDIA3 || nowPlayingOpen)) {
+                if (!playing!!.isVideo && playingEngine == PlayerEngine.MEDIA3 && nowPlayingOpen) {
+                    // Patch 5: audio on Media3 opens Now Playing,
+                    // not the video player (audit A2). Audio that
+                    // needs VLC falls through to the video player below.
+                    M3NowPlayingScreen(
+                        item = playing!!,
+                        queue = playList.ifEmpty { all },
+                        shuffleOn = shuffleOn,
+                        onShuffleChange = { shuffleOn = it },
+                        sleep = audioSleep,
+                        onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
+                        onExit = { playing = null; nowPlayingOpen = false; playFromStart = false; playStartSpeed = null },
+                        onCollapse = { nowPlayingOpen = false },
+                        onEngineFailed = {
+                            if (fallbackDoneFor != playing!!.path) {
+                                fallbackDoneFor = playing!!.path
+                                engineOverride = playing!!.path to PlayerEngine.VLC
+                            }
+                        },
+                        onPlayingChange = { playerIsPlaying = it }
+                    )
+                } else if (playingEngine == PlayerEngine.VLC) {
                     VlcPlayerScreen(
                         item = playing!!,
                         queue = playList.ifEmpty { all },
@@ -533,8 +563,8 @@ private fun PlayBoxApp() {
                             videos = videos, audio = audio,
                             loading = !libraryLoaded, permissionDenied = permissionDenied,
                             onOpen = { item, list -> details = item; detailList = list },
-                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
-                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null },
+                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null; nowPlayingOpen = true },
+                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null; nowPlayingOpen = true },
                             onLibrary = { mode -> goLibraryMode(mode) },
                             onFolders = { tab = Tab.Browse },
                             onRefresh = { refreshNonce++ },
@@ -552,7 +582,7 @@ private fun PlayBoxApp() {
                         Tab.Browse -> M3BrowseScreen(
                             videos = videos, audio = audio,
                             onOpen = { item, list -> details = item; detailList = list },
-                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null },
+                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null; nowPlayingOpen = true },
                             networkServer = networkServer, onNetworkServer = { networkServer = it },
                             networkPath = networkPath, onNetworkPath = { networkPath = it },
                             ftpServer = ftpServer, onFtpServer = { ftpServer = it },
@@ -568,7 +598,7 @@ private fun PlayBoxApp() {
                             isPlaying = playing != null && playerIsPlaying,
                             shuffleOn = shuffleOn,
                             onShuffleChange = { shuffleOn = it },
-                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null }
+                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null; nowPlayingOpen = true }
                         )
                         // 2.0.0 (Patch 4): the Video tab is the
                         // design's screen now — folder/network
@@ -580,20 +610,15 @@ private fun PlayBoxApp() {
                             videos = videos, loading = !libraryLoaded,
                             onOpen = { item, list -> details = item; detailList = list }
                         )
-                        Tab.Playlists -> M3LibraryScreen(
-                            videos = videos, audio = audio, loading = !libraryLoaded,
-                            mode = libraryMode, onMode = { goLibraryMode(it) },
-                            folder = libraryFolder, onFolder = { libraryFolder = it },
-                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
-                            listState = libraryListState,
-                            addFormRequest = networkAddFormRequest,
-                            networkServer = networkServer, onNetworkServer = { networkServer = it },
-                            networkPath = networkPath, onNetworkPath = { networkPath = it },
-                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
-                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
-                            onOpen = { item, list -> details = item; detailList = list },
-                            onRefresh = { refreshNonce++ },
-                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
+                        // 2.0.0 (Patch 5): the Playlists tab is the
+                        // design's screen now — grid + detail +
+                        // New-playlist dialog, backed by LibraryStores.
+                        Tab.Playlists -> M3PlaylistsScreen(
+                            audio = audio, videos = videos, loading = !libraryLoaded,
+                            playing = playing,
+                            isPlaying = playing != null && playerIsPlaying,
+                            onPlayAudio = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null; nowPlayingOpen = true },
+                            onOpen = { item, list -> details = item; detailList = list }
                         )
                         Tab.Settings -> M3SettingsScreen(
                             labelMode = railLabelMode,
@@ -637,6 +662,7 @@ private fun PlayBoxApp() {
                 }
                 val detailsPlay: (VideoItem, Boolean) -> Unit = { item, fromStart ->
                     playing = item
+                    nowPlayingOpen = true
                     playList = mergeQueue(detailList.ifEmpty { all }, queued)
                     queued = emptyList()
                     playFromStart = fromStart
@@ -676,6 +702,28 @@ private fun PlayBoxApp() {
                                 ) { currentTab ->
                                     CompositionLocalProvider(LocalTabAnimatedVisibilityScope provides this) {
                                         m3Content(currentTab)
+                                    }
+                                }
+                                // Patch 5: audio on Media3, collapsed —
+                                // the MiniPlayer over the tab content.
+                                // Left 112dp from the screen edge is
+                                // 24dp inside the content area, past
+                                // the 88dp rail; right 24dp, bottom 12dp.
+                                val miniPlaying = playing
+                                if (miniPlaying != null && !miniPlaying.isVideo && playingEngine == PlayerEngine.MEDIA3 && !nowPlayingOpen) {
+                                    Box(
+                                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                                            .padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+                                    ) {
+                                        M3MiniPlayer(
+                                            item = miniPlaying,
+                                            queue = playList.ifEmpty { all },
+                                            shuffleOn = shuffleOn,
+                                            sleep = audioSleep,
+                                            onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
+                                            onExpand = { nowPlayingOpen = true },
+                                            onPlayingChange = { playerIsPlaying = it }
+                                        )
                                     }
                                 }
                                 DetailsOverlay(
