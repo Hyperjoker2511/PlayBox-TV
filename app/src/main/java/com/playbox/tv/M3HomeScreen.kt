@@ -370,11 +370,12 @@ internal fun M3HomeScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(continueWatching, key = { it.path }) { item ->
-                                M3HomeVideoCard(
+                                M3VideoCard(
                                     item = item,
                                     progress = fractionOf(item),
                                     index = continueWatching.indexOf(item),
-                                    onOpen = { onOpen(item, all) }
+                                    onOpen = { onOpen(item, all) },
+                                    modifier = Modifier.width(212.dp)
                                 )
                             }
                         }
@@ -395,11 +396,12 @@ internal fun M3HomeScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(newVideos, key = { it.path }) { item ->
-                                M3HomeVideoCard(
+                                M3VideoCard(
                                     item = item,
                                     progress = 0f,
                                     index = newVideos.indexOf(item),
-                                    onOpen = { onOpen(item, all) }
+                                    onOpen = { onOpen(item, all) },
+                                    modifier = Modifier.width(212.dp)
                                 )
                             }
                         }
@@ -714,7 +716,14 @@ private fun M3HomeSectionHeader(
  * badge, focus play circle (48dp, primaryContainer), progress bar
  * at the poster's base, title + meta below. */
 @Composable
-private fun M3HomeVideoCard(
+/** The design's VideoCard (media.tsx), shared by Home and the
+ * Video screen: 16:9 poster that scales to 1.10 on focus, a focus
+ * play circle, duration badge, 4dp progress at the poster base,
+ * title + meta below. The caller supplies the width (212dp in a
+ * Home row, a column weight in the Video grid). No HDR badge —
+ * there is no per-file HDR flag until playback. */
+@Composable
+internal fun M3VideoCard(
     item: VideoItem,
     progress: Float,
     index: Int,
@@ -737,7 +746,6 @@ private fun M3HomeVideoCard(
     )
     Box(
         modifier = modifier
-            .width(212.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .zephFocus(interaction)
