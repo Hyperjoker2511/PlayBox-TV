@@ -1,3 +1,5 @@
+![Zeph Player](icon.svg)
+
 # Zeph Player
 
 A Material 3 video & music player for Android TV — local files, network shares, and DLNA. No sign-in, no ads, no Google Play Services. Built for the big screen, and for the 2 GB Jio set-top box.
@@ -30,6 +32,35 @@ A Material 3 video & music player for Android TV — local files, network shares
 - **Player** — full-screen video with the transport, speed, subtitles, audio tracks, aspect and the full VLC settings in the gear menu. Resume works per file; subtitles from external `.srt` / `.vtt` / `.ass` files or embedded tracks.
 
 Everything runs on Material 3 motion — fade-through screen changes, rising cards, a compact left rail on TV and phone alike. The UI targets 60 fps on the 2 GB box: transform/opacity-only animations, no live blur over video.
+
+## Screenshots
+
+![Home](docs/images/m3/home.png)
+**Home** — greeting, hero carousel, Continue watching and quick actions.
+
+![Video library](docs/images/m3/video.png)
+**Video** — grid/list, filters and sorts, progress on every card.
+
+![Music](docs/images/m3/music.png)
+**Music** — songs, albums and artists, with a live equalizer on the song playing.
+
+![Browse](docs/images/m3/browse.png)
+**Browse** — local storage, USB drives and network servers in one folder view.
+
+![Playlists](docs/images/m3/playlists.png)
+**Playlists** — cover collages, total time, play and shuffle.
+
+![Search](docs/images/m3/search.png)
+**Search** — videos, songs, albums and artists; trending suggestions and the on-screen keyboard.
+
+![Settings](docs/images/m3/settings.png)
+**Settings** — two-pane settings and themes.
+
+![Player](docs/images/m3/player.png)
+**Player** — full-screen video, transport, subtitles, audio tracks and VLC settings.
+
+![Now Playing](docs/images/m3/now-playing.png)
+**Now Playing** — live visualizer, sleep timer, queue, repeat and shuffle.
 
 ## Install
 
