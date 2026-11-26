@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal enum class Tab { Home, Search, Explore, Library, Settings }
+internal enum class Tab { Home, Search, Sources, Explore, Library, Settings }
 
 /** Tile subtitle: duration plus a "May not play" badge for formats
  * Media3 cannot play yet (Batch 1.4 polish). Null when there is nothing
