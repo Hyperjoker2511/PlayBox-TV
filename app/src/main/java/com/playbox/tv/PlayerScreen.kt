@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -1073,7 +1074,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             },
             abActive = abA != null,
             engineLabel = when (dockEngine) {
-                null -> "Auto"
+                null, PlayerEngine.AUTO -> "Auto"
                 PlayerEngine.MEDIA3 -> "Media3"
                 PlayerEngine.VLC -> "VLC"
             },
