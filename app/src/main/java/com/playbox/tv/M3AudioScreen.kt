@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +37,9 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.outlined.Album
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,15 +52,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.io.File
 import kotlin.random.Random
@@ -68,8 +68,9 @@ import kotlin.random.Random
 // (MediaLibrary reads no ARTIST/ALBUM columns):
 // - album = the parent folder name; artist = the grandparent
 //   folder name (the common Artist/Album/track layout).
-// - bitrate = the track's average bitrate, computed from real
-//   size and duration (sizeBytes * 8 / duration, kbps).
+// - the song-row chip shows the file's FORMAT word (FLAC /
+//   MP3 / AAC) — the design's bitrate.split(" ")[0] — not a
+//   bare kbps number.
 // - album art = the design's hue gradient from the folder name
 //   (the same hue as Home's album cards).
 // Song / album / artist taps play (the design's playTracks) —
@@ -82,6 +83,15 @@ internal fun M3AudioScreen(
     audio: List<VideoItem>,
     loading: Boolean,
     playing: VideoItem?,
+    // 2.0.0 (fix pass): the real playing state (from the player
+    // screens, via MainActivity) — the EqBars show the design's
+    // paused state when the track is paused, instead of
+    // animating forever. The shuffle mode is persistent
+    // (store.tsx: shuffle is a boolean + setShuffle); the queue
+    // honouring lands in Patch 5's Now Playing.
+    isPlaying: Boolean = false,
+    shuffleOn: Boolean = false,
+    onShuffleChange: (Boolean) -> Unit = {},
     onPlayFromStart: (VideoItem, List<VideoItem>) -> Unit
 ) {
     val context = LocalContext.current
@@ -93,12 +103,13 @@ internal fun M3AudioScreen(
     val artists = remember(audio) {
         audio.groupBy { artistOf(it) }.entries.sortedBy { it.key }
     }
+    // The design's Math.round(total / 60) — not truncation.
     val totalMinutes = remember(audio) {
-        (audio.sumOf { it.durationMs } / 60000L).toInt()
+        Math.round(audio.sumOf { it.durationMs } / 60_000.0).toInt()
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         M3ScreenHeader(
             title = "Audio",
             subtitle = "${audio.size} songs · ${albums.size} albums · $totalMinutes min",
@@ -107,6 +118,7 @@ internal fun M3AudioScreen(
                     text = "Shuffle",
                     onClick = {
                         if (audio.isNotEmpty()) {
+                            onShuffleChange(true)
                             val shuffled = audio.shuffled()
                             onPlayFromStart(shuffled[Random.nextInt(shuffled.size)], shuffled)
                         }
@@ -116,13 +128,15 @@ internal fun M3AudioScreen(
                 ZephButton(
                     text = "Play all",
                     onClick = {
-                        if (audio.isNotEmpty()) onPlayFromStart(audio.first(), audio)
+                        if (audio.isNotEmpty()) {
+                            onShuffleChange(false)
+                            onPlayFromStart(audio.first(), audio)
+                        }
                     },
                     icon = Icons.Filled.PlayArrow
                 )
             }
         )
-        Spacer(modifier = Modifier.height(12.dp))
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val wide = maxWidth >= 700.dp
             M3AudioTabs(tab = tab, onTab = { tab = it }, wide = wide)
@@ -130,12 +144,24 @@ internal fun M3AudioScreen(
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val wide = maxWidth >= 700.dp
             val cols = if (wide) 5 else 3
-            // The design's tab content fades through on switch.
+            // The design's tab content fades through on switch
+            // (Music.tsx: key={tab} className="anim-screen pt-3"
+            // — the same 420ms fade-through as a screen change:
+            // opacity 0 until 35%, scale 0.94).
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = {
-                    fadeIn(tween(420, easing = Motion.EmphasizedDecelerate)) togetherWith
-                        fadeOut(tween(200))
+                    (fadeIn(
+                        tween(
+                            420, easing = { fraction ->
+                                if (fraction < 0.35f) 0f
+                                else (fraction - 0.35f) / 0.65f
+                            }
+                        )
+                    ) + scaleIn(
+                        tween(420, easing = Motion.EmphasizedDecelerate),
+                        initialScale = 0.94f
+                    )) togetherWith fadeOut(tween(200))
                 },
                 label = "audioTab"
             ) { currentTab ->
@@ -187,10 +213,7 @@ internal fun M3AudioScreen(
                                                 trackCount = tracks.size,
                                                 index = rowIndex * cols + colIndex,
                                                 onPlay = {
-                                                    val sorted = tracks.sortedWith(
-                                                        compareBy({ albumOf(it) }, { it.name.lowercase() })
-                                                    )
-                                                    onPlayFromStart(sorted.first(), sorted)
+                                                    onPlayFromStart(tracks.first(), tracks)
                                                 },
                                                 modifier = Modifier.weight(1f)
                                             )
@@ -213,6 +236,7 @@ internal fun M3AudioScreen(
                                     M3AudioSongRow(
                                         item = track,
                                         isCurrent = playing?.path == track.path,
+                                        isPlaying = isPlaying,
                                         isFav = favourites.contains(track.path),
                                         wide = wide,
                                         index = audio.indexOf(track),
@@ -241,33 +265,9 @@ private fun artistOf(item: VideoItem): String {
     return if (grandparent != null && grandparent != parent?.name) grandparent else "Unknown artist"
 }
 
-/** The design's AlbumArt: a hue gradient from a name + a centred
- * icon. The caller supplies size and shape in the modifier. */
-@Composable
-internal fun M3AlbumArt(
-    hue: Int,
-    icon: ImageVector,
-    iconSize: Dp,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier.background(
-            Brush.linearGradient(
-                listOf(
-                    Color.hsl(hue.toFloat(), 0.6f, 0.38f),
-                    Color.hsl(((hue + 30) % 360).toFloat(), 0.65f, 0.22f)
-                )
-            )
-        ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            icon, contentDescription = null,
-            tint = Color.White.copy(alpha = 0.9f),
-            modifier = Modifier.size(iconSize)
-        )
-    }
-}
+// (The album art is the shared M3AlbumArt in
+// M3Components.kt — the design's layered hue art with ring
+// and blob, not the flat gradient this screen used to draw.)
 
 private fun hueOf(name: String): Int = ((name.hashCode() % 360) + 360) % 360
 
@@ -285,10 +285,10 @@ private fun M3AudioTabs(
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth()) {
             listOf(
-                Triple("songs", Icons.Filled.MusicNote, "Songs"),
-                Triple("albums", Icons.Filled.Album, "Albums"),
-                Triple("artists", Icons.Filled.Person, "Artists")
-            ).forEach { (value, icon, label) ->
+                Triple("songs", "Songs", Icons.Filled.MusicNote to Icons.Outlined.MusicNote),
+                Triple("albums", "Albums", Icons.Filled.Album to Icons.Outlined.Album),
+                Triple("artists", "Artists", Icons.Filled.Person to Icons.Outlined.Person)
+            ).forEach { (value, label, icons) ->
                 val selected = tab == value
                 val interaction = remember { MutableInteractionSource() }
                 val indicatorScale by animateFloatAsState(
@@ -298,7 +298,9 @@ private fun M3AudioTabs(
                 Box(
                     modifier = Modifier
                         .height(48.dp)
-                        .zephFocus(interaction)
+                        // The design's Tabs carry data-f but no lift
+                        // class — outline + state layer, no zoom.
+                        .zephFocus(interaction, focusScale = 1f, cornerRadius = 16.dp)
                         .clickable(interactionSource = interaction, indication = null) { onTab(value) },
                     contentAlignment = Alignment.Center
                 ) {
@@ -307,7 +309,10 @@ private fun M3AudioTabs(
                         modifier = Modifier.padding(horizontal = if (wide) 24.dp else 16.dp)
                     ) {
                         Icon(
-                            icon, contentDescription = null,
+                            // Icons fill only when the tab is
+                            // selected (m3.tsx: filled={selected}).
+                            if (selected) icons.first else icons.second,
+                            contentDescription = null,
                             tint = if (selected) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
@@ -338,13 +343,16 @@ private fun M3AudioTabs(
 }
 
 /** One song row (Music.tsx): 44dp album art (EqBars over it when
- * this is the current track), title + "artist · album", and a
- * trailing bitrate chip (wide screens only), favourite heart and
- * duration. Selected (current track) = secondaryContainer. */
+ * this is the current track, showing the REAL paused state),
+ * title + "artist · album", and a trailing format chip (wide
+ * screens only), favourite heart and duration. Selected (current
+ * track) = secondaryContainer. A ListItem: 28dp radius
+ * (rounded-xl), lift-sm focus (1.03). */
 @Composable
 private fun M3AudioSongRow(
     item: VideoItem,
     isCurrent: Boolean,
+    isPlaying: Boolean,
     isFav: Boolean,
     wide: Boolean,
     index: Int,
@@ -357,19 +365,20 @@ private fun M3AudioSongRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(28.dp))
             .background(
                 if (isCurrent) MaterialTheme.colorScheme.secondaryContainer
                 else Color.Transparent
             )
-            .zephFocus(interaction)
+            .zephFocus(interaction, focusScale = 1.03f, cornerRadius = 28.dp)
             .clickable(interactionSource = interaction, indication = null) { onPlay() }
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .riseIn(minOf(index, 10) * 30),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp))
+            // The design's song-row art: 44dp, rounded-md (12dp).
+            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp))
         ) {
             M3AlbumArt(
                 hue = hueOf(album),
@@ -382,7 +391,11 @@ private fun M3AudioSongRow(
                     modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    ZephEqBars(playing = true, count = 3, color = Color.White)
+                    // The REAL playing state — the bars flatten
+                    // to 0.12 when the track is paused (the
+                    // design's .paused.eq-bar), they no longer
+                    // animate while paused.
+                    ZephEqBars(playing = isPlaying, count = 3, color = Color.White)
                 }
             }
         }
@@ -397,7 +410,9 @@ private fun M3AudioSongRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                if (artist == "Unknown artist") album else "$artist · $album",
+                // The design's supporting is always
+                // "artist · album" — never album alone.
+                "$artist · $album",
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (isCurrent) MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -408,22 +423,23 @@ private fun M3AudioSongRow(
         Spacer(modifier = Modifier.width(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (wide) {
-                val kbps = bitrateKbps(item)
-                if (kbps > 0) {
-                    Text(
-                        "$kbps",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant,
-                                RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                }
+                // The design's chip shows the FORMAT word
+                // (bitrate.split(" ")[0] — FLAC / MP3 / AAC), not
+                // the bare kbps number.
+                val format = containerOf(item)
+                Text(
+                    format,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
             }
             if (isFav) {
                 Icon(
@@ -445,14 +461,11 @@ private fun M3AudioSongRow(
     }
 }
 
-/** A track's average bitrate from real size and duration. */
-private fun bitrateKbps(item: VideoItem): Int =
-    if (item.durationMs > 0 && item.sizeBytes > 0) {
-        (item.sizeBytes * 8L * 1000L / item.durationMs).toInt()
-    } else 0
-
-/** One album card (Music.tsx): square hue art + name + "artist ·
- * N tracks". Focus lands on the art, as on Home's album cards. */
+/** One album card (Music.tsx): square hue art + name + the
+ * artist. The WHOLE card is focusable (lift), as on Home's
+ * album cards. The design's sub is "artist · year" — the
+ * scan has no year, so the artist alone; with no artist
+ * known, the track count is the honest fallback. */
 @Composable
 private fun M3AlbumGridCard(
     name: String,
@@ -464,15 +477,17 @@ private fun M3AlbumGridCard(
 ) {
     val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier = modifier.riseIn(minOf(index, 10) * 60)
+        modifier = modifier
+            .riseIn(minOf(index, 10) * 60)
+            .clip(RoundedCornerShape(16.dp))
+            .zephFocus(interaction, cornerRadius = 16.dp)
+            .clickable(interactionSource = interaction, indication = null) { onPlay() }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .zephFocus(interaction)
-                .clickable(interactionSource = interaction, indication = null) { onPlay() }
         ) {
             M3AlbumArt(
                 hue = hueOf(name),
@@ -484,7 +499,6 @@ private fun M3AlbumGridCard(
         Text(
             name,
             style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -492,7 +506,7 @@ private fun M3AlbumGridCard(
         )
         Text(
             if (artist == "Unknown artist") "${tracks.size} tracks"
-            else "$artist · ${tracks.size} tracks",
+            else artist,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -503,7 +517,10 @@ private fun M3AlbumGridCard(
 }
 
 /** One artist card (Music.tsx): ROUND hue art (person icon) +
- * name + "N album · M songs", centred. */
+ * name + "N album · M songs", centred. The whole card is the
+ * button (the design's button has p-2 padding); tapping plays
+ * the artist's tracks in library order — the design plays them
+ * in data order, not sorted by album. */
 @Composable
 private fun M3ArtistGridCard(
     name: String,
@@ -515,7 +532,12 @@ private fun M3ArtistGridCard(
 ) {
     val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier = modifier.riseIn(minOf(index, 10) * 60),
+        modifier = modifier
+            .riseIn(minOf(index, 10) * 60)
+            .clip(RoundedCornerShape(16.dp))
+            .zephFocus(interaction, cornerRadius = 16.dp)
+            .clickable(interactionSource = interaction, indication = null) { onPlay() }
+            .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -523,8 +545,6 @@ private fun M3ArtistGridCard(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(CircleShape)
-                .zephFocus(interaction)
-                .clickable(interactionSource = interaction, indication = null) { onPlay() }
         ) {
             M3AlbumArt(
                 hue = hueOf(name),
@@ -536,7 +556,6 @@ private fun M3ArtistGridCard(
         Text(
             name,
             style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
