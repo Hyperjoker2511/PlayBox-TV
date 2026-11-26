@@ -74,6 +74,6 @@ GitHub Actions also builds the signed release: unit tests run on every push, and
 
 ## Status
 
-**2.0.0 (in progress)** — a full Material 3 rebuild of the app, one patch at a time with a CI test after each. Done so far: the shell (compact rail, Roboto Flex, M3 motion), Home, Video + Audio, Browse, and Playlists + Now Playing. Still to come in 2.0.0: Search, the Player, and Settings.
+**2.0.0 (in progress)** — a full Material 3 rebuild of the app, one patch at a time with a CI test after each. Done so far: the shell (compact rail, Roboto Flex, M3 motion), Home, Video + Audio, Browse, Playlists + Now Playing, and Search. Still to come in 2.0.0: the Player and Settings.
 
 Still open: HDMI audio passthrough, and the 24-hour stability / CPU check on the Jio box.
