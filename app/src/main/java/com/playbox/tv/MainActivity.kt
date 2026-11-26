@@ -33,11 +33,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
         // The permission request itself lives in PlayBoxApp (rememberLauncherForActivityResult),
         // behind a plain-words rationale shown on first launch — no silent system prompt.
         // P1 (one design system): one font across the whole app —
-        // Plus Jakarta Sans, via LocalTextStyle, so every Text that
+        // Roboto Flex, via LocalTextStyle, so every Text that
         // does not name its own font uses AppFont.
         setContent {
             CompositionLocalProvider(LocalTextStyle provides TextStyle(fontFamily = AppFont)) {
@@ -178,11 +178,12 @@ private fun PermissionRationaleScreen(onAllow: () -> Unit, onNotNow: () -> Unit)
     }
 }
 
-/** Tab order for the slide direction: Home 0, Search 1, Sources 2,
- * Library 3, Settings 4. Positive = forward (the new screen slides
- * in from the right), negative = back, zero = same tab. (unit-tested) */
+/** Tab order for the slide direction (2.0.0 rail order): Home 0,
+ * Video 1, Audio 2, Browse 3, Playlists 4, Settings 5, Search 6.
+ * Positive = forward (the new screen slides in from the right),
+ * negative = back, zero = same tab. (unit-tested) */
 internal fun tabSlideDirection(from: Tab, to: Tab): Int {
-    val order = listOf(Tab.Home, Tab.Search, Tab.Sources, Tab.Library, Tab.Settings)
+    val order = listOf(Tab.Home, Tab.Video, Tab.Audio, Tab.Browse, Tab.Playlists, Tab.Settings, Tab.Search)
     return (order.indexOf(to) - order.indexOf(from)).coerceIn(-1, 1)
 }
 
@@ -461,7 +462,7 @@ private fun PlayBoxApp() {
                         },
                         // 1.9.1 (P11): "See all" in the dock's Up Next
                         // exits the player and opens the Library.
-                        onSeeAllUpNext = { playing = null; tab = Tab.Library }
+                        onSeeAllUpNext = { playing = null; tab = Tab.Video }
                     )
                 } else {
                     PlayerScreen(
@@ -491,7 +492,7 @@ private fun PlayBoxApp() {
                         },
                         // 1.9.1 (P11): "See all" in the dock's Up Next
                         // exits the player and opens the Library.
-                        onSeeAllUpNext = { playing = null; tab = Tab.Library }
+                        onSeeAllUpNext = { playing = null; tab = Tab.Video }
                     )
                 }
             } else if (settingsPage == "privacy") {
@@ -501,18 +502,14 @@ private fun PlayBoxApp() {
                 // Patch 4 (Jio): open-source licences, opened from Settings → About.
                 M3LicencesScreen(onBack = { settingsPage = null })
             } else {
-                // M3 redesign Phase 8: one design, one branch. The
-                // rail on wide screens (TV, phone landscape), the M3
-                // tab strip on narrow ones (phone portrait). The
-                // Player button resumes the most recently watched
-                // video.
-                val onPlayer: () -> Unit = {
-                    val times = resumeTimes(context)
-                    val recent = all.maxByOrNull { times[ResumeStore.keyFor(it.path)] ?: 0L }
-                    val item = recent ?: all.firstOrNull()
-                    if (item != null) {
-                        playing = item; playList = all; playFromStart = false; playStartSpeed = null
-                    }
+                // 2.0.0: library modes map to tabs — "Music" opens
+                // Audio, everything else opens Video (folders and
+                // network move to Browse in Patch 4). The rail's
+                // onTab sets the mode the same way, so the tab and
+                // the mode never disagree.
+                val goLibraryMode: (String) -> Unit = { mode ->
+                    libraryMode = mode
+                    tab = if (mode == "Music") Tab.Audio else Tab.Video
                 }
                 val m3Content: @Composable (Tab) -> Unit = { currentTab ->
                     when (currentTab) {
@@ -521,8 +518,8 @@ private fun PlayBoxApp() {
                             loading = !libraryLoaded, permissionDenied = permissionDenied,
                             onOpen = { item, list -> details = item; detailList = list },
                             onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null },
-                            onLibrary = { mode -> libraryMode = mode; tab = Tab.Library },
-                            onFolders = { tab = Tab.Sources },
+                            onLibrary = { mode -> goLibraryMode(mode) },
+                            onFolders = { tab = Tab.Browse },
                             onRefresh = { refreshNonce++ },
                             onSearch = { tab = Tab.Search },
                             onVoice = { voiceSearchRequest++; tab = Tab.Search }
@@ -532,22 +529,23 @@ private fun PlayBoxApp() {
                             voiceRequest = voiceSearchRequest,
                             onOpen = { item, list -> details = item; detailList = list }
                         )
-                        // v5 (1.9.0): Sources — where content arrives
-                        // (folders, USB, SMB/FTP/SFTP, DLNA). Each row
-                        // opens in Library, where the browsing lives.
-                        Tab.Sources -> M3SourcesScreen(
+                        // 2.0.0 (Patch 1 placeholder): Browse is the
+                        // Sources screen until Patch 4 rebuilds it —
+                        // folders/USB/SMB/FTP/DLNA live here, and its
+                        // rows open in the Video library for now.
+                        Tab.Browse -> M3SourcesScreen(
                             videos = videos,
                             onOpenFolder = { file ->
                                 libraryMode = "Folders / USB"
                                 libraryFolder = file
                                 librarySafFolder = null
-                                tab = Tab.Library
+                                tab = Tab.Video
                             },
                             onOpenSafFolder = { uri ->
                                 libraryMode = "Folders / USB"
                                 librarySafFolder = uri
                                 libraryFolder = null
-                                tab = Tab.Library
+                                tab = Tab.Video
                             },
                             // v7 (So11): "Add a source" opens the
                             // Network screen's add-server form, not
@@ -556,42 +554,29 @@ private fun PlayBoxApp() {
                             onAddNetworkServer = {
                                 networkAddFormRequest++
                                 libraryMode = "Network"
-                                tab = Tab.Library
+                                tab = Tab.Video
                             },
                             onOpenSmbServer = { server ->
                                 libraryMode = "Network"
                                 networkServer = server
                                 networkPath = null
-                                tab = Tab.Library
+                                tab = Tab.Video
                             },
                             onOpenFtpServer = { server ->
                                 libraryMode = "Network"
                                 ftpServer = server
                                 ftpPath = null
-                                tab = Tab.Library
+                                tab = Tab.Video
                             },
                             onRefresh = { refreshNonce++ }
                         )
-                        // One design has no Explore view, so Explore
-                        // falls back to Library.
-                        Tab.Explore -> M3LibraryScreen(
+                        // 2.0.0 (Patch 1 placeholder): Video, Audio
+                        // and Playlists share the library screen
+                        // until Patch 3 (Video/Audio) and Patch 5
+                        // (Playlists) rebuild them.
+                        Tab.Video, Tab.Audio, Tab.Playlists -> M3LibraryScreen(
                             videos = videos, audio = audio, loading = !libraryLoaded,
-                            mode = libraryMode, onMode = { libraryMode = it },
-                            folder = libraryFolder, onFolder = { libraryFolder = it },
-                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
-                            listState = libraryListState,
-                            addFormRequest = networkAddFormRequest,
-                            networkServer = networkServer, onNetworkServer = { networkServer = it },
-                            networkPath = networkPath, onNetworkPath = { networkPath = it },
-                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
-                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
-                            onOpen = { item, list -> details = item; detailList = list },
-                            onRefresh = { refreshNonce++ },
-                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
-                        )
-                        Tab.Library -> M3LibraryScreen(
-                            videos = videos, audio = audio, loading = !libraryLoaded,
-                            mode = libraryMode, onMode = { libraryMode = it },
+                            mode = libraryMode, onMode = { goLibraryMode(it) },
                             folder = libraryFolder, onFolder = { libraryFolder = it },
                             safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
                             listState = libraryListState,
@@ -625,10 +610,23 @@ private fun PlayBoxApp() {
                 var lastDetails by remember { mutableStateOf<VideoItem?>(null) }
                 LaunchedEffect(details) { if (details != null) lastDetails = details }
                 val tabSwitch: AnimatedContentTransitionScope<Tab>.() -> ContentTransform = {
-                    // M3 fade-through (S13): a 200ms crossfade, no
-                    // slide — the shared-axis slide is gone, the
-                    // container transform carries the motion.
-                    fadeIn(Motion.fadeThrough()) togetherWith fadeOut(Motion.fadeThrough())
+                    // 2.0.0 design: fade-through 420ms — opacity holds
+                    // at 0 for the first 35% (147ms), then fades in;
+                    // the screen scales 0.94→1 on the
+                    // emphasized-decelerate easing.
+                    (fadeIn(
+                        keyframes {
+                            durationMillis = Motion.ScreenFadeThroughMs
+                            0f at 0
+                            0f at 147
+                            1f at Motion.ScreenFadeThroughMs
+                        }
+                    ) + scaleIn(
+                        Motion.screenFadeThrough(),
+                        initialScale = 0.94f
+                    )) togetherWith fadeOut(
+                        tween(durationMillis = 200, easing = Motion.Emphasized)
+                    )
                 }
                 val detailsPlay: (VideoItem, Boolean) -> Unit = { item, fromStart ->
                     playing = item
@@ -637,67 +635,52 @@ private fun PlayBoxApp() {
                     playFromStart = fromStart
                     details = null
                 }
+                // 2.0.0: one rail, every screen size — the phone gets
+                // the same compact 88dp rail as the TV (the §11
+                // correction); it scrolls on short screens. The
+                // wifi icon is real (ConnectivityManager).
+                val wifiConnected = remember { isWifiConnected(context) }
                 SharedTransitionLayout(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                     // S14: the SharedTransitionScope lives only as this
                     // lambda's receiver — provide it as the app's own
                     // local so the cover/hero helpers can read it.
                     CompositionLocalProvider(LocalZephSharedTransitionScope provides this) {
-                    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                        // Ph6: a short screen (a phone in landscape)
-                        // gets the wide layout only when it is tall
-                        // enough too — a 360dp-tall landscape phone
-                        // gets the bottom tab strip instead, so the
-                        // rail never clips Settings off.
-                        if (maxWidth >= 700.dp && maxHeight >= 420.dp) {
-                            RailLayout(
-                                labelMode = railLabelMode,
-                                tab = tab, onTab = { tab = it }, onPlayer = onPlayer,
-                                palette = ZephPalette
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    AnimatedContent(
-                                        targetState = tab,
-                                        transitionSpec = tabSwitch,
-                                        label = "m3TabSwitch"
-                                    ) { currentTab ->
-                                        CompositionLocalProvider(LocalTabAnimatedVisibilityScope provides this) {
-                                            m3Content(currentTab)
-                                        }
-                                    }
-                                    DetailsOverlay(
-                                        details = details, lastDetails = lastDetails,
-                                        detailList = detailList, all = all, queued = queued,
-                                        onPlay = detailsPlay,
-                                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
-                                        onOpen = { item -> details = item },
-                                        onBack = { details = null },
-                                        onSeeAll = { details = null; tab = Tab.Library }
-                                    )
+                    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                        RailLayout(
+                            labelMode = railLabelMode,
+                            tab = tab,
+                            onTab = { t ->
+                                when (t) {
+                                    Tab.Video -> libraryMode = "Videos"
+                                    Tab.Audio -> libraryMode = "Music"
+                                    Tab.Playlists -> libraryMode = "All"
+                                    else -> {}
                                 }
-                            }
-                        } else {
-                            Column(modifier = Modifier.fillMaxSize()) {
-                                Box(modifier = Modifier.weight(1f).fillMaxSize()) {
-                                    AnimatedContent(
-                                        targetState = tab,
-                                        transitionSpec = tabSwitch,
-                                        label = "m3TabSwitch"
-                                    ) { currentTab ->
-                                        CompositionLocalProvider(LocalTabAnimatedVisibilityScope provides this) {
-                                            m3Content(currentTab)
-                                        }
+                                tab = t
+                            },
+                            onSearch = { tab = Tab.Search },
+                            wifiConnected = wifiConnected,
+                            palette = ZephPalette
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                AnimatedContent(
+                                    targetState = tab,
+                                    transitionSpec = tabSwitch,
+                                    label = "m3TabSwitch"
+                                ) { currentTab ->
+                                    CompositionLocalProvider(LocalTabAnimatedVisibilityScope provides this) {
+                                        m3Content(currentTab)
                                     }
-                                    DetailsOverlay(
-                                        details = details, lastDetails = lastDetails,
-                                        detailList = detailList, all = all, queued = queued,
-                                        onPlay = detailsPlay,
-                                        onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
-                                        onOpen = { item -> details = item },
-                                        onBack = { details = null },
-                                        onSeeAll = { details = null; tab = Tab.Library }
-                                    )
                                 }
-                                M3TabStrip(tab = tab, onTab = { tab = it }, onPlayer = onPlayer)
+                                DetailsOverlay(
+                                    details = details, lastDetails = lastDetails,
+                                    detailList = detailList, all = all, queued = queued,
+                                    onPlay = detailsPlay,
+                                    onQueue = { item -> queued = mergeQueue(queued, listOf(item)) },
+                                    onOpen = { item -> details = item },
+                                    onBack = { details = null },
+                                    onSeeAll = { details = null; tab = Tab.Video }
+                                )
                             }
                         }
                     }
