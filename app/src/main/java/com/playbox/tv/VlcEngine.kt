@@ -20,7 +20,12 @@ import kotlin.math.roundToInt
 // for every video, not hidden behind an engine switch. Media3 stays
 // available through the gear's "Switch to Media3".
 
-enum class PlayerEngine { MEDIA3, VLC }
+/** The engine door (2.0.0 rebuild): Auto / Media3 / VLC, Auto
+ * first. Auto means "let Zeph decide" — the routing in engineFor
+ * (HDR / unsupported / network protocols go to VLC, everything
+ * else to Media3). An explicit MEDIA3 or VLC forces that engine.
+ * The default-engine setting is Auto out of the box. */
+enum class PlayerEngine { AUTO, MEDIA3, VLC }
 
 // ---------- 1.4.6 Patch D (HDR) ----------
 // HDR (HDR10 / HLG / Dolby Vision) files look washed out on
@@ -111,11 +116,14 @@ internal fun engineFor(
     item: VideoItem,
     override: PlayerEngine?,
     vlcAvailable: Boolean = true,
-    defaultEngine: PlayerEngine = PlayerEngine.MEDIA3,
+    defaultEngine: PlayerEngine = PlayerEngine.AUTO,
     hdr: Boolean = false
 ): PlayerEngine {
-    if (!vlcAvailable && override == null) return PlayerEngine.MEDIA3
-    override?.let { return it }
+    // Auto is not an engine — it means "no explicit choice", so it
+    // never wins as an override and never forces Media3 in the
+    // crash guard.
+    if (!vlcAvailable && (override == null || override == PlayerEngine.AUTO)) return PlayerEngine.MEDIA3
+    if (override != null && override != PlayerEngine.AUTO) return override
     val path = item.path.lowercase()
     if (path.startsWith("ftp://") || path.startsWith("sftp://")) return PlayerEngine.VLC
     // 1.4.3 Patch A: RTSP / RTMP streams only play on LibVLC —
@@ -127,17 +135,48 @@ internal fun engineFor(
     if (item.likelyUnsupported) return PlayerEngine.VLC
     // 1.4.6 Patch D: HDR goes to VLC for tone mapping.
     if (hdr) return PlayerEngine.VLC
-    return defaultEngine
+    // Auto resolves to Media3 here — the rules above already sent
+    // everything VLC-only to VLC.
+    return if (defaultEngine == PlayerEngine.AUTO) PlayerEngine.MEDIA3 else defaultEngine
 }
 
 /** The user's default engine (Settings → Playback → Player).
- * Stored as a plain string so a bad value can never crash a read. */
+ * Stored as a plain string so a bad value can never crash a read.
+ * Auto is the default (the design's engine door is Auto first). */
 internal fun defaultEnginePref(context: Context): PlayerEngine =
     when (context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
-        .getString("default_engine", "media3")) {
+        .getString("default_engine", "auto")) {
         "vlc" -> PlayerEngine.VLC
-        else -> PlayerEngine.MEDIA3
+        "media3" -> PlayerEngine.MEDIA3
+        else -> PlayerEngine.AUTO
     }
+
+internal fun saveDefaultEnginePref(context: Context, engine: PlayerEngine) {
+    context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE).edit()
+        .putString(
+            "default_engine",
+            when (engine) {
+                PlayerEngine.VLC -> "vlc"
+                PlayerEngine.MEDIA3 -> "media3"
+                PlayerEngine.AUTO -> "auto"
+            }
+        ).apply()
+}
+
+/** HW decoding mode (the design's Settings > Video: Off / Decode /
+ * Full). Default "full" (the design's DEFAULTS: hwDec: "full").
+ * The Home chip's selected state is hwDec != "off" — it is a
+ * decoder setting, NOT the engine (VLC hardware-decodes too).
+ * The segmented control that changes it lands in Patch 8's
+ * Settings rebuild. */
+internal fun hwDecPref(context: Context): String =
+    context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
+        .getString("hw_dec", "full") ?: "full"
+
+internal fun saveHwDecPref(context: Context, mode: String) {
+    context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE).edit()
+        .putString("hw_dec", mode).apply()
+}
 
 // ---------- 1.4.0: per-file engine choice (Details page) ----------
 // Stored like the track choices: the file keeps its player, so a
@@ -155,7 +194,7 @@ internal fun chosenEngine(context: Context, path: String): PlayerEngine? =
 internal fun chooseEngine(context: Context, path: String, engine: PlayerEngine?) {
     val edit = context.getSharedPreferences(ENGINE_PREFS, Context.MODE_PRIVATE).edit()
     when (engine) {
-        null -> edit.remove(path)
+        null, PlayerEngine.AUTO -> edit.remove(path)
         PlayerEngine.VLC -> edit.putString(path, "vlc")
         PlayerEngine.MEDIA3 -> edit.putString(path, "media3")
     }
