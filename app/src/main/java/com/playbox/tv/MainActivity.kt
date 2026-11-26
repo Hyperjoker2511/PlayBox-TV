@@ -22,6 +22,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
@@ -194,6 +195,14 @@ private fun PlayBoxApp() {
     var details by remember { mutableStateOf<VideoItem?>(null) }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
     var playList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    // 2.0.0 (fix pass): the player screens report their playing
+    // state up here, so the Audio screen's EqBars show the real
+    // paused state instead of animating forever. The shuffle
+    // mode is a persistent setting (store.tsx: shuffle is a
+    // boolean + setShuffle); the queue honouring lands in
+    // Patch 5's Now Playing, which also reads this state.
+    var playerIsPlaying by remember { mutableStateOf(false) }
+    var shuffleOn by remember { mutableStateOf(false) }
     // Patch 3: videos the user queued from a Details page — merged into
     // the play list when playback starts, then cleared.
     var queued by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
@@ -298,6 +307,11 @@ private fun PlayBoxApp() {
     // once; saved to prefs so it survives a restart.
     var theme by remember { mutableStateOf(themePreset(context)) }
     var themeSeedHex by remember { mutableStateOf(themeSeed(context)) }
+    // 2.0.0 fix pass: dark/light mode (the design's Settings has a
+    // Dark/Light segmented control; the switch itself is wired in
+    // Patch 8's Settings rebuild — this state + the light schemes
+    // are here now so the mode exists).
+    var themeDarkMode by remember { mutableStateOf(themeDark(context)) }
     // Patch 7 (PiP): MainActivity's onUserLeaveHint reads this.
     LaunchedEffect(playing) { pipPlaying.value = playing != null }
     val activity = LocalContext.current as? Activity
@@ -370,7 +384,7 @@ private fun PlayBoxApp() {
     // old screens keep rendering (they use their own palettes) until
     // each one is rebuilt in M3, phase by phase. v5: the theme choice
     // (preset + custom seed) and M3 Expressive motion scheme live here.
-    ZephTheme(preset = theme, seedHex = themeSeedHex) {
+    ZephTheme(preset = theme, seedHex = themeSeedHex, dark = themeDarkMode) {
         Box(modifier = Modifier.fillMaxSize().background(Bg)) {
             if (showExitDialog) {
                 ExitConfirmDialog(
@@ -462,7 +476,8 @@ private fun PlayBoxApp() {
                         },
                         // 1.9.1 (P11): "See all" in the dock's Up Next
                         // exits the player and opens the Library.
-                        onSeeAllUpNext = { playing = null; tab = Tab.Video }
+                        onSeeAllUpNext = { playing = null; tab = Tab.Video },
+                        onPlayingChange = { playerIsPlaying = it }
                     )
                 } else {
                     PlayerScreen(
@@ -492,7 +507,8 @@ private fun PlayBoxApp() {
                         },
                         // 1.9.1 (P11): "See all" in the dock's Up Next
                         // exits the player and opens the Library.
-                        onSeeAllUpNext = { playing = null; tab = Tab.Video }
+                        onSeeAllUpNext = { playing = null; tab = Tab.Video },
+                        onPlayingChange = { playerIsPlaying = it }
                     )
                 }
             } else if (settingsPage == "privacy") {
@@ -549,6 +565,9 @@ private fun PlayBoxApp() {
                         Tab.Audio -> M3AudioScreen(
                             audio = audio, loading = !libraryLoaded,
                             playing = playing,
+                            isPlaying = playing != null && playerIsPlaying,
+                            shuffleOn = shuffleOn,
+                            onShuffleChange = { shuffleOn = it },
                             onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null }
                         )
                         // 2.0.0 (Patch 4): the Video tab is the
@@ -600,7 +619,10 @@ private fun PlayBoxApp() {
                     // 2.0.0 design: fade-through 420ms — opacity holds
                     // at 0 for the first 35% (147ms), then fades in;
                     // the screen scales 0.94→1 on the
-                    // emphasized-decelerate easing.
+                    // emphasized-decelerate easing. The old screen
+                    // unmounts instantly — the design has no
+                    // screen-exit animation (fix pass: the app used
+                    // to add a 200ms fade-out).
                     (fadeIn(
                         keyframes {
                             durationMillis = Motion.ScreenFadeThroughMs
@@ -611,9 +633,7 @@ private fun PlayBoxApp() {
                     ) + scaleIn(
                         Motion.screenFadeThrough(),
                         initialScale = 0.94f
-                    )) togetherWith fadeOut(
-                        tween(durationMillis = 200, easing = Motion.Emphasized)
-                    )
+                    )) togetherWith ExitTransition.None
                 }
                 val detailsPlay: (VideoItem, Boolean) -> Unit = { item, fromStart ->
                     playing = item
@@ -625,8 +645,9 @@ private fun PlayBoxApp() {
                 // 2.0.0: one rail, every screen size — the phone gets
                 // the same compact 88dp rail as the TV (the §11
                 // correction); it scrolls on short screens. The
-                // wifi icon is real (ConnectivityManager).
-                val wifiConnected = remember { isWifiConnected(context) }
+                // rail reads the theme directly (fix pass: it used
+                // to be frozen on the Violet palette) and the wifi
+                // icon is always shown (the design shows it, 18dp).
                 SharedTransitionLayout(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                     // S14: the SharedTransitionScope lives only as this
                     // lambda's receiver — provide it as the app's own
@@ -645,9 +666,7 @@ private fun PlayBoxApp() {
                                 }
                                 tab = t
                             },
-                            onSearch = { tab = Tab.Search },
-                            wifiConnected = wifiConnected,
-                            palette = ZephPalette
+                            onSearch = { tab = Tab.Search }
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 AnimatedContent(
