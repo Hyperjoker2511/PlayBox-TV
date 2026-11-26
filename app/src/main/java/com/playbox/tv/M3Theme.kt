@@ -54,7 +54,7 @@ internal val ThemePresets = listOf(
 
 internal fun themePreset(context: Context): String =
     context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE)
-        .getString("theme_preset", ThemePresetViolet) ?: ThemePresetViolet
+        .getString("theme_preset", ThemePresetDynamic) ?: ThemePresetDynamic
 
 internal fun saveThemePreset(context: Context, preset: String) {
     context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE).edit()
