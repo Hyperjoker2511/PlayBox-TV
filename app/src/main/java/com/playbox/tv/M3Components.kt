@@ -280,10 +280,10 @@ internal fun Modifier.zephFocus(
                 Modifier
                     .shadow(
                         12.dp, MaterialTheme.shapes.large,
-                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                        spotColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.28f)
                     )
                     .border(
-                        3.dp, MaterialTheme.colorScheme.primary,
+                        3.dp, MaterialTheme.colorScheme.secondary,
                         MaterialTheme.shapes.large
                     )
             } else Modifier
