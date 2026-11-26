@@ -380,12 +380,16 @@ private fun PlayBoxApp() {
     // both use the same value. Audio on Media3 opens Now Playing;
     // audio that needs VLC (FTP/RTSP/NFS/unsupported/HDR) still
     // opens the video player, as before.
+    // `playing` is a delegated property, so `playing != null` does
+    // NOT smart-cast it — capture it in a plain val first, and use
+    // that val wherever the code reads a member after a null check.
+    val playingItem = playing
     val playingVlcAvailable = !hasStaleVlcAttempt(context)
-    val playingHdr = remember(playing?.path) { playing?.let { HdrDetect.isHdr(it.path) } ?: false }
-    val playingEngine = if (playing != null) engineFor(
-        playing,
-        engineOverride?.takeIf { it.first == playing.path }?.second
-            ?: chosenEngine(context, playing.path),
+    val playingHdr = remember(playingItem?.path) { playingItem?.let { HdrDetect.isHdr(it.path) } ?: false }
+    val playingEngine = if (playingItem != null) engineFor(
+        playingItem,
+        engineOverride?.takeIf { it.first == playingItem.path }?.second
+            ?: chosenEngine(context, playingItem.path),
         playingVlcAvailable,
         defaultEnginePref(context),
         hdr = playingHdr
@@ -393,9 +397,9 @@ private fun PlayBoxApp() {
     // 1.4.0 (crash fix): the breadcrumb and the VLC attempt marker
     // are written here — before any player screen composes and the
     // engine is created.
-    LaunchedEffect(playing?.path, playingEngine) {
-        if (playing != null) {
-            CrashLog.step(context, "engine chosen: $playingEngine for ${playing.name}")
+    LaunchedEffect(playingItem?.path, playingEngine) {
+        if (playingItem != null) {
+            CrashLog.step(context, "engine chosen: $playingEngine for ${playingItem.name}")
             if (playingEngine == PlayerEngine.VLC) markVlcAttempt(context)
         }
     }
@@ -414,7 +418,7 @@ private fun PlayBoxApp() {
     // exit (the same clean-exit dialog as Back on Home). Now
     // Playing has its own Back (collapse to the MiniPlayer) and
     // the video player has its own Back (exit the player).
-    BackHandler(enabled = playing != null && !playing.isVideo && playingEngine == PlayerEngine.MEDIA3 && !nowPlayingOpen && details == null && settingsPage == null) {
+    BackHandler(enabled = playingItem != null && !playingItem.isVideo && playingEngine == PlayerEngine.MEDIA3 && !nowPlayingOpen && details == null && settingsPage == null) {
         showExitDialog = true
     }
 
@@ -455,7 +459,7 @@ private fun PlayBoxApp() {
                         showRationale = false
                     }
                 )
-            } else if (playing != null && (playing.isVideo || playingEngine != PlayerEngine.MEDIA3 || nowPlayingOpen)) {
+            } else if (playingItem != null && (playingItem.isVideo || playingEngine != PlayerEngine.MEDIA3 || nowPlayingOpen)) {
                 if (!playing!!.isVideo && playingEngine == PlayerEngine.MEDIA3 && nowPlayingOpen) {
                     // Patch 5: audio on Media3 opens Now Playing,
                     // not the video player (audit A2). Audio that
