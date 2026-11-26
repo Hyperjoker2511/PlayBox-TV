@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal enum class Tab { Home, Search, Sources, Explore, Library, Settings }
+internal enum class Tab { Home, Video, Audio, Browse, Playlists, Settings, Search }
 
 /** Tile subtitle: duration plus a "May not play" badge for formats
  * Media3 cannot play yet (Batch 1.4 polish). Null when there is nothing
@@ -261,7 +261,7 @@ internal fun TopNav(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val pills = listOf(Tab.Home to "Home", Tab.Library to "Library", Tab.Search to "Search", Tab.Settings to "Settings")
+            val pills = listOf(Tab.Home to "Home", Tab.Video to "Video", Tab.Search to "Search", Tab.Settings to "Settings")
             pills.forEach { (t, label) ->
                 GlassButton(label, active = tab == t) { onTab(t) }
             }
