@@ -380,7 +380,7 @@ internal fun zephColorScheme(preset: String, seedHex: String): ColorScheme {
     }
 }
 
-/** The Zeph type scale: Plus Jakarta Sans throughout, expressive
+/** The Zeph type scale: Roboto Flex throughout, expressive
  * sizes — big bold display and headline type for the TV, clear
  * body and label sizes for the phone. */
 internal val ZephTypography = Typography(
