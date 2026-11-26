@@ -1,6 +1,7 @@
 package com.playbox.tv
 
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
@@ -70,6 +72,44 @@ import java.io.File
 // (Play from start, Favourites, Add to playlist, the "May not
 // play" note) are kept and restyled, not deleted.
 
+/** Patch 7: delete a video — the file itself (a local path, or a
+ * content:// URI via the ContentResolver), plus its resume
+ * position, favourite and playlist entries. Returns true only
+ * when the file itself was deleted; the library entries are
+ * cleared only then, so a failed delete never silently removes
+ * a file that still exists. Network files (smb/ftp/sftp/http)
+ * are not deletable from here — the caller hides Remove for
+ * them instead of offering a delete that cannot work. */
+internal fun deleteVideoFile(context: android.content.Context, item: VideoItem): Boolean {
+    val deleted = try {
+        when {
+            item.path.startsWith("content://") -> {
+                runCatching {
+                    context.contentResolver.delete(Uri.parse(item.path), null, null) > 0
+                }.getOrDefault(false)
+            }
+            item.path.startsWith("/") -> {
+                val f = File(item.path)
+                if (f.exists()) f.delete() else false
+            }
+            else -> false
+        }
+    } catch (_: Exception) { false }
+    if (!deleted) return false
+    runCatching { clearResumePosition(context, item.path) }
+    runCatching {
+        if (LibraryStores.isFavourite(context, item.path)) {
+            LibraryStores.toggleFavourite(context, item.path)
+        }
+    }
+    runCatching {
+        LibraryStores.playlistNames(context).forEach { name ->
+            LibraryStores.removeFromPlaylist(context, name, item.path)
+        }
+    }
+    return true
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun M3DetailsScreen(
@@ -90,6 +130,11 @@ internal fun M3DetailsScreen(
     var isFav by remember { mutableStateOf(LibraryStores.isFavourite(context, item.path)) }
     var playlistNames by remember { mutableStateOf(LibraryStores.playlistNames(context)) }
     var addedNote by remember { mutableStateOf<String?>(null) }
+    // Patch 7: Remove — only for files on the device (local path
+    // or content://). Network files (SMB/FTP) cannot be deleted
+    // from here, so they get no Remove button at all.
+    val canDelete = item.path.startsWith("/") || item.path.startsWith("content://")
+    var confirmRemove by remember { mutableStateOf(false) }
     LaunchedEffect(addedNote) {
         if (addedNote != null) {
             delay(2500)
@@ -425,6 +470,8 @@ internal fun M3DetailsScreen(
             }
             // Kept working features, restyled: Play from start +
             // Favourites in one row, then Add to playlist chips.
+            // Patch 7: Remove (NEW) joins this row — confirm dialog
+            // first, then the file is deleted and Details closes.
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ZephTonalButton(
@@ -436,6 +483,13 @@ internal fun M3DetailsScreen(
                         onClick = { isFav = LibraryStores.toggleFavourite(context, item.path) },
                         icon = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder
                     )
+                    if (canDelete) {
+                        ZephOutlinedButton(
+                            text = "Remove",
+                            onClick = { confirmRemove = true },
+                            icon = Icons.Filled.Delete
+                        )
+                    }
                 }
                 addedNote?.let {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -596,4 +650,27 @@ private fun M3DetailsUpNextCard(
             }
         }
     }
+
+    // Patch 7: Remove — confirm first, then delete on IO and
+    // close Details when the file is gone.
+    if (confirmRemove) {
+        ZephDialog(
+            title = "Remove this file?",
+            text = "\"${item.name}\" will be deleted from your device. This can't be undone.",
+            confirmText = "Remove",
+            onConfirm = {
+                confirmRemove = false
+                scope.launch(Dispatchers.IO) {
+                    val ok = deleteVideoFile(context, item)
+                    withContext(Dispatchers.Main) {
+                        if (ok) onBack()
+                        else addedNote = "Couldn't delete this file"
+                    }
+                }
+            },
+            dismissText = "Keep",
+            onDismiss = { confirmRemove = false }
+        )
+    }
+
 }
