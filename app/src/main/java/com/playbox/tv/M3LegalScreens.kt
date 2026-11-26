@@ -59,8 +59,8 @@ internal val OssLibraries = listOf(
         "BSD-style licence — JCraft / mwiede"
     ),
     OssLibrary(
-        "Plus Jakarta Sans", "The app's font.",
-        "SIL Open Font License 1.1 — Tokotype"
+        "Roboto Flex", "The app's font.",
+        "SIL Open Font License 1.1 — Google Fonts"
     )
 )
 
