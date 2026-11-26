@@ -200,7 +200,7 @@ internal fun remainingLabel(durationMs: Long, positionMs: Long): String =
 
 @OptIn(UnstableApi::class)
 @Composable
-internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null, onEngineFailed: () -> Unit = {}, onEngineDoor: ((PlayerEngine?) -> Unit)? = null, onSeeAllUpNext: () -> Unit = {}) {
+internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null, onEngineFailed: () -> Unit = {}, onEngineDoor: ((PlayerEngine?) -> Unit)? = null, onSeeAllUpNext: () -> Unit = {}, onPlayingChange: (Boolean) -> Unit = {}) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
     val skipSec = settings.getInt("skip_seconds", 10)
@@ -311,7 +311,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // is a CPU/Wi-Fi lock for when the screen is off — it does NOT stop
     // the screen dimming mid-movie.
     val view = LocalView.current
-    LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying }
+    LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying; onPlayingChange(isPlaying) }
     DisposableEffect(Unit) { onDispose { view.keepScreenOn = false } }
 
     // Batch 2: the player lives in PlaybackService (MediaSessionService),
