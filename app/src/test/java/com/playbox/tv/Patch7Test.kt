@@ -78,6 +78,9 @@ class Patch7Test {
         assertEquals(MediaPlayer.ScaleType.SURFACE_BEST_FIT, vlcScaleType(AspectMode.FIT))
         assertEquals(MediaPlayer.ScaleType.SURFACE_FILL, vlcScaleType(AspectMode.FILL))
         assertEquals(MediaPlayer.ScaleType.SURFACE_BEST_FIT, vlcScaleType(AspectMode.ZOOM))
+        assertEquals(MediaPlayer.ScaleType.SURFACE_FILL, vlcScaleType(AspectMode.STRETCH))
+        assertEquals(MediaPlayer.ScaleType.SURFACE_16_9, vlcScaleType(AspectMode.RATIO_16_9))
+        assertEquals(MediaPlayer.ScaleType.SURFACE_4_3, vlcScaleType(AspectMode.RATIO_4_3))
         assertEquals(1.25f, vlcZoomScale(AspectMode.ZOOM), 0.001f)
         assertEquals(1f, vlcZoomScale(AspectMode.FIT), 0.001f)
     }
