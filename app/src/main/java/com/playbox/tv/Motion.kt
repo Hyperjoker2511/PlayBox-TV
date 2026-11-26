@@ -4,7 +4,6 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.tween
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 
@@ -20,12 +19,17 @@ import androidx.compose.runtime.Composable
 //   - Container transform: 500ms — SearchBar growing into the
 //     Search screen, a cover becoming Details.
 //   - Spatial springs (M3 Expressive): focus travel, press morph —
-//     read from the theme's motion scheme, so they ARE M3's springs.
+//     read from the theme's motion scheme via its generic spec
+//     functions (defaultSpatialSpec / fastSpatialSpec /
+//     slowSpatialSpec), so they ARE M3's springs, for Float and Dp
+//     alike. M3 Expressive token values (from the M3 source):
+//     default spatial damping 0.8 / stiffness 380, fast spatial
+//     0.6 / 800, slow spatial 0.8 / 200.
 // Transform + opacity only, 60fps, no live blur. Under reduce
 // motion the screens swap these for plain fades.
 
 internal object Motion {
-    // M3 duration tokens (ms).
+    // M3 duration tokens (ms) — from the M3 motion spec.
     const val FadeThroughMs = 200
     const val SharedAxisMs = 300
     const val SharedAxisLargeMs = 400
@@ -36,20 +40,24 @@ internal object Motion {
     val EmphasizedDecelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
     val EmphasizedAccelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
-    // M3 Expressive spatial springs (Float) — from the theme's
-    // motion scheme. These are M3's springs, velocity-following,
-    // interruptible mid-flight.
-    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+    // M3 Expressive spatial springs — from the theme's motion
+    // scheme. Generic: they work for Float (scale, alpha) and Dp
+    // (wave amplitude, thumb) alike. These are M3's springs,
+    // velocity-following, interruptible mid-flight.
     @Composable
-    fun spatial(): FiniteAnimationSpec<Float> = MaterialTheme.motionScheme.defaultSpatial
+    fun <T> spatial(): FiniteAnimationSpec<T> = MaterialTheme.motionScheme.defaultSpatialSpec()
 
-    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
     @Composable
-    fun fastSpatial(): FiniteAnimationSpec<Float> = MaterialTheme.motionScheme.fastSpatial
+    fun <T> fastSpatial(): FiniteAnimationSpec<T> = MaterialTheme.motionScheme.fastSpatialSpec()
 
-    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
     @Composable
-    fun slowSpatial(): FiniteAnimationSpec<Float> = MaterialTheme.motionScheme.slowSpatial
+    fun <T> slowSpatial(): FiniteAnimationSpec<T> = MaterialTheme.motionScheme.slowSpatialSpec()
+
+    @Composable
+    fun <T> effects(): FiniteAnimationSpec<T> = MaterialTheme.motionScheme.defaultEffectsSpec()
+
+    @Composable
+    fun <T> fastEffects(): FiniteAnimationSpec<T> = MaterialTheme.motionScheme.fastEffectsSpec()
 
     // The shared specs the screens already call — now M3 tweens
     // (M3's shared-axis / fade-through motion is tween-based with
