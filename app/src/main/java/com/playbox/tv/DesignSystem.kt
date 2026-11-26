@@ -21,11 +21,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.FolderShared
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -96,9 +95,11 @@ internal object DsRadius {
     val pill = 28.dp
 }
 
-/** The rail: one width collapsed (icon-only), one expanded (labels). */
+/** The rail: one width collapsed (icon-only), one expanded (labels).
+ * Expanded is 132dp with 15sp sofa-sized labels (v5 design) — a TV
+ * rail, not a tablet rail. */
 internal val DesignRailCollapsedWidth = 76.dp
-internal val DesignRailExpandedWidth = 208.dp
+internal val DesignRailExpandedWidth = 132.dp
 
 /** Shared focus: a small scale-up on focus + a ring in the palette's
  * focus colour. Transform + opacity only. */
@@ -125,23 +126,23 @@ internal data class DesignPalette(
     val glassRim: Color
 )
 
-/** Zeph — the M3 Expressive palette (teal seed). The M3 expressive
- * dark scheme as a DesignPalette, so the shared RailLayout keeps
+/** Zeph — the M3 Expressive palette (Nocturne Violet, the default).
+ * The M3 baseline seed #6750A4, so the shared RailLayout keeps
  * working unchanged. */
 internal val ZephPalette = DesignPalette(
-    bg = Color(0xFF0F1513),
-    surface = Color(0xFF1B2120),
-    surfaceHigh = Color(0xFF262D2B),
-    onSurface = Color(0xFFE0E3E1),
-    muted = Color(0xFFBFC9C5),
-    outline = Color(0xFF3F4946),
-    primary = Color(0xFF4DD0C4),
-    primaryContainer = Color(0xFF00504B),
-    onPrimary = Color(0xFF003735),
-    focusBorder = Color(0xFF4DD0C4),
-    focusGlow = Color(0xFF4DD0C4).copy(alpha = 0.25f),
-    glass = Color(0xFF1B2120).copy(alpha = 0.88f),
-    glassStrong = Color(0xFF1B2120).copy(alpha = 0.96f),
+    bg = Color(0xFF141218),
+    surface = Color(0xFF211F26),
+    surfaceHigh = Color(0xFF2B2930),
+    onSurface = Color(0xFFE6E0E9),
+    muted = Color(0xFFCAC4D0),
+    outline = Color(0xFF49454F),
+    primary = Color(0xFFD0BCFF),
+    primaryContainer = Color(0xFF4F378B),
+    onPrimary = Color(0xFF381E72),
+    focusBorder = Color(0xFFD0BCFF),
+    focusGlow = Color(0xFFD0BCFF).copy(alpha = 0.25f),
+    glass = Color(0xFF211F26).copy(alpha = 0.88f),
+    glassStrong = Color(0xFF211F26).copy(alpha = 0.96f),
     glassEdge = Color(0x14FFFFFF),
     glassRim = Color(0x40FFFFFF)
 )
@@ -151,17 +152,21 @@ internal val ZephPalette = DesignPalette(
 internal fun designIconFor(tab: Tab): ImageVector = when (tab) {
     Tab.Home -> Icons.Outlined.Home
     Tab.Search -> Icons.Outlined.Search
-    Tab.Explore -> Icons.Outlined.Explore
+    Tab.Sources -> Icons.Outlined.FolderShared
     Tab.Library -> Icons.Outlined.VideoLibrary
     Tab.Settings -> Icons.Outlined.Settings
+    // Explore is not in the rail (a local player has no Explore
+    // section) but the tab still exists for old screens.
+    Tab.Explore -> Icons.Outlined.Search
 }
 
 internal fun designLabelFor(tab: Tab): String = when (tab) {
     Tab.Home -> "Home"
     Tab.Search -> "Search"
-    Tab.Explore -> "Explore"
+    Tab.Sources -> "Sources"
     Tab.Library -> "Library"
     Tab.Settings -> "Settings"
+    Tab.Explore -> "Explore"
 }
 
 // ---------- P2 — FLOATING RAIL + MENU LABELS (2026-11-24, plan v2 Patch 2) ----------
@@ -263,15 +268,14 @@ internal const val FloatingRailHideDelayMs = 5000L
 
 // ---------- The ONE navigation rail ----------
 // Shared by Nova, Qwen and Aura. Collapsible: icon-only (76dp) by
-// default, expands to 208dp with labels when it has focus (D-pad)
-// or the pointer hovers it. The logo is a play tile in the palette's
-// primary + "Zeph" when expanded. Five items — Home / Search /
-// Explore / Library / Settings — the same five in every design
-// (Nova and Qwen used to hide Explore in the rail even though the
-// tab exists in all three). The selected item is a solid primary
-// fill with on-primary content; focus is a ring + a small scale-up.
-// The Player button is pinned at the bottom: a circle when collapsed,
-// a full-width button when expanded. Transform + opacity only.
+// default, expands to 132dp with 15sp sofa-sized labels when it has
+// focus (D-pad) or the pointer hovers it. The logo is a play tile in
+// the palette's primary + "Zeph" when expanded. Five items — Home /
+// Search / Sources / Library / Settings — the same five in every
+// design. The selected item is a solid primary fill with on-primary
+// content; focus is a ring + a small scale-up. There is NO Player
+// button at the base (v5: the player opens from a video, not the
+// rail) and NO Explore section (a local player has none).
 //
 // P2 adds two modes on top of this one rail (see RailMode /
 // RailLabelMode above): DOCKED (this rail, always present, content
@@ -279,13 +283,14 @@ internal const val FloatingRailHideDelayMs = 5000L
 // hides after a few seconds). The rail's inner content is shared
 // (DesignRailContent) so both modes look and behave the same.
 
-/** The rail's inner content: wordmark, the five tab items, Player
- * pinned at the bottom. Shared by the docked rail and the floating
- * rail. `expanded` decides whether labels show; `onInteract` is
- * called on every rail interaction (focus, tap, Player) so the
- * floating rail can reset its auto-hide timer; `focusRequester` is
- * attached to the current tab's item so the floating rail can move
- * focus onto it when it opens. */
+/** The rail's inner content: wordmark and the five tab items.
+ * Shared by the docked rail and the floating rail. `expanded`
+ * decides whether labels show; `onInteract` is called on every
+ * rail interaction (focus, tap) so the floating rail can reset its
+ * auto-hide timer; `focusRequester` is attached to the current
+ * tab's item so the floating rail can move focus onto it when it
+ * opens. `onPlayer` is kept for API stability — the rail no longer
+ * shows a Player button (v5). */
 @Composable
 private fun DesignRailContent(
     tab: Tab,
@@ -325,7 +330,11 @@ private fun DesignRailContent(
             }
         }
         Spacer(modifier = Modifier.height(DsSpace.xl))
-        listOf(Tab.Home, Tab.Search, Tab.Explore, Tab.Library, Tab.Settings).forEach { t ->
+        // v5: Home / Search / Sources / Library / Settings. No
+        // Explore — a local player has no Explore section — and no
+        // Player button at the base. Sources is where content
+        // arrives (folders, USB, SMB/FTP/SFTP, DLNA).
+        listOf(Tab.Home, Tab.Search, Tab.Sources, Tab.Library, Tab.Settings).forEach { t ->
             val selected = tab == t
             val interaction = remember { MutableInteractionSource() }
             val focused by interaction.collectIsFocusedAsState()
@@ -359,7 +368,7 @@ private fun DesignRailContent(
                     if (expanded) {
                         Spacer(modifier = Modifier.width(DsSpace.md))
                         Text(
-                            designLabelFor(t), fontSize = 18.sp,
+                            designLabelFor(t), fontSize = 15.sp,
                             color = if (selected) palette.onPrimary else palette.onSurface,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             fontFamily = AppFont, maxLines = 1
@@ -369,42 +378,6 @@ private fun DesignRailContent(
             }
         }
         Spacer(modifier = Modifier.weight(1f))
-        if (expanded) {
-            Box(
-                modifier = Modifier.fillMaxWidth().height(52.dp)
-                    .clip(RoundedCornerShape(DsRadius.button))
-                    .background(palette.primary)
-                    .onFocusChanged { if (it.hasFocus) onInteract() }
-                    .clickable { onInteract(); onPlayer() }
-                    .padding(horizontal = DsSpace.md),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.PlayArrow, contentDescription = null,
-                        tint = palette.onPrimary, modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(DsSpace.md))
-                    Text(
-                        "Player", fontSize = 18.sp, color = palette.onPrimary,
-                        fontWeight = FontWeight.SemiBold, fontFamily = AppFont
-                    )
-                }
-            }
-        } else {
-            Box(
-                modifier = Modifier.size(52.dp).clip(CircleShape)
-                    .background(palette.primary)
-                    .onFocusChanged { if (it.hasFocus) onInteract() }
-                    .clickable { onInteract(); onPlayer() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.PlayArrow, contentDescription = null,
-                    tint = palette.onPrimary, modifier = Modifier.size(24.dp)
-                )
-            }
-        }
     }
 }
 
@@ -544,17 +517,16 @@ internal fun RailLayout(
 ) {
     when (railMode) {
         RailMode.DOCKED -> {
-            // The rail lives on the RIGHT as a floating pill — the
-            // approved M3 full-app design (playbox-m3-full-app.html).
-            // Content sits on the left; the rail is a rounded
-            // surfaceContainer pill with a gap around it, not a
-            // left-edge strip. D-pad: ◀/▶ from the content reaches
-            // it from the right now.
+            // v5: the rail lives on the LEFT — TV navigation lives
+            // on the left in every TV app, including PlayBox. The
+            // 1.8.0 right-side floating pill is gone. Content sits
+            // on the right; the rail is a rounded surfaceContainer
+            // pill with a gap around it. D-pad: ◀ from the content
+            // reaches it.
             Row(modifier = modifier.fillMaxSize()) {
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content() }
                 Box(
                     modifier = Modifier
-                        .padding(top = DsSpace.lg, bottom = DsSpace.lg, end = DsSpace.md, start = DsSpace.sm)
+                        .padding(top = DsSpace.lg, bottom = DsSpace.lg, start = DsSpace.md, end = DsSpace.sm)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(DsRadius.sheet))
                         .background(palette.surface)
@@ -562,6 +534,7 @@ internal fun RailLayout(
                 ) {
                     DesignRail(tab = tab, onTab = onTab, onPlayer = onPlayer, palette = palette, labelMode = labelMode)
                 }
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content() }
             }
         }
         RailMode.FLOATING -> {
