@@ -1,8 +1,10 @@
 package com.playbox.tv
 
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.net.Uri
 import android.util.Size
 import android.view.Gravity
@@ -84,6 +86,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.Executor
+import kotlin.math.roundToInt
 
 /** Subtitle lookup for one video: File-based for folder-browsed videos,
  * content-URI lookup for MediaStore / SAF videos. Runs on Dispatchers.IO
@@ -197,7 +200,7 @@ internal fun remainingLabel(durationMs: Long, positionMs: Long): String =
 
 @OptIn(UnstableApi::class)
 @Composable
-internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null, onEngineFailed: () -> Unit = {}, onEngineDoor: ((PlayerEngine?) -> Unit)? = null) {
+internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Boolean = false, startSpeed: Float? = null, onExit: () -> Unit, onPlayNext: (VideoItem) -> Unit, onSwitchEngine: (() -> Unit)? = null, onEnterPip: (() -> Unit)? = null, onEngineFailed: () -> Unit = {}, onEngineDoor: ((PlayerEngine?) -> Unit)? = null, onSeeAllUpNext: () -> Unit = {}) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
     val skipSec = settings.getInt("skip_seconds", 10)
@@ -207,6 +210,38 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var speed by remember { mutableStateOf(startSpeed ?: settings.getFloat("default_speed", 1f)) }
+    // 1.9.1 (P10 / Se6): the dock's Volume chip drives the device
+    // music-stream volume. It starts at the device's current
+    // level; when "Remember volume" is on, the per-video level is
+    // restored on open and saved on change.
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    var volumePct by remember {
+        mutableStateOf(
+            runCatching {
+                val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                if (max > 0) (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / max).roundToInt().coerceIn(0, 100) else 100
+            }.getOrDefault(100)
+        )
+    }
+    // 1.9.1 (P3): the HUD's stream info — resolution + codec
+    // names, probed from the file (the same probe Details uses).
+    var videoMeta by remember(item) { mutableStateOf<VideoMeta?>(null) }
+    // 1.9.1 (Se7): the Settings brightness applies to the activity
+    // window while a video plays, and restores on exit.
+    val activity = context as? Activity
+    DisposableEffect(activity) {
+        setWindowBrightness(activity, brightnessPct(context))
+        onDispose { setWindowBrightness(activity, -1) }
+    }
+    LaunchedEffect(item.path) {
+        if (rememberVolume(context)) {
+            storedVolumeFor(context, item.path)?.let { v ->
+                volumePct = (v * 100).toInt().coerceIn(0, 100)
+                applyDeviceVolume(audioManager, volumePct)
+            }
+        }
+        videoMeta = withContext(Dispatchers.IO) { probeVideoMeta(context, item) }
+    }
     var status by remember { mutableStateOf("") }
     var panel by remember { mutableStateOf<String?>(null) }
     var ended by remember { mutableStateOf(false) }
@@ -594,6 +629,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         speed = next; player.setPlaybackSpeed(next)
         pokeControls()
     }
+    // 1.9.1 (P10): the Volume chip cycles 100 → 50 → off → 100.
+    // It drives the device music-stream volume, so the remote's
+    // Up / Down keys and the chip agree on one level.
+    fun cycleVolume() {
+        volumePct = when (volumePct) { 100 -> 50; 50 -> 0; else -> 100 }
+        applyDeviceVolume(audioManager, volumePct)
+        if (rememberVolume(context)) saveVolumeFor(context, item.path, volumePct / 100f)
+        status = if (volumePct == 0) "Volume off" else "Volume $volumePct%"
+        pokeControls()
+    }
     fun cycleAudioTrack() {
         pokeControls()
         try {
@@ -614,24 +659,30 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     val subOptions = remember(tracksVersion, subtitleReady) { buildSubtitleOptions(player, subtitle) }
     val selectedSubId = remember(tracksVersion, subOptions) { selectedSubtitleId(player, subOptions) }
     val subLabel = when (selectedSubId) {
-        null, "off" -> "Subtitles"
+        null, "off" -> "Subtitles · Off"
         else -> {
             val label = subOptions.firstOrNull { it.id == selectedSubId }?.label ?: ""
-            if (label.startsWith("External:")) "CC Ext" else "CC " + label.substringBefore(" ").take(8)
+            if (label.startsWith("External:")) "Subtitles · External" else "Subtitles · " + label.substringBefore(" ").take(8)
         }
     }
+    // 1.9.1 (P10): the audio chip names the format — Stereo,
+    // 5.1, Mono — with the track language as the fallback, so it
+    // reads like the design ("Audio · Stereo"), not "Audio 1/2".
     val audioLabel = remember(tracksVersion) {
         try {
-            val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-            if (groups.isEmpty() || groups.first().length <= 1) "Audio"
-            else {
-                val g = groups.first()
-                val cur = (0 until g.length).firstOrNull { g.isTrackSelected(it) } ?: 0
-                "Audio ${cur + 1}/${g.length}"
+            val fmt = player.audioFormat
+            val channels = fmt?.channelCount ?: 0
+            val lang = fmt?.language
+            when {
+                channels == 1 -> "Audio · Mono"
+                channels == 2 -> "Audio · Stereo"
+                channels >= 6 -> "Audio · 5.1"
+                channels > 0 -> "Audio · $channels ch"
+                !lang.isNullOrBlank() && lang != "und" -> "Audio · " + languageName(lang)
+                else -> "Audio"
             }
         } catch (_: Exception) { "Audio" }
     }
-    val aspectLabel = when (aspectMode) { AspectMode.FIT -> "Fit"; AspectMode.FILL -> "Fill"; AspectMode.ZOOM -> "Zoom" }
 
     // Patch 1.3.1: the rows of the Video information panel (gear "Info"
     // tab) — audio / subtitle counts from the track lists, resolution
@@ -781,11 +832,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         // The HUD carries the title + stream info + live clock.
         M3PlayerHud(
             title = item.name,
-            badge = if (videoSize.height > 0) "${videoSize.height}p" else containerOf(item),
-            streamInfo = if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}  •  ${containerOf(item)}" else containerOf(item),
+            streamInfo = videoMeta?.let { "${it.resolution} · ${it.videoCodec} · ${it.audioCodec}" }
+                ?: if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}  •  ${containerOf(item)}" else containerOf(item),
             visible = showControls && panel == null && !ended && !locked,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 28.dp),
-            onBack = onExit
+            modifier = Modifier.align(Alignment.TopCenter)
+                .padding(start = 24.dp, end = 24.dp, top = 28.dp),
+            onBack = onExit,
+            onGear = { panel = "gear" },
+            status = status
         )
         M3PlayerDock(
             positionMs = positionMs,
@@ -796,20 +850,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             skipSec = skipSec,
             subLabel = subLabel,
             audioLabel = audioLabel,
-            aspectLabel = aspectLabel,
+            volumePct = volumePct,
             onSeekBy = ::seekBy,
             onPlayPause = { if (player.isPlaying) player.pause() else player.play() },
             onCycleSpeed = ::cycleSpeed,
             onSubtitles = { panel = "subs" },
             onAudio = ::cycleAudioTrack,
-            onAspect = { aspectMode = nextAspect(aspectMode); pokeControls() },
-            onGear = { panel = "gear" },
+            onVolume = ::cycleVolume,
             playFocus = playPauseFocus,
             seekFocus = seekFocus,
             visible = showControls && panel == null && !ended && !locked,
-            status = status,
-            onPlayPrev = if (prevItem != null) ({ onPlayNext(prevItem) }) else null,
-            onPlayNext = if (nextItem != null) ({ onPlayNext(nextItem) }) else null,
             activeEngine = PlayerEngine.MEDIA3,
             engineChoice = dockEngine,
             onEngineChange = { eng ->
@@ -819,9 +869,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             },
             upNext = queue.drop(queueIndex + 1).take(4),
             onPlayUpNext = { onPlayNext(it) },
+            onSeeAllUpNext = onSeeAllUpNext,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
+                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp)
         )
+        // P5: the centre play/pause flash on each toggle.
+        if (!ended && !locked) {
+            M3CentreIndicator(isPlaying = isPlaying, modifier = Modifier.align(Alignment.Center))
+        }
 
         if (panel != null) {
             // Batch 2: a real subtitle picker — Off, the external subtitle
