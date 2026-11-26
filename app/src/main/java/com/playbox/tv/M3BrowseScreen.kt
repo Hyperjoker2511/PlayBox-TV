@@ -6,8 +6,8 @@ import android.os.StatFs
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -37,7 +36,6 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderShared
-import androidx.compose.material.icons.filled.HardDrive
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Stream
@@ -563,30 +561,28 @@ private fun M3BrowseFolderView(
             }
         )
         Spacer(modifier = Modifier.height(12.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            itemsIndexed(crumbs) { i, crumb ->
+        // Breadcrumb chips (Root + segments, last one selected).
+        // A plain scrolling Row, not a LazyRow: the chips are few,
+        // and item() cannot be called inside itemsIndexed.
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            crumbs.forEachIndexed { i, crumb ->
                 if (i > 0) {
-                    item {
-                        Box(
-                            modifier = Modifier.height(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Filled.ChevronRight, contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-                item {
-                    ZephFilterChip(
-                        label = crumb,
-                        selected = i == crumbs.lastIndex,
-                        onClick = { onCrumb(i) },
-                        leadingIcon = if (i == 0) Icons.Filled.HardDrive else null
+                    Icon(
+                        Icons.Filled.ChevronRight, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
+                ZephFilterChip(
+                    label = crumb,
+                    selected = i == crumbs.lastIndex,
+                    onClick = { onCrumb(i) },
+                    leadingIcon = if (i == 0) Icons.Filled.Storage else null
+                )
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
