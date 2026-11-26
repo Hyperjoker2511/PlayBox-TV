@@ -95,7 +95,7 @@ internal fun M3VideoScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         M3ScreenHeader(
             title = "Video",
             subtitle = "${shown.size} videos · ${videos.size} in library",
@@ -125,11 +125,11 @@ internal fun M3VideoScreen(
                 }
             }
         )
-        Spacer(modifier = Modifier.height(12.dp))
         // Filter chips + divider + sort icon + sort chips. A LazyRow
         // so the row scrolls sideways on a narrow phone instead of
-        // wrapping or clipping.
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // wrapping or clipping. (The header's own 16dp bottom margin
+        // is the design's mb-4; the chips' 12dp below is its mb-3.)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 ZephFilterChip("All", selected = filter == "all", onClick = { filter = "all" })
             }
@@ -141,7 +141,7 @@ internal fun M3VideoScreen(
             }
             item {
                 Box(
-                    modifier = Modifier.height(32.dp),
+                    modifier = Modifier.height(32.dp).padding(horizontal = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -242,7 +242,8 @@ private fun resumeFractionOf(item: VideoItem, resume: Map<String, Long>): Float 
 
 /** The design's Video list row (Videos.tsx): 96×54 thumb with a
  * progress bar at its base, title + "duration · container · size"
- * meta, and a trailing duration + progress column (96dp). */
+ * meta, and a trailing duration + progress column (96dp). A
+ * ListItem: 28dp radius (rounded-xl), lift-sm focus (1.03). */
 @Composable
 private fun M3VideoListRow(
     item: VideoItem,
@@ -255,8 +256,8 @@ private fun M3VideoListRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .zephFocus(interaction)
+            .clip(RoundedCornerShape(28.dp))
+            .zephFocus(interaction, focusScale = 1.03f, cornerRadius = 28.dp)
             .clickable(interactionSource = interaction, indication = null) { onOpen() }
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .riseIn(minOf(index, 10) * 35),
