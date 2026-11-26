@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -251,7 +252,7 @@ private fun ZephVisualizer(
                     captureSize = Visualizer.getCaptureSizeRange()[1]
                     setDataCaptureListener(
                         object : Visualizer.OnDataCaptureListener {
-                            override fun onWaveformDataCapture(
+                            override fun onWaveFormDataCapture(
                                 visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int
                             ) {
                                 if (waveform == null || waveform.isEmpty()) return
