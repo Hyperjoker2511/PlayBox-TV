@@ -5,6 +5,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,6 +58,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -72,7 +75,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -261,59 +269,73 @@ internal fun ZephSliderRow(
     }
 }
 
-/** The Zeph focus treatment for TV: scale 1.04 + a 3dp primary
- * ring + a soft glow when focused, and a press to 0.96 that springs
- * back (S6). The scale and press run on M3's own spatial spring
- * (the theme's MotionScheme.expressive()), so focus travel IS
- * Material 3 motion. Use on any clickable surface. */
+/** The Zeph focus treatment — the design's [data-f] (index.css):
+ * a 3dp secondary outline drawn OUTSIDE the element (3dp offset),
+ * following the element's own radius, plus a lift on focus and a
+ * press. The lift depends on the element, like the design's classes:
+ *   - focusScale 1.06f — `.lift`: cards, video cards, album cards.
+ *   - focusScale 1.03f — `.lift-sm`: list rows, quick-access cards.
+ *   - focusScale 1.0f — no lift: the rail items (outline + state
+ *     layer only).
+ * The scale and press run on the design's 300ms emphasized tween
+ * (not a spring). Press is 0.97, or 0.98 when focused + lifting.
+ * `cornerRadius` is the element's own radius — the outline is
+ * drawn 3dp outside it, so pass the radius the element is drawn
+ * with. Use on any clickable surface. */
 @Composable
 internal fun Modifier.zephFocus(
     interactionSource: MutableInteractionSource,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    focusScale: Float = DesignFocusScale,
+    cornerRadius: Dp = 16.dp
 ): Modifier {
     val focused by interactionSource.collectIsFocusedAsState()
     val pressed by interactionSource.collectIsPressedAsState()
+    val focusAnim = tween<Float>(durationMillis = 300, easing = Motion.Emphasized)
     val scale by animateFloatAsState(
-        if (focused && enabled) DesignFocusScale else 1f,
-        Motion.spatial(), label = "zephFocusScale"
+        if (focused && enabled) focusScale else 1f,
+        focusAnim, label = "zephFocusScale"
     )
-    val pressScale by animateFloatAsState(
-        if (pressed && enabled) 0.96f else 1f,
-        Motion.spatial(), label = "zephFocusPress"
-    )
+    val pressTarget = when {
+        !pressed || !enabled -> 1f
+        focused && focusScale > 1f -> 0.98f
+        else -> 0.97f
+    }
+    val pressScale by animateFloatAsState(pressTarget, focusAnim, label = "zephFocusPress")
+    val secondary = MaterialTheme.colorScheme.secondary
     return this
         .graphicsLayer { scaleX = scale * pressScale; scaleY = scale * pressScale }
         .then(
-            if (focused && enabled) {
-                Modifier
-                    .shadow(
-                        12.dp, MaterialTheme.shapes.large,
-                        spotColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.28f)
-                    )
-                    .border(
-                        3.dp, MaterialTheme.colorScheme.secondary,
-                        MaterialTheme.shapes.large
-                    )
+            // The lift shadow only exists when the element lifts
+            // (focusScale > 1) — a no-lift element (the rail) has an
+            // outline and a state layer, but no shadow.
+            if (focused && enabled && focusScale > 1f) {
+                Modifier.shadow(
+                    18.dp, RoundedCornerShape(cornerRadius),
+                    spotColor = Color.Black.copy(alpha = 0.6f),
+                    ambientColor = Color.Black.copy(alpha = 0.6f)
+                )
             } else Modifier
         )
+        .drawWithContent {
+            drawContent()
+            if (focused && enabled) {
+                val stroke = 3.dp.toPx()
+                val offset = 3.dp.toPx()
+                drawRoundRect(
+                    color = secondary,
+                    topLeft = Offset(-offset, -offset),
+                    size = Size(size.width + offset * 2f, size.height + offset * 2f),
+                    cornerRadius = CornerRadius((cornerRadius + 3.dp).toPx()),
+                    style = Stroke(width = stroke)
+                )
+            }
+        }
 }
 
-/** Shape-morphing button radius (S7): a button is a pill at rest
- * and morphs squarer on focus (16dp) and press (12dp), on M3's
- * spatial spring — the M3 Expressive signature for a media app. */
-@Composable
-internal fun morphRadius(interactionSource: MutableInteractionSource): Dp {
-    val focused by interactionSource.collectIsFocusedAsState()
-    val pressed by interactionSource.collectIsPressedAsState()
-    val target = when {
-        pressed -> 12.dp
-        focused -> 16.dp
-        else -> 28.dp
-    }
-    return animateDpAsState(target, Motion.spatial(), label = "morphRadius").value
-}
-
-/** Zeph primary button — expressive filled button, violet. */
+/** Zeph primary button — the design's filled button (m3.tsx):
+ * 40dp tall, rounded-full, 24dp horizontal padding, 18dp icon,
+ * label-l text. No shape morph — only the Fab morphs. */
 @Composable
 internal fun ZephButton(
     text: String,
@@ -328,24 +350,25 @@ internal fun ZephButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = RoundedCornerShape(morphRadius(interaction)),
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
         ),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = 24.dp, vertical = 14.dp
+            horizontal = 24.dp, vertical = 10.dp
         )
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
-/** Zeph tonal button — surface container fill, for secondary actions. */
+/** Zeph tonal button — the design's tonal button: 40dp, pill,
+ * 24dp horizontal padding, 18dp icon. */
 @Composable
 internal fun ZephTonalButton(
     text: String,
@@ -360,24 +383,25 @@ internal fun ZephTonalButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = RoundedCornerShape(morphRadius(interaction)),
+        shape = CircleShape,
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer
         ),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = 24.dp, vertical = 14.dp
+            horizontal = 24.dp, vertical = 10.dp
         )
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
-/** Zeph outlined button — for quiet actions. */
+/** Zeph outlined button — the design's outlined button: 40dp,
+ * pill, 24dp horizontal padding, 18dp icon. */
 @Composable
 internal fun ZephOutlinedButton(
     text: String,
@@ -392,21 +416,23 @@ internal fun ZephOutlinedButton(
         enabled = enabled,
         modifier = modifier.zephFocus(interaction, enabled),
         interactionSource = interaction,
-        shape = RoundedCornerShape(morphRadius(interaction)),
+        shape = CircleShape,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = 24.dp, vertical = 14.dp
+            horizontal = 24.dp, vertical = 10.dp
         )
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
-/** Zeph text button — for the quietest actions. */
+/** Zeph text button — the design's text button (12dp horizontal
+ * padding). It is focusable like every other button: the focus
+ * outline must be visible on it. */
 @Composable
 internal fun ZephTextButton(
     text: String,
@@ -415,23 +441,29 @@ internal fun ZephTextButton(
     enabled: Boolean = true,
     icon: ImageVector? = null
 ) {
+    val interaction = remember { MutableInteractionSource() }
     TextButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier,
-        shape = CircleShape
+        modifier = modifier.zephFocus(interaction, enabled, cornerRadius = 20.dp),
+        interactionSource = interaction,
+        shape = CircleShape,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 12.dp, vertical = 10.dp
+        )
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
         }
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
-/** Zeph card — expressive rounded card, surface container fill,
- * 24dp radius + a 1px outline-variant border (S9). Clickable when
- * onClick is given; focused state gets the ring. */
+/** Zeph card — the design's card: a surface-container fill with
+ * a 16dp radius (rounded-lg) and NO border — the design's cards
+ * are borderless. Clickable when onClick is given; focused state
+ * gets the ring. */
 @Composable
 internal fun ZephCard(
     modifier: Modifier = Modifier,
@@ -443,12 +475,11 @@ internal fun ZephCard(
         modifier = modifier.then(
             if (onClick != null) {
                 Modifier
-                    .zephFocus(interaction)
+                    .zephFocus(interaction, cornerRadius = 16.dp)
                     .clickable(interactionSource = interaction, indication = null) { onClick() }
             } else Modifier
         ),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurface
@@ -459,7 +490,11 @@ internal fun ZephCard(
     }
 }
 
-/** Zeph filter chip — for Library modes, search filters, sort. */
+/** Zeph filter chip — the design's Chip (m3.tsx): 32dp tall,
+ * 8dp radius (rounded-sm), label-l text, 18dp check/icon.
+ * Selected = secondary-container + check; unselected =
+ * transparent background, on-surface-variant label, 1dp
+ * outline-variant border. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ZephFilterChip(
@@ -481,19 +516,19 @@ internal fun ZephFilterChip(
                 Icon(leadingIcon, contentDescription = null, modifier = Modifier.size(18.dp))
             }
         },
-        modifier = modifier.zephFocus(interaction),
+        modifier = modifier.zephFocus(interaction, cornerRadius = 8.dp),
         interactionSource = interaction,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
             selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
             selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            labelColor = MaterialTheme.colorScheme.onSurface
+            containerColor = Color.Transparent,
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
         ),
         border = FilterChipDefaults.filterChipBorder(
             enabled = true, selected = selected,
-            borderColor = MaterialTheme.colorScheme.outline,
+            borderColor = MaterialTheme.colorScheme.outlineVariant,
             selectedBorderColor = Color.Transparent,
             borderWidth = 1.dp,
             selectedBorderWidth = 0.dp
@@ -501,17 +536,19 @@ internal fun ZephFilterChip(
     )
 }
 
-/** Zeph section title — a headline + an optional muted subtitle. */
+/** Zeph section title — the design's SectionTitle (m3.tsx):
+ * title-l (22sp Regular), 12dp below, 4dp horizontal padding.
+ * An optional muted subtitle follows it. */
 @Composable
 internal fun ZephSectionTitle(
     title: String,
     subtitle: String? = null,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier) {
+    Column(modifier = modifier.padding(horizontal = 4.dp).padding(bottom = 12.dp)) {
         Text(
             title,
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface
         )
         if (subtitle != null) {
@@ -726,15 +763,20 @@ internal fun ZephDialog(
 
 /** Zeph progress — linear, violet on surface container. */
 @Composable
+/** The design's LinearProgress (m3.tsx): 4dp tall, primary fill
+ * on a secondary-container track. The hero passes its own track
+ * (on-surface at 0.2, because it sits over a poster). */
+@Composable
 internal fun ZephLinearProgress(
     progress: Float,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trackColor: Color = MaterialTheme.colorScheme.secondaryContainer
 ) {
     LinearProgressIndicator(
         progress = { progress },
-        modifier = modifier.fillMaxWidth().height(6.dp),
+        modifier = modifier.fillMaxWidth().height(4.dp),
         color = MaterialTheme.colorScheme.primary,
-        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        trackColor = trackColor,
         drawStopIndicator = {}
     )
 }
@@ -790,7 +832,8 @@ internal fun ZephEmptyState(
  * onClick last) — so screens that used TvButton / GlassButton can
  * restyle by renaming the call. onClick is LAST here, so
  * trailing-lambda syntax works (unlike the Zeph buttons, where
- * onClick comes before modifier/icon). */
+ * onClick comes before modifier/icon). A pill, like the design's
+ * buttons — no shape morph. */
 @Composable
 internal fun M3TvButton(
     text: String,
@@ -799,21 +842,20 @@ internal fun M3TvButton(
     onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val radius = morphRadius(interaction)
     androidx.compose.foundation.layout.Box(
         modifier = modifier
-            .zephFocus(interaction)
-            .clip(RoundedCornerShape(radius))
+            .zephFocus(interaction, cornerRadius = 20.dp)
+            .clip(CircleShape)
             .background(
                 if (active) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.surfaceContainerHigh,
-                RoundedCornerShape(radius)
+                CircleShape
             )
             .border(
                 1.dp,
                 if (active) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outline,
-                RoundedCornerShape(radius)
+                CircleShape
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 28.dp, vertical = 14.dp),
@@ -829,50 +871,6 @@ internal fun M3TvButton(
     }
 }
 
-/** The phone bottom navigation bar (Ph1–Ph5): 4 items — Home /
- * Search / Library / Settings (Sources is not in the phone nav;
- * it is reached from Home's Folders/USB tile). 10sp labels; the
- * active item is onSurface, inactive is onSurfaceVariant — no
- * underline bar, no Player button, no brand row. `onPlayer` is
- * kept for API stability. */
-@Composable
-internal fun M3TabStrip(
-    tab: Tab,
-    onTab: (Tab) -> Unit,
-    onPlayer: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .padding(horizontal = 8.dp, vertical = 8.dp)
-    ) {
-        listOf(Tab.Home, Tab.Video, Tab.Audio, Tab.Browse, Tab.Playlists, Tab.Settings).forEach { t ->
-            val selected = tab == t
-            Column(
-                modifier = Modifier.weight(1f).clickable { onTab(t) }
-                    .padding(vertical = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    designIconFor(t),
-                    contentDescription = designLabelFor(t),
-                    tint = if (selected) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    designLabelFor(t),
-                    fontSize = 10.sp,
-                    color = if (selected) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = AppFont
-                )
-            }
-        }
-    }
-}
 
 /** A live clock (HH:mm), 19sp semibold (S11). The state lives
  * inside this composable so only it recomposes, once a second.
@@ -897,8 +895,8 @@ internal fun HomeClock(
 }
 
 /** The design's ScreenHeader (media.tsx): display-s title +
- * body-m subtitle on the left, actions on the right. Shared by
- * Video, Audio, Browse, Playlists and Search. */
+ * body-m subtitle on the left, actions on the right, 16dp below
+ * (mb-4). Shared by Video, Audio, Browse, Playlists and Search. */
 @Composable
 internal fun M3ScreenHeader(
     title: String,
@@ -906,7 +904,7 @@ internal fun M3ScreenHeader(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -932,9 +930,93 @@ internal fun M3ScreenHeader(
     }
 }
 
+/** The design's AlbumArt (media.tsx): procedural art from a hue —
+ * a 135° linear gradient, two radial gradients (top-left and
+ * bottom-right), a ring circle at the top-right and a blob at the
+ * bottom-left, with a white icon (with a soft drop shadow) on top.
+ * Shared by Home's album cards, the Audio screen and (Patch 5)
+ * the mini-player / Now Playing. */
+@Composable
+internal fun M3AlbumArt(
+    hue: Int,
+    icon: ImageVector = Icons.Filled.MusicNote,
+    iconSize: Dp = 48.dp,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            // Linear base, 135°: hsl(hue 60% 38%) → hsl(hue+30 65% 22%).
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.hsl(hue.toFloat(), 0.6f, 0.38f),
+                        Color.hsl(((hue + 30) % 360).toFloat(), 0.65f, 0.22f)
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(w, h)
+                )
+            )
+            // Radial, top-left (25%, 20%): hsl(hue 85% 68%) → clear.
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.hsl(hue.toFloat(), 0.85f, 0.68f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.25f, h * 0.20f),
+                    radius = size.minDimension * 0.55f
+                )
+            )
+            // Radial, bottom-right (85%, 90%): hsl(hue+50 80% 50%) → clear.
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.hsl(((hue + 50) % 360).toFloat(), 0.8f, 0.5f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.85f, h * 0.90f),
+                    radius = size.minDimension * 0.60f
+                )
+            )
+            // Ring: a 75%-sized circle at the top-right, 10dp stroke,
+            // 20% opacity, hsl(hue 100% 90%).
+            drawCircle(
+                color = Color.hsl(hue.toFloat(), 1f, 0.9f).copy(alpha = 0.2f),
+                radius = w * 0.375f,
+                center = Offset(w * 0.875f, h * 0.125f),
+                style = Stroke(width = 10.dp.toPx())
+            )
+            // Blob: a 75%-sized circle at the bottom-left, 20%
+            // opacity, hsl(hue+80 90% 70%).
+            drawCircle(
+                color = Color.hsl(((hue + 80) % 360).toFloat(), 0.9f, 0.7f).copy(alpha = 0.2f),
+                radius = w * 0.375f,
+                center = Offset(w * 0.125f, h * 0.955f)
+            )
+        }
+        // The icon, with a soft offset shadow behind it (the
+        // design's drop-shadow-lg).
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                icon, contentDescription = null,
+                tint = Color.Black.copy(alpha = 0.25f),
+                modifier = Modifier.size(iconSize).offset(2.dp, 2.dp)
+            )
+            Icon(
+                icon, contentDescription = null,
+                tint = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.size(iconSize)
+            )
+        }
+    }
+}
+
 /** The design's EqBars (media.tsx): 3dp bars, 2dp gaps, 16dp
  * tall, scaleY animation (700 + i*173 % 500 ms, i*90 ms stagger,
- * reversed). Paused = the bars sit still at half height. */
+ * ease-in-out, 0.18→1). Paused = the bars freeze at scaleY 0.12
+ * (index.css `.paused .eq-bar`). */
 @Composable
 internal fun ZephEqBars(
     playing: Boolean,
@@ -950,13 +1032,13 @@ internal fun ZephEqBars(
         val transition = rememberInfiniteTransition(label = "eq")
         for (i in 0 until count) {
             val scale by transition.animateFloat(
-                initialValue = 0.3f,
+                initialValue = 0.18f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(
                         durationMillis = 700 + (i * 173) % 500,
                         delayMillis = i * 90,
-                        easing = LinearEasing
+                        easing = FastOutSlowInEasing
                     ),
                     repeatMode = RepeatMode.Reverse
                 ),
@@ -967,7 +1049,7 @@ internal fun ZephEqBars(
                     .width(3.dp)
                     .fillMaxHeight()
                     .graphicsLayer {
-                        scaleY = if (playing) scale else 0.5f
+                        scaleY = if (playing) scale else 0.12f
                         transformOrigin = TransformOrigin(0.5f, 1f)
                     }
                     .background(color, CircleShape)
