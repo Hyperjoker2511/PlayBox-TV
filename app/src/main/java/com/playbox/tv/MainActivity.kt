@@ -529,82 +529,53 @@ private fun PlayBoxApp() {
                             voiceRequest = voiceSearchRequest,
                             onOpen = { item, list -> details = item; detailList = list }
                         )
-                        // 2.0.0 (Patch 1 placeholder): Browse is the
-                        // Sources screen until Patch 4 rebuilds it —
-                        // folders/USB/SMB/FTP/DLNA live here, and its
-                        // rows open in the Video library for now.
-                        Tab.Browse -> M3SourcesScreen(
-                            videos = videos,
-                            onOpenFolder = { file ->
-                                libraryMode = "Folders / USB"
-                                libraryFolder = file
-                                librarySafFolder = null
-                                tab = Tab.Video
-                            },
-                            onOpenSafFolder = { uri ->
-                                libraryMode = "Folders / USB"
-                                librarySafFolder = uri
-                                libraryFolder = null
-                                tab = Tab.Video
-                            },
-                            // v7 (So11): "Add a source" opens the
-                            // Network screen's add-server form, not
-                            // just the screen — the nonce re-opens it
-                            // on every tap.
-                            onAddNetworkServer = {
-                                networkAddFormRequest++
-                                libraryMode = "Network"
-                                tab = Tab.Video
-                            },
-                            onOpenSmbServer = { server ->
-                                libraryMode = "Network"
-                                networkServer = server
-                                networkPath = null
-                                tab = Tab.Video
-                            },
-                            onOpenFtpServer = { server ->
-                                libraryMode = "Network"
-                                ftpServer = server
-                                ftpPath = null
-                                tab = Tab.Video
-                            },
-                            onRefresh = { refreshNonce++ }
+                        // 2.0.0 (Patch 4): Browse is the design's
+                        // screen — storage cards, network rows and
+                        // one folder view for local + network. The
+                        // old Sources screen is deleted.
+                        Tab.Browse -> M3BrowseScreen(
+                            videos = videos, audio = audio,
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null },
+                            networkServer = networkServer, onNetworkServer = { networkServer = it },
+                            networkPath = networkPath, onNetworkPath = { networkPath = it },
+                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
+                            addFormRequest = networkAddFormRequest,
+                            onAddNetworkServer = { networkAddFormRequest++ }
                         )
-                        // 2.0.0 (Patch 3): Video and Audio are the
-                        // design's screens. The library screen
-                        // stays for two things until Patches 4–5:
-                        // folder/network browsing (reached from
-                        // Browse, which sets libraryMode + tab
-                        // Video) and the Playlists tab.
+                        // 2.0.0 (Patch 3): the Audio tab is the
+                        // design's Music screen.
                         Tab.Audio -> M3AudioScreen(
                             audio = audio, loading = !libraryLoaded,
                             playing = playing,
                             onPlayFromStart = { item, list -> playing = item; playList = list; playFromStart = true; playStartSpeed = null }
                         )
-                        Tab.Video, Tab.Playlists -> {
-                            if (currentTab == Tab.Video && libraryMode != "Folders / USB" && libraryMode != "Network") {
-                                M3VideoScreen(
-                                    videos = videos, loading = !libraryLoaded,
-                                    onOpen = { item, list -> details = item; detailList = list }
-                                )
-                            } else {
-                                M3LibraryScreen(
-                                    videos = videos, audio = audio, loading = !libraryLoaded,
-                                    mode = libraryMode, onMode = { goLibraryMode(it) },
-                                    folder = libraryFolder, onFolder = { libraryFolder = it },
-                                    safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
-                                    listState = libraryListState,
-                                    addFormRequest = networkAddFormRequest,
-                                    networkServer = networkServer, onNetworkServer = { networkServer = it },
-                                    networkPath = networkPath, onNetworkPath = { networkPath = it },
-                                    ftpServer = ftpServer, onFtpServer = { ftpServer = it },
-                                    ftpPath = ftpPath, onFtpPath = { ftpPath = it },
-                                    onOpen = { item, list -> details = item; detailList = list },
-                                    onRefresh = { refreshNonce++ },
-                                    onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
-                                )
-                            }
-                        }
+                        // 2.0.0 (Patch 4): the Video tab is the
+                        // design's screen now — folder/network
+                        // browsing lives in Browse, so the old
+                        // library-mode bridge is gone. Playlists
+                        // still uses the library screen until
+                        // Patch 5 rebuilds it.
+                        Tab.Video -> M3VideoScreen(
+                            videos = videos, loading = !libraryLoaded,
+                            onOpen = { item, list -> details = item; detailList = list }
+                        )
+                        Tab.Playlists -> M3LibraryScreen(
+                            videos = videos, audio = audio, loading = !libraryLoaded,
+                            mode = libraryMode, onMode = { goLibraryMode(it) },
+                            folder = libraryFolder, onFolder = { libraryFolder = it },
+                            safFolder = librarySafFolder, onSafFolder = { librarySafFolder = it },
+                            listState = libraryListState,
+                            addFormRequest = networkAddFormRequest,
+                            networkServer = networkServer, onNetworkServer = { networkServer = it },
+                            networkPath = networkPath, onNetworkPath = { networkPath = it },
+                            ftpServer = ftpServer, onFtpServer = { ftpServer = it },
+                            ftpPath = ftpPath, onFtpPath = { ftpPath = it },
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onRefresh = { refreshNonce++ },
+                            onPlay = { item, list -> playing = item; playList = list; playFromStart = false; playStartSpeed = null }
+                        )
                         Tab.Settings -> M3SettingsScreen(
                             labelMode = railLabelMode,
                             onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
