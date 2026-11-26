@@ -580,6 +580,27 @@ internal fun M3DetailsScreen(
             }
         }
     }
+    // Patch 7: Remove — confirm first, then delete on IO and
+    // close Details when the file is gone.
+    if (confirmRemove) {
+        ZephDialog(
+            title = "Remove this file?",
+            text = "\"${item.name}\" will be deleted from your device. This can't be undone.",
+            confirmText = "Remove",
+            onConfirm = {
+                confirmRemove = false
+                scope.launch(Dispatchers.IO) {
+                    val ok = deleteVideoFile(context, item)
+                    withContext(Dispatchers.Main) {
+                        if (ok) onBack()
+                        else addedNote = "Couldn't delete this file"
+                    }
+                }
+            },
+            dismissText = "Keep",
+            onDismiss = { confirmRemove = false }
+        )
+    }
 }
 
 /** An Up next card: 118dp cover with a duration badge, 15sp
@@ -651,26 +672,5 @@ private fun M3DetailsUpNextCard(
         }
     }
 
-    // Patch 7: Remove — confirm first, then delete on IO and
-    // close Details when the file is gone.
-    if (confirmRemove) {
-        ZephDialog(
-            title = "Remove this file?",
-            text = "\"${item.name}\" will be deleted from your device. This can't be undone.",
-            confirmText = "Remove",
-            onConfirm = {
-                confirmRemove = false
-                scope.launch(Dispatchers.IO) {
-                    val ok = deleteVideoFile(context, item)
-                    withContext(Dispatchers.Main) {
-                        if (ok) onBack()
-                        else addedNote = "Couldn't delete this file"
-                    }
-                }
-            },
-            dismissText = "Keep",
-            onDismiss = { confirmRemove = false }
-        )
-    }
 
 }
