@@ -711,11 +711,6 @@ private fun M3HomeSectionHeader(
     }
 }
 
-/** One card in a horizontal row: 212dp, surface-container-low,
- * 16dp radius, 16:9 poster that scales to 1.10 on focus, duration
- * badge, focus play circle (48dp, primaryContainer), progress bar
- * at the poster's base, title + meta below. */
-@Composable
 /** The design's VideoCard (media.tsx), shared by Home and the
  * Video screen: 16:9 poster that scales to 1.10 on focus, a focus
  * play circle, duration badge, 4dp progress at the poster base,
