@@ -321,6 +321,11 @@ internal fun M3NowPlayingScreen(
 ) {
     val context = LocalContext.current
     val settings = remember { context.getSharedPreferences("playbox_settings", Context.MODE_PRIVATE) }
+    // Patch 8: the Settings switches gate the Now Playing visuals.
+    // Read once per open — Settings and Now Playing are never open
+    // at the same time, so a fresh open picks up the new value.
+    val dynamicArtworkOn = remember { isDynamicArtworkOn(context) }
+    val visualizerOn = remember { isVisualizerOn(context) }
     val audioQ = remember(queue, item) { audioQueue(queue, item) }
     val album = audioAlbumOf(item)
     val artist = audioArtistOf(item)
@@ -531,24 +536,27 @@ internal fun M3NowPlayingScreen(
         // Dynamic-colour wash: primary-container (top-left) +
         // tertiary-container (bottom-right), 0.55 alpha — the
         // design's wash, in the theme's colours (the scan has no
-        // per-album colour to extract).
-        val primaryWash = MaterialTheme.colorScheme.primaryContainer
-        val tertiaryWash = MaterialTheme.colorScheme.tertiaryContainer
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(primaryWash.copy(alpha = 0.55f), Color.Transparent),
-                    center = Offset(size.width * 0.2f, size.height * 0.15f),
-                    radius = size.minDimension * 0.9f
+        // per-album colour to extract). Patch 8: gated by the
+        // Settings "Dynamic colour from artwork" switch.
+        if (dynamicArtworkOn) {
+            val primaryWash = MaterialTheme.colorScheme.primaryContainer
+            val tertiaryWash = MaterialTheme.colorScheme.tertiaryContainer
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(primaryWash.copy(alpha = 0.55f), Color.Transparent),
+                        center = Offset(size.width * 0.2f, size.height * 0.15f),
+                        radius = size.minDimension * 0.9f
+                    )
                 )
-            )
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(tertiaryWash.copy(alpha = 0.55f), Color.Transparent),
-                    center = Offset(size.width * 0.85f, size.height * 0.9f),
-                    radius = size.minDimension * 0.9f
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(tertiaryWash.copy(alpha = 0.55f), Color.Transparent),
+                        center = Offset(size.width * 0.85f, size.height * 0.9f),
+                        radius = size.minDimension * 0.9f
+                    )
                 )
-            )
+            }
         }
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
@@ -606,8 +614,12 @@ internal fun M3NowPlayingScreen(
                 M3NowChip(if (total > 0) TimeFormatter.format(total) else "")
             }
             Spacer(modifier = Modifier.height(16.dp))
-            ZephVisualizer(playing = isPlaying, modifier = Modifier.fillMaxWidth().height(64.dp))
-            Spacer(modifier = Modifier.height(8.dp))
+            // Patch 8: the Settings "Show visualizer" switch gates the
+            // spectrum. Off hides it (the seek slider follows).
+            if (visualizerOn) {
+                ZephVisualizer(playing = isPlaying, modifier = Modifier.fillMaxWidth().height(64.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+            }
             Slider(
                 value = shownFraction,
                 onValueChange = { seeking = true; seekFraction = it },
