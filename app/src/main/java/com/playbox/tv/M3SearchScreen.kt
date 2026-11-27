@@ -649,7 +649,6 @@ private fun M3SearchSongRow(
 // Backspace clears the query. Every key is D-pad focusable
 // (zephFocus: scale + ring).
 
-@Composable
 /** One suggestion pill in the on-screen keyboard (m8, 2.0.1):
  * its own interaction source so the zephFocus ring shows only
  * on the focused pill. */
@@ -675,6 +674,7 @@ private fun M3SuggestionPill(label: String, onClick: () -> Unit) {
     }
 }
 
+@Composable
 private fun M3OnScreenKeyboard(
     query: String,
     onQuery: (String) -> Unit,
