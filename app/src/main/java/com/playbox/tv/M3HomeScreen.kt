@@ -10,7 +10,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -562,9 +561,13 @@ private fun M3HomeHero(
         AnimatedContent(
             targetState = item,
             transitionSpec = {
-                // The design's container-in: 480ms, scale 0.88.
-                (fadeIn(animationSpec = tween(480, easing = Motion.EmphasizedDecelerate)) +
-                    scaleIn(animationSpec = tween(480, easing = Motion.EmphasizedDecelerate), initialScale = 0.88f)) togetherWith
+                // 2.0.3: fade only. The old container-in also
+                // scaled 0.88→1, which changed the hero's size
+                // mid-transition and re-laid-out the whole
+                // LazyColumn — the screen visibly doubled/ghosted
+                // while it rotated. A pure crossfade is smooth
+                // and never shifts the list.
+                fadeIn(animationSpec = tween(480, easing = Motion.EmphasizedDecelerate)) togetherWith
                     fadeOut(animationSpec = tween(200, easing = Motion.Emphasized))
             },
             label = "homeHero"
@@ -574,7 +577,10 @@ private fun M3HomeHero(
                     modifier = Modifier.fillMaxSize()
                         .then(coverSharedModifier("cover:${heroItem.path}"))
                 ) {
-                    VideoThumb(heroItem, Modifier.fillMaxSize())
+                    // 2.0.3: the hero is the big poster — ask for a
+                    // 1280x720 frame, not the 320x180 card thumb,
+                    // so it stays sharp on the TV.
+                    VideoThumb(heroItem, Modifier.fillMaxSize(), width = 1280, height = 720)
                 }
                 // Scrims: left-to-right surface → transparent, and a
                 // bottom surface fade — the text side stays readable.
@@ -617,8 +623,11 @@ private fun M3HomeHero(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
+                    // 2.0.3: the clean display title ("Avengers
+                    // Endgame"), not the raw file name — the file
+                    // name wrapped across two lines and clipped.
                     Text(
-                        heroItem.name,
+                        heroItem.displayTitle,
                         style = MaterialTheme.typography.displaySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
@@ -902,7 +911,8 @@ internal fun M3VideoCard(
             }
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 Text(
-                    item.name,
+                    // 2.0.3: clean display title, not the raw file name.
+                    item.displayTitle,
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
