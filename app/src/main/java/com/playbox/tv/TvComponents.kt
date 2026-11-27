@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +36,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -232,13 +234,54 @@ internal fun RemoteHints(modifier: Modifier = Modifier) {
 /** Batch 2: the video's thumbnail, loaded on IO and cached (see
  * MediaLibrary.loadVideoThumbnail). Draws nothing when there is no
  * thumbnail yet — the gradient tile stays underneath. */
+/** 2.0.3: a beautiful backdrop when a video has no thumbnail.
+ * VideoThumb used to draw nothing when the thumbnail failed,
+ * which left the hero and the cards as bare dark boxes. This
+ * gradient is never bare — it always gives the poster a
+ * finished, premium look, with the title on top. */
 @Composable
-internal fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier) {
+internal fun PosterBackdrop(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.background(
+            Brush.linearGradient(
+                colors = listOf(
+                    MaterialTheme.colorScheme.primaryContainer,
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+            )
+        )
+    ) {
+        // A soft light bloom, top-left — gives the flat gradient
+        // depth, like a poster backdrop.
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.18f),
+                        Color.Transparent
+                    ),
+                    center = Offset(0.2f, 0.15f),
+                    radius = 900f
+                )
+            )
+        )
+    }
+}
+
+@Composable
+internal fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier, width: Int = 320, height: Int = 180) {
     val context = LocalContext.current
-    var bitmap by remember(item.path) { mutableStateOf(MediaLibrary.ThumbnailCache.get(item.path)) }
-    LaunchedEffect(item.path) {
+    // 2.0.3: the cache key carries the size (see
+    // loadVideoThumbnail) so a small card thumb is never served
+    // to the big hero poster.
+    val cacheKey = "${item.path}:${width}x$height"
+    var bitmap by remember(cacheKey) { mutableStateOf(MediaLibrary.ThumbnailCache.get(cacheKey)) }
+    LaunchedEffect(cacheKey) {
         if (bitmap == null && item.isVideo) {
-            bitmap = withContext(Dispatchers.IO) { MediaLibrary.loadVideoThumbnail(context, item) }
+            bitmap = withContext(Dispatchers.IO) { MediaLibrary.loadVideoThumbnail(context, item, width, height) }
         }
     }
     val bmp = bitmap
@@ -248,6 +291,10 @@ internal fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier) {
             contentScale = ContentScale.Crop,
             modifier = modifier.clip(RoundedCornerShape(24.dp))
         )
+    } else {
+        // 2.0.3: never a bare box — the gradient backdrop while
+        // the thumbnail loads, and forever if it can't load.
+        PosterBackdrop(modifier.clip(RoundedCornerShape(24.dp)))
     }
 }
 
@@ -280,7 +327,8 @@ internal fun ThumbTile(
             }
         }
         Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-            Text(item.name, fontSize = 20.sp, color = White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // 2.0.3: clean display title, not the raw file name.
+            Text(item.displayTitle, fontSize = 20.sp, color = White, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (sub != null) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(sub, fontSize = 15.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
