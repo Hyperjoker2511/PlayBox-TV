@@ -1,6 +1,9 @@
 package com.playbox.tv
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -321,6 +324,71 @@ internal class VlcEngine(
         setEventListener { event -> mainHandler.post { onEvent(event.type) } }
     }
 
+    // M5 (2.0.1): VLC audio focus. Media3 requests focus
+    // (PlaybackService handleAudioFocus), but the VLC path had
+    // none — another app starting audio played OVER VLC at full
+    // volume, and VLC kept playing over other apps. Request
+    // focus on play; pause on loss, duck on transient-can-duck,
+    // resume/restore on gain. (minSdk 26, so AudioFocusRequest
+    // is available.)
+    private val audioManager =
+        context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var focusRequest: AudioFocusRequest? = null
+    private var wasPlayingBeforeFocusLoss = false
+    private var volumeBeforeDuck: Int? = null
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                wasPlayingBeforeFocusLoss = player.isPlaying
+                runCatching { player.pause() }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                wasPlayingBeforeFocusLoss = player.isPlaying
+                runCatching { player.pause() }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (volumeBeforeDuck == null) {
+                    volumeBeforeDuck = runCatching { player.volume }.getOrNull()
+                    runCatching {
+                        val v = volumeBeforeDuck ?: 100
+                        player.volume = (v * 0.2f).roundToInt().coerceIn(0, 100)
+                    }
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                volumeBeforeDuck?.let { v ->
+                    runCatching { player.volume = v }
+                    volumeBeforeDuck = null
+                }
+                if (wasPlayingBeforeFocusLoss) {
+                    wasPlayingBeforeFocusLoss = false
+                    runCatching { player.play() }
+                }
+            }
+        }
+    }
+
+    private fun requestAudioFocus() {
+        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener(focusListener, mainHandler)
+            .build()
+        focusRequest = req
+        runCatching { audioManager.requestAudioFocus(req) }
+    }
+
+    private fun abandonAudioFocus() {
+        focusRequest?.let { runCatching { audioManager.abandonAudioFocusRequest(it) } }
+        focusRequest = null
+        volumeBeforeDuck = null
+        wasPlayingBeforeFocusLoss = false
+    }
+
     fun attach(surfaceView: SurfaceView) {
         player.vlcVout.setVideoView(surfaceView)
         player.vlcVout.attachViews()
@@ -356,10 +424,14 @@ internal class VlcEngine(
         subtitleStyleOptions(context).forEach { media.addOption(it) }
         player.media = media
         media.release()
+        // M5: request audio focus before starting, so other apps
+        // duck/pause instead of playing over VLC.
+        requestAudioFocus()
         player.play()
     }
 
     fun release() {
+        abandonAudioFocus()
         runCatching { player.stop() }
         runCatching { player.release() }
         runCatching { libVlc.release() }
