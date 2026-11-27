@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
 import android.net.Uri
 import android.os.Build
@@ -232,25 +233,60 @@ object MediaLibrary {
         @Synchronized fun put(key: String, bitmap: Bitmap) { map[key] = bitmap }
     }
 
-    fun loadVideoThumbnail(context: Context, item: VideoItem): Bitmap? {
+    fun loadVideoThumbnail(context: Context, item: VideoItem, width: Int = 320, height: Int = 180): Bitmap? {
         if (!item.isVideo) return null
-        ThumbnailCache.get(item.path)?.let { return it }
+        // 2.0.3: the cache key carries the size — the hero wants a
+        // big 1280x720 poster, the cards want 320x180, and a small
+        // cached thumb must never be served to the hero.
+        val cacheKey = "${item.path}:${width}x$height"
+        ThumbnailCache.get(cacheKey)?.let { return it }
+        // 2.0.3: the system thumbnail is the fast path, but it
+        // returns null for files MediaStore hasn't indexed (or
+        // whose codec it can't thumb). Fall back to pulling a
+        // frame straight from the file with MediaMetadataRetriever
+        // — otherwise the hero + cards stay bare dark boxes.
         return try {
             val bmp: Bitmap? = when {
                 item.path.startsWith("content://") && Build.VERSION.SDK_INT >= 29 ->
-                    context.contentResolver.loadThumbnail(Uri.parse(item.path), Size(320, 180), null)
+                    context.contentResolver.loadThumbnail(Uri.parse(item.path), Size(width, height), null)
                 item.path.startsWith("/") && Build.VERSION.SDK_INT >= 29 ->
-                    ThumbnailUtils.createVideoThumbnail(File(item.path), Size(320, 180), null)
+                    ThumbnailUtils.createVideoThumbnail(File(item.path), Size(width, height), null)
                 item.path.startsWith("/") ->
                     @Suppress("DEPRECATION")
                     ThumbnailUtils.createVideoThumbnail(item.path, MediaStore.Video.Thumbnails.MINI_KIND)
                 else -> null
-            }
-            if (bmp != null) ThumbnailCache.put(item.path, bmp)
+            } ?: retrieveFrame(item, width, height)
+            if (bmp != null) ThumbnailCache.put(cacheKey, bmp)
             bmp
         } catch (e: Exception) {
             Log.w(TAG, "thumbnail failed for ${item.path}", e)
+            runCatching { retrieveFrame(item, width, height) }?.also { if (it != null) ThumbnailCache.put(cacheKey, it) }
+        }
+    }
+
+    /** Pull a frame directly from the file (10% in, so it's a real
+     * scene, not a black leader). Used when the system thumbnail
+     * comes back null. Returns null for content:// URIs it can't
+     * open and for files the retriever can't read. */
+    private fun retrieveFrame(item: VideoItem, width: Int = 320, height: Int = 180): Bitmap? {
+        if (!item.path.startsWith("/")) return null
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(item.path)
+            val durationUs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val atUs = (durationUs / 10).coerceAtLeast(0L)
+            val frame = if (Build.VERSION.SDK_INT >= 27) {
+                retriever.getScaledFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, width, height)
+            } else {
+                @Suppress("DEPRECATION")
+                retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            }
+            frame
+        } catch (e: Exception) {
+            Log.w(TAG, "frame retrieve failed for ${item.path}", e)
             null
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 
