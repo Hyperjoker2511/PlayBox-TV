@@ -147,6 +147,13 @@ internal fun M3HomeScreen(
     var heroI by remember { mutableStateOf(0) }
     val heroItem: VideoItem? = if (featured.isNotEmpty()) featured[heroI % featured.size]
     else videos.maxByOrNull { it.dateAddedSec } ?: audio.maxByOrNull { it.dateAddedSec }
+    // m2 (2.0.1): autofocus the empty state's first button.
+    // With no videos the hero (the only FocusRequester) never
+    // exists, so the screen opened with nothing focused.
+    val emptyFocus = remember { FocusRequester() }
+    LaunchedEffect(all.isEmpty()) {
+        if (all.isEmpty()) runCatching { emptyFocus.requestFocus() }
+    }
     LaunchedEffect(featured.size) {
         while (featured.size > 1) {
             delay(9_000)
@@ -347,6 +354,7 @@ internal fun M3HomeScreen(
                                 ZephButton(
                                     text = "Folders / USB",
                                     onClick = onFolders,
+                                    modifier = Modifier.focusRequester(emptyFocus),
                                     icon = Icons.Filled.FolderOpen
                                 )
                                 ZephTonalButton(
