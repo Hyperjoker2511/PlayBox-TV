@@ -81,6 +81,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -344,6 +345,9 @@ internal fun M3VideoPlayerTransport(
     onSeekForward: () -> Unit,
     onNext: () -> Unit,
     playFocus: FocusRequester,
+    // M10 (2.0.2): Down from the play Fab goes to the dock's seek
+    // slider — the main Up/Down path in the HUD.
+    seekFocus: FocusRequester,
     visible: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -369,7 +373,9 @@ internal fun M3VideoPlayerTransport(
                 isPlaying = isPlaying,
                 ended = ended,
                 onClick = onPlayPause,
+                // M10 (2.0.2): Down from play goes to the seek slider.
                 modifier = Modifier.focusRequester(playFocus)
+                    .focusProperties { down = seekFocus }
             )
             M3TransportCircle(
                 Icons.Filled.Forward10, "Forward 10 seconds", 64.dp, 34,
@@ -495,6 +501,9 @@ internal fun M3VideoSlider(
     onSeekTo: (Long) -> Unit,
     onSeekBy: (Long) -> Unit,
     seekFocus: FocusRequester,
+    // M10 (2.0.2): Up from the seek slider goes to the play/pause
+    // Fab — the main Up/Down path in the HUD.
+    playPauseFocus: FocusRequester,
     modifier: Modifier = Modifier
 ) {
     val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -545,6 +554,8 @@ internal fun M3VideoSlider(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(seekFocus)
+                // M10 (2.0.2): Up from seek goes to the play Fab.
+                .focusProperties { up = playPauseFocus }
                 .focusable(interactionSource = interaction)
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -585,10 +596,17 @@ internal fun M3VideoSlider(
     }
 }
 
-/** The design's bottom bar: the time row (elapsed, speed / A–B
- * badges + "Ends at HH:MM", remaining), the M3 slider, then the
- * pill row (Audio, Subtitles, Speed, Aspect, A–B, Engine, spacer,
- * Info, Pop-up, gear). Slides up with the controls. */
+/** The design's bottom bar — 2.0.2 declutter: essentials only.
+ * The time row (elapsed, speed / A–B badges + "Ends at HH:MM",
+ * remaining + the gear button), then the M3 slider. The gear opens
+ * the full settings sheet; every option the old pill row held
+ * (Audio, Subtitles, Speed, Aspect, A–B, Engine, Info, Pop-up)
+ * lives there now. Slides up with the controls.
+ *
+ * The pill parameters (labels + callbacks) are retained in the
+ * signature for now — the call sites still pass them and the
+ * gear sheet reuses the labels — but the dock no longer renders
+ * any pill. */
 @Composable
 internal fun M3PlayerDock(
     positionMs: Long,
@@ -615,6 +633,10 @@ internal fun M3PlayerDock(
     onPip: () -> Unit,
     onGear: () -> Unit,
     seekFocus: FocusRequester,
+    // M10 (2.0.2): Up from the seek slider goes to play/pause.
+    playPauseFocus: FocusRequester,
+    // M11 (2.0.2): focus returns here when the gear sheet closes.
+    gearFocus: FocusRequester,
     visible: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -631,9 +653,12 @@ internal fun M3PlayerDock(
         modifier = modifier
     ) {
         Column(Modifier.fillMaxWidth()) {
-            // Time row.
+            // Time row. 2.0.2 (gridlines fix 6): NO horizontal
+            // padding — the times sit on the dock edge (24dp from the
+            // screen, matching the top bar). (Before: 4dp, so times
+            // sat 36dp in.)
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -682,62 +707,18 @@ internal fun M3PlayerDock(
                         )
                     }
                 }
-                Text(
-                    if (durationMs > 0) "-${TimeFormatter.format(durationMs - positionMs)}" else "",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            M3VideoSlider(
-                positionMs = positionMs,
-                durationMs = durationMs,
-                bufferedFraction = bufferedFraction,
-                skipMs = skipMs,
-                onSeekTo = onSeekTo,
-                onSeekBy = onSeekBy,
-                seekFocus = seekFocus,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            // Pill row (m17, 2.0.1): horizontally scrollable as
-            // insurance — 9 pills + gear can clip on narrower
-            // widths. Two groups + SpaceBetween keeps Info/Pop-up/
-            // gear at the right edge when it fits, and scrolls
-            // when it doesn't (a weight spacer collapses to 0
-            // inside a scrollable Row, so it can't do the job).
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    M3PlayerPill(Icons.Filled.MusicNote, audioLabel, onClick = onAudio)
-                    M3PlayerPill(
-                        Icons.Filled.ClosedCaption,
-                        if (subLabel.startsWith("Subtitles · ")) subLabel.removePrefix("Subtitles · ") else subLabel,
-                        onClick = onSubtitles
+                    Text(
+                        if (durationMs > 0) "-${TimeFormatter.format(durationMs - positionMs)}" else "",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White
                     )
-                    M3PlayerPill(Icons.Filled.Speed, speedText, onClick = onSpeed)
-                    M3PlayerPill(Icons.Filled.AspectRatio, aspectLabel, onClick = onAspect)
-                    M3PlayerPill(
-                        Icons.Filled.Repeat, abLabel.ifBlank { "A–B loop" },
-                        active = abActive, onClick = onAB
-                    )
-                    M3PlayerPill(Icons.Filled.PlayCircle, engineLabel, onClick = onEngine)
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    M3PlayerPill(Icons.Filled.Info, "Info", onClick = onInfo)
-                    M3PlayerPill(Icons.Filled.PictureInPictureAlt, "Pop-up", onClick = onPip)
-                    // The gear — full VLC settings (never hidden behind
-                    // the engine switch). An icon button, not a pill:
-                    // the design's row ends with Info + Pop-up.
+                    // 2.0.2: the gear is the ONLY settings entry on
+                    // screen — the pill row is gone, so it lives here
+                    // in the time row. It opens the full settings sheet.
                     val gearInteraction = remember { MutableInteractionSource() }
                     IconButton(
                         onClick = onGear,
@@ -745,6 +726,9 @@ internal fun M3PlayerDock(
                             .size(40.dp)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.15f))
+                            // M11 (2.0.2): focus returns here when the
+                            // gear sheet closes.
+                            .focusRequester(gearFocus)
                             .zephFocus(gearInteraction, cornerRadius = 20.dp),
                         interactionSource = gearInteraction
                     ) {
@@ -755,6 +739,22 @@ internal fun M3PlayerDock(
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(4.dp))
+            M3VideoSlider(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                bufferedFraction = bufferedFraction,
+                skipMs = skipMs,
+                onSeekTo = onSeekTo,
+                onSeekBy = onSeekBy,
+                seekFocus = seekFocus,
+                playPauseFocus = playPauseFocus,
+                modifier = Modifier.fillMaxWidth()
+            )
+            // 2.0.2: the pill row is gone — the dock shows essentials
+            // only (time + seek + gear). Every option the pills opened
+            // (Audio, Subtitles, Speed, Aspect, A–B, Engine, Info,
+            // Pop-up) lives in the gear sheet now.
         }
     }
 }
