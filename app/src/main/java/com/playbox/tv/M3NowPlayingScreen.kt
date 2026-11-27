@@ -24,6 +24,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +59,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.AlertDialog
@@ -79,6 +81,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -340,6 +345,16 @@ internal fun M3NowPlayingScreen(
     var repeatMode by remember { mutableStateOf(nowRepeatFromSettings(settings)) }
     var sheet by remember { mutableStateOf<String?>(null) } // null | "queue" | "sleep" | "eq"
     var isFav by remember(item) { mutableStateOf(LibraryStores.isFavourite(context, item.path)) }
+    // M16 (2.0.1): D-pad autofocus — focus lands on the play/pause
+    // Fab when Now Playing opens and on track change (see the
+    // LaunchedEffect(item.path) below). The Fab is a Material 3
+    // FloatingActionButton, so it shows the default M3 focus state
+    // layer, not the zephFocus ring — the Fab does not expose an
+    // interaction source to wire the ring to.
+    val playPauseFocus = remember { FocusRequester() }
+    // M4 (2.0.1): only auto-play on a genuinely new item — the same
+    // lastSetupKey guard as the video players (see the setup effect).
+    val lastSetupKey = remember { mutableStateOf<String?>(null) }
     // EQ dialog state — display-only (the plan: EQ is display-only
     // until wired to a real EQ). The sliders move and the preset
     // sticks, but nothing audible changes yet.
@@ -353,7 +368,9 @@ internal fun M3NowPlayingScreen(
     val view = LocalView.current
     LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying; onPlayingChange(isPlaying) }
     DisposableEffect(Unit) { onDispose { view.keepScreenOn = false } }
-    BackHandler { onCollapse() }
+    // M17 (2.0.1): Back with a sheet open closes the SHEET; only
+    // with no sheet open does Back collapse the whole screen.
+    BackHandler { if (sheet != null) sheet = null else onCollapse() }
 
     // The player listener. Keyed on controller + item so the end-of-
     // track handler always sees the current queue (a plain list, not
@@ -400,13 +417,25 @@ internal fun M3NowPlayingScreen(
     // Player setup — runs when the track or the controller changes.
     // Only (re)loads when the session is on a different item:
     // re-expanding from the MiniPlayer must NOT restart the track.
+    //
+    // M4 (2.0.1): only auto-play on a genuinely new item — the same
+    // lastSetupKey guard as the video players. Pausing, then leaving
+    // and returning (or a controller reconnect), used to restart
+    // playback by itself: the reconnected controller briefly reports
+    // no current item, so the old code reloaded the track and called
+    // play(). Two guards now: the remembered setup key (a reconnect
+    // for the same item never re-plays) and the session player
+    // (PlayerHolder) as ground truth — if it still holds this item
+    // the track is already loaded, so never reload it; just sync the
+    // UI to where it already is and keep the paused/playing state.
     DisposableEffect(item, controller) {
         val c = controller
         if (c == null) {
             onDispose { }
         } else {
             ended = false; positionMs = 0L; durationMs = 0L; status = ""
-            if (c.currentMediaItem?.mediaId != item.path) {
+            val sessionHasItem = PlayerHolder.player?.currentMediaItem?.mediaId == item.path
+            if (c.currentMediaItem?.mediaId != item.path && !sessionHasItem) {
                 c.setMediaItem(
                     MediaItem.Builder().setUri(Uri.parse(item.path))
                         .setMediaId(item.path)
@@ -414,12 +443,19 @@ internal fun M3NowPlayingScreen(
                         .build()
                 )
                 c.prepare()
-                c.play()
+                val setupKey = item.path
+                if (lastSetupKey.value != setupKey) {
+                    c.play()
+                    lastSetupKey.value = setupKey
+                }
             } else {
                 // Same item — just sync the UI to where it already is.
-                positionMs = c.currentPosition
+                // Prefer the session player's position/state: the
+                // controller's copy can lag right after a reconnect.
+                val sessionPlayer = PlayerHolder.player?.takeIf { it.currentMediaItem?.mediaId == item.path }
+                positionMs = sessionPlayer?.currentPosition ?: c.currentPosition
                 if (c.duration > 0) durationMs = c.duration
-                isPlaying = c.isPlaying
+                isPlaying = sessionPlayer?.isPlaying ?: c.isPlaying
             }
             c.repeatMode = Player.REPEAT_MODE_OFF
             c.shuffleModeEnabled = false
@@ -455,6 +491,10 @@ internal fun M3NowPlayingScreen(
         if (reduceMotion) artAnim.snapTo(1f)
         else { artAnim.snapTo(0f); artAnim.animateTo(1f, tween(600, easing = Motion.EmphasizedDecelerate)) }
     }
+    // M16 (2.0.1): D-pad autofocus — focus lands on the play/pause
+    // Fab when the screen opens and again on track change, so the
+    // remote works immediately without hunting for a focused control.
+    LaunchedEffect(item.path) { runCatching { playPauseFocus.requestFocus() } }
     val artScale = 0.85f + 0.15f * artAnim.value
     val artRot = -4f * (1f - artAnim.value)
 
@@ -475,6 +515,17 @@ internal fun M3NowPlayingScreen(
 
     val doTogglePlay: () -> Unit = {
         controller?.let { if (it.isPlaying) it.pause() else it.play() }
+    }
+    // M3 (2.0.1): a real Stop — pause + stop the shared player
+    // (both the controller and the service player itself, so the
+    // stop holds even if the controller is not yet connected),
+    // then clear the playing item (onExit) so the MiniPlayer goes
+    // away too. The old Close button only paused.
+    val doStop: () -> Unit = {
+        controller?.pause()
+        runCatching { controller?.stop() }
+        runCatching { PlayerHolder.player?.stop() }
+        onExit()
     }
     val doNext: () -> Unit = {
         nextAudioTrack(audioQ, item, shuffleOn, repeatMode)?.let { onPlayNext(it) }
@@ -567,7 +618,7 @@ internal fun M3NowPlayingScreen(
                 IconButton(onClick = onCollapse) {
                     Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to mini-player", tint = MaterialTheme.colorScheme.onSurface)
                 }
-                IconButton(onClick = { controller?.pause(); onExit() }) {
+                IconButton(onClick = doStop) {
                     Icon(Icons.Filled.Close, contentDescription = "Stop and close", tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
@@ -633,6 +684,15 @@ internal fun M3NowPlayingScreen(
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            // m14 (2.0.1): the seek slider takes Left/Right on the
+            // remote — a hint, so a D-pad user knows without trying.
+            Text(
+                "Left / Right to seek",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -650,7 +710,7 @@ internal fun M3NowPlayingScreen(
                 }
                 FloatingActionButton(
                     onClick = doTogglePlay,
-                    modifier = Modifier.size(96.dp),
+                    modifier = Modifier.size(96.dp).focusRequester(playPauseFocus),
                     shape = RoundedCornerShape(fabCorner),
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -669,6 +729,16 @@ internal fun M3NowPlayingScreen(
                         if (repeatMode == NowRepeat.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
                         contentDescription = "Repeat",
                         tint = if (repeatMode == NowRepeat.OFF) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                // M3 (2.0.1): a real Stop in the transport row — the
+                // D-pad can reach it, and it stops the shared player
+                // and clears the playing item (see doStop).
+                IconButton(onClick = doStop) {
+                    Icon(
+                        Icons.Filled.Stop, contentDescription = "Stop",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -708,6 +778,9 @@ internal fun M3NowPlayingScreen(
             Spacer(modifier = Modifier.height(28.dp))
         }
         // Queue sheet (side sheet, slide-in-right 420ms + scrim 250ms).
+        // M18 (2.0.1): the scrim is touch-only — pointerInput with
+        // detectTapGestures, not clickable — so D-pad focus never
+        // lands on the full-screen scrim.
         Box(modifier = Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = sheet == "queue",
@@ -716,7 +789,7 @@ internal fun M3NowPlayingScreen(
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
-                        .clickable { sheet = null }
+                        .pointerInput(Unit) { detectTapGestures { sheet = null } }
                 )
             }
             AnimatedVisibility(
@@ -725,10 +798,15 @@ internal fun M3NowPlayingScreen(
                 exit = slideOutHorizontally(tween(420, easing = Motion.EmphasizedDecelerate)) { it },
                 modifier = Modifier.align(Alignment.CenterEnd)
             ) {
+                // M18: the old empty clickable() is gone — it was a
+                // focusable trap. A no-op tap consumer instead: touch
+                // taps on empty sheet space are swallowed here so
+                // they do NOT fall through to the scrim and close the
+                // sheet, while D-pad focus still skips the container.
                 Box(
                     modifier = Modifier.fillMaxHeight().width(340.dp)
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .clickable(enabled = true, onClick = {})
+                        .pointerInput(Unit) { detectTapGestures { } }
                 ) {
                     M3QueueSheetContent(
                         queue = audioQ,
@@ -950,6 +1028,13 @@ private fun M3EqualizerDialog(
                             ) {
                                 // A horizontal Slider rotated -90°:
                                 // 0 sits at the bottom, 1 at the top.
+                                // NOTE (m15): on a D-pad remote,
+                                // Left/Right still drives the slider's
+                                // horizontal axis, so Left lowers what
+                                // the eye reads as a vertical bar and
+                                // Right raises it — the mapping looks
+                                // inverted. The EQ is display-only in
+                                // this build, so the sliders stay as-is.
                                 Slider(
                                     value = v,
                                     onValueChange = { onBand(i, it) },
@@ -997,6 +1082,11 @@ internal fun M3MiniPlayer(
     sleep: AudioSleepState,
     onPlayNext: (VideoItem) -> Unit,
     onExpand: () -> Unit,
+    // M20 (2.0.1): Stop dismisses the MiniPlayer — the tab clears
+    // the playing item. MainActivity must pass
+    // onStop = { playing = null }; until it does, Stop still halts
+    // the audio, but the bar stays until the callback is wired.
+    onStop: () -> Unit = {},
     onPlayingChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1010,6 +1100,9 @@ internal fun M3MiniPlayer(
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var fallbackFired by remember(item) { mutableStateOf(false) }
+    // M4 (2.0.1): same lastSetupKey guard as Now Playing — only
+    // auto-play on a genuinely new item, never on a reconnect.
+    val lastSetupKey = remember { mutableStateOf<String?>(null) }
     val controller = rememberAudioController()
     LaunchedEffect(isPlaying) { onPlayingChange(isPlaying) }
 
@@ -1044,12 +1137,17 @@ internal fun M3MiniPlayer(
         onDispose { c.removeListener(listener) }
     }
 
+    // M4 (2.0.1): same guard as Now Playing — only auto-play on a
+    // genuinely new item. The session player (PlayerHolder) is the
+    // ground truth: if it still holds this item, never reload it
+    // and never auto-play; just sync the UI and keep the state.
     DisposableEffect(item, controller) {
         val c = controller
         if (c == null) {
             onDispose { }
         } else {
-            if (c.currentMediaItem?.mediaId != item.path) {
+            val sessionHasItem = PlayerHolder.player?.currentMediaItem?.mediaId == item.path
+            if (c.currentMediaItem?.mediaId != item.path && !sessionHasItem) {
                 c.setMediaItem(
                     MediaItem.Builder().setUri(Uri.parse(item.path))
                         .setMediaId(item.path)
@@ -1057,11 +1155,16 @@ internal fun M3MiniPlayer(
                         .build()
                 )
                 c.prepare()
-                c.play()
+                val setupKey = item.path
+                if (lastSetupKey.value != setupKey) {
+                    c.play()
+                    lastSetupKey.value = setupKey
+                }
             } else {
-                positionMs = c.currentPosition
+                val sessionPlayer = PlayerHolder.player?.takeIf { it.currentMediaItem?.mediaId == item.path }
+                positionMs = sessionPlayer?.currentPosition ?: c.currentPosition
                 if (c.duration > 0) durationMs = c.duration
-                isPlaying = c.isPlaying
+                isPlaying = sessionPlayer?.isPlaying ?: c.isPlaying
             }
             c.repeatMode = Player.REPEAT_MODE_OFF
             c.shuffleModeEnabled = false
@@ -1086,6 +1189,15 @@ internal fun M3MiniPlayer(
 
     val doTogglePlay: () -> Unit = {
         controller?.let { if (it.isPlaying) it.pause() else it.play() }
+    }
+    // M3/M20 (2.0.1): a real Stop — pause + stop the shared player,
+    // then onStop() so the tab clears the playing item and this bar
+    // goes away.
+    val doStop: () -> Unit = {
+        controller?.pause()
+        runCatching { controller?.stop() }
+        runCatching { PlayerHolder.player?.stop() }
+        onStop()
     }
     val doNext: () -> Unit = {
         nextAudioTrack(audioQ, item, shuffleOn, nowRepeatFromSettings(settings))?.let { onPlayNext(it) }
@@ -1151,6 +1263,11 @@ internal fun M3MiniPlayer(
             }
             IconButton(onClick = doNext) {
                 Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
+            }
+            // M3/M20 (2.0.1): a real Stop — D-pad reachable, stops
+            // the shared player and dismisses this bar (see doStop).
+            IconButton(onClick = doStop) {
+                Icon(Icons.Filled.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = onExpand) {
                 Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Expand now playing", tint = MaterialTheme.colorScheme.onSurface)
