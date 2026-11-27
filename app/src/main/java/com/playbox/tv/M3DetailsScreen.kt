@@ -163,8 +163,11 @@ internal fun M3DetailsScreen(
         else (list.drop(idx + 1) + list.take(idx)).take(6)
     }
     // D14: focus starts on the Play FAB.
+    // M22 (2.0.1): keyed on item.path, not Unit — opening a new
+    // item from Up Next replaced the content in place but never
+    // re-requested focus, so focus was orphaned on the old FAB.
     val fabFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { fabFocus.requestFocus() }
+    LaunchedEffect(item.path) { fabFocus.requestFocus() }
     val fabInteraction = remember { MutableInteractionSource() }
 
     // D6: the description is written from real facts only — no
@@ -247,11 +250,18 @@ internal fun M3DetailsScreen(
                             )
                         }
                     }
+                    // m11 (2.0.1): the hero play circle gets the
+                    // zephFocus ring — it was a bare clickable with
+                    // no ring, so the user couldn't tell it was
+                    // focused (it duplicates the Play FAB, which
+                    // is the autofocus target).
+                    val heroPlayInteraction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier.size(64.dp).align(Alignment.Center)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary)
-                            .clickable { onPlay(item, false) },
+                            .zephFocus(heroPlayInteraction, focusScale = 1f, cornerRadius = 32.dp)
+                            .clickable(interactionSource = heroPlayInteraction, indication = null) { onPlay(item, false) },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
