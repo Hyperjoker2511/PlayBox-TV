@@ -304,7 +304,10 @@ internal fun Modifier.zephFocus(
         else -> 0.97f
     }
     val pressScale by animateFloatAsState(pressTarget, focusAnim, label = "zephFocusPress")
-    val secondary = MaterialTheme.colorScheme.secondary
+    // 2.0.2: the ring is on-surface (near-white in dark, near-black
+    // in light) — the old secondary ring was invisible on the TV
+    // because the muted violet blended into the dark background.
+    val focusRing = MaterialTheme.colorScheme.onSurface
     return this
         .graphicsLayer { scaleX = scale * pressScale; scaleY = scale * pressScale }
         .then(
@@ -320,15 +323,26 @@ internal fun Modifier.zephFocus(
             } else Modifier
         )
         .drawWithContent {
+            if (focused && enabled) {
+                // 2.0.2: state-layer fill so the focused item is
+                // visibly lighter even before the ring registers.
+                drawRoundRect(
+                    color = focusRing.copy(alpha = 0.12f),
+                    size = size,
+                    cornerRadius = CornerRadius(cornerRadius.toPx())
+                )
+            }
             drawContent()
             if (focused && enabled) {
-                val stroke = 3.dp.toPx()
-                val offset = 3.dp.toPx()
+                // 2.0.2: thick bright ring — 5dp, clearly separated
+                // from the item, so it reads from the couch.
+                val stroke = 5.dp.toPx()
+                val offset = 4.dp.toPx()
                 drawRoundRect(
-                    color = secondary,
+                    color = focusRing,
                     topLeft = Offset(-offset, -offset),
                     size = Size(size.width + offset * 2f, size.height + offset * 2f),
-                    cornerRadius = CornerRadius((cornerRadius + 3.dp).toPx()),
+                    cornerRadius = CornerRadius((cornerRadius + 4.dp).toPx()),
                     style = Stroke(width = stroke)
                 )
             }
@@ -539,7 +553,10 @@ internal fun ZephFilterChip(
 }
 
 /** Zeph section title — the design's SectionTitle (m3.tsx):
- * title-l (22sp Regular), 12dp below, 4dp horizontal padding.
+ * title-l (22sp Regular), 12dp below. 2.0.2 (gridlines fix 1):
+ * NO horizontal padding — the title sits on the content edge
+ * (0dp), matching the screen headers. (Before: 4dp, so titles
+ * sat 4dp in from the headers.)
  * An optional muted subtitle follows it. */
 @Composable
 internal fun ZephSectionTitle(
@@ -547,7 +564,7 @@ internal fun ZephSectionTitle(
     subtitle: String? = null,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.padding(horizontal = 4.dp).padding(bottom = 12.dp)) {
+    Column(modifier = modifier.padding(bottom = 12.dp)) {
         Text(
             title,
             style = MaterialTheme.typography.titleLarge,
