@@ -109,6 +109,11 @@ internal fun VlcPlayerScreen(
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
+    // 2.0.4 (seek fix): same settle window as PlayerScreen — after a
+    // seek the player may take a moment to move, and the 500ms poll
+    // overwriting positionMs from the not-yet-moved player is what
+    // made the time snap back instantly.
+    var seekSettleUntilMs by remember { mutableStateOf(0L) }
     var speed by remember { mutableStateOf(startSpeed ?: settings.getFloat("default_speed", 1f)) }
     var status by remember { mutableStateOf("") }
     var panel by remember { mutableStateOf<String?>(null) }
@@ -495,19 +500,26 @@ internal fun VlcPlayerScreen(
             try {
                 val t = p.time
                 val len = p.length
-                if (t >= 0) positionMs = t
+                // 2.0.4 (seek fix): during the settle window after a
+                // seek, keep the optimistic target unless the player
+                // has caught up to it.
+                val now = System.currentTimeMillis()
+                if (t >= 0 && (now >= seekSettleUntilMs || kotlin.math.abs(t - positionMs) < 2000L)) {
+                    positionMs = t
+                    if (now >= seekSettleUntilMs) seekSettleUntilMs = 0L
+                }
                 if (len > 0) durationMs = len
                 isPlaying = p.isPlaying
                 if (pendingSeekMs > 0L && len > 0 && isPlaying) {
                     runCatching { p.setTime(pendingSeekMs) }
                     pendingSeekMs = 0L
                 }
-                if (isPlaying && positionMs > 5_000L && positionMs - lastSavedMs >= 10_000L) {
-                    saveResumePosition(context, item.path, positionMs, durationMs)
-                    lastSavedMs = positionMs
+                if (isPlaying && t > 5_000L && t - lastSavedMs >= 10_000L) {
+                    saveResumePosition(context, item.path, t, durationMs)
+                    lastSavedMs = t
                 }
                 val a = ab
-                if (a != null && positionMs >= a.second) { p.setTime(a.first); positionMs = a.first }
+                if (a != null && t >= a.second) { p.setTime(a.first); positionMs = a.first }
                 if (sleepUntilMs > 0 && System.currentTimeMillis() >= sleepUntilMs) {
                     p.pause(); sleepUntilMs = 0; sleepMin = 0; status = "Sleep timer stopped playback"
                 }
@@ -542,7 +554,11 @@ internal fun VlcPlayerScreen(
     fun seekBy(delta: Long) {
         val target = SeekHelper.clampSeek(positionMs, delta, durationMs)
         runCatching { engine?.player?.setTime(target) }
-        positionMs = target; pokeControls()
+        positionMs = target
+        // 2.0.4 (seek fix): give the player a second to actually move
+        // before the poll is allowed to overwrite the target again.
+        seekSettleUntilMs = System.currentTimeMillis() + 1000L
+        pokeControls()
         // Patch 7: a real skip pops the design's seek-flash circle.
         if (kotlin.math.abs(delta) >= 1000L) {
             seekFlash = (delta > 0) to System.currentTimeMillis()
