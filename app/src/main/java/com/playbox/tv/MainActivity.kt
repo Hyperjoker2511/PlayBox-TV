@@ -61,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -100,7 +101,11 @@ class MainActivity : ComponentActivity() {
         // when it closes (unless "Keep discoverable when closed" is
         // on in Settings). It no longer stays alive in the background
         // after the app is gone — that was the "active 9 hr" bug.
-        startService(Intent(this, CastService::class.java))
+        // M25 (2.0.1): only start it when the "Cast receiver"
+        // switch is on (Settings); off means no receiver at all.
+        if (castReceiverOn(this)) {
+            startService(Intent(this, CastService::class.java))
+        }
         // The permission request itself lives in PlayBoxApp (rememberLauncherForActivityResult),
         // behind a plain-words rationale shown on first launch — no silent system prompt.
         // P1 (one design system): one font across the whole app —
@@ -113,14 +118,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Patch 7 (PiP): leaving the app with the Home key while a video
-    // is playing shrinks it into a picture-in-picture window instead
-    // of stopping it. pipPlaying is set from PlayBoxApp.
+    // 2.0.1 (C2): NO automatic PiP on Home. Patch 7 entered PiP
+    // whenever anything was playing, but the PiP window has no
+    // Pause/Stop controls, and entering PiP fires ON_PAUSE (not
+    // ON_STOP) so the players' ON_STOP pause never ran — the video
+    // kept playing in an unstoppable mini window. Now Home just
+    // backgrounds the app: the Activity reaches ON_STOP and the
+    // players pause video there (music keeps playing by design).
+    // Manual PiP from the player's PiP button (enterPip) still works.
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (pipPlaying.value) {
-            runCatching { enterPictureInPictureMode(PictureInPictureParams.Builder().build()) }
-        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -140,10 +147,6 @@ class MainActivity : ComponentActivity() {
 
 // Batch 2: the URI of a file another app asked us to play (null normally).
 private val viewUri = mutableStateOf<Uri?>(null)
-
-// Patch 7 (PiP): true while a video is on screen — MainActivity's
-// onUserLeaveHint reads this to decide whether to enter PiP.
-private val pipPlaying = mutableStateOf(false)
 
 private val permissionTick = mutableStateOf(0)
 
@@ -193,6 +196,19 @@ private fun PlayBoxApp() {
     val context = LocalContext.current
     var tab by remember { mutableStateOf(Tab.Home) }
     var details by remember { mutableStateOf<VideoItem?>(null) }
+    // M23 (2.0.1): return focus to the rail when Details closes.
+    // Closing Details unmounted the focused Play FAB, leaving
+    // focus nowhere — the remote did nothing until the user
+    // somehow re-focused. This only fires on the close
+    // transition (was open, now closed), not on first launch.
+    val railTabFocus = remember { FocusRequester() }
+    var prevDetails by remember { mutableStateOf<VideoItem?>(null) }
+    LaunchedEffect(details) {
+        if (prevDetails != null && details == null) {
+            runCatching { railTabFocus.requestFocus() }
+        }
+        prevDetails = details
+    }
     var playing by remember { mutableStateOf<VideoItem?>(null) }
     var playList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     // Patch 5: the full Now Playing screen is showing (audio only).
@@ -321,7 +337,6 @@ private fun PlayBoxApp() {
     // are here now so the mode exists).
     var themeDarkMode by remember { mutableStateOf(themeDark(context)) }
     // Patch 7 (PiP): MainActivity's onUserLeaveHint reads this.
-    LaunchedEffect(playing) { pipPlaying.value = playing != null }
     val activity = LocalContext.current as? Activity
     val enterPip: () -> Unit = {
         runCatching {
@@ -418,8 +433,16 @@ private fun PlayBoxApp() {
     // exit (the same clean-exit dialog as Back on Home). Now
     // Playing has its own Back (collapse to the MiniPlayer) and
     // the video player has its own Back (exit the player).
+    // M19 (2.0.1): Back's meaning used to change whenever audio
+    // played — on any tab it asked "Exit?" instead of going Home.
+    // Now: on a non-Home tab Back goes Home first (like the tab
+    // handler); only on Home does it ask to exit.
     BackHandler(enabled = playingItem != null && !playingItem.isVideo && playingEngine == PlayerEngine.MEDIA3 && !nowPlayingOpen && details == null && settingsPage == null) {
-        showExitDialog = true
+        if (tab != Tab.Home) {
+            tab = Tab.Home
+        } else {
+            showExitDialog = true
+        }
     }
 
     // M3 redesign Phase 1: the whole app now runs under ZephTheme —
@@ -700,7 +723,8 @@ private fun PlayBoxApp() {
                                 }
                                 tab = t
                             },
-                            onSearch = { tab = Tab.Search }
+                            onSearch = { tab = Tab.Search },
+                            selectedTabFocus = railTabFocus
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 AnimatedContent(
@@ -808,6 +832,11 @@ private fun DetailsOverlay(
 @Composable
 private fun ExitConfirmDialog(onExit: () -> Unit, onStay: () -> Unit) {
     BackHandler { onStay() }
+    // m12 (2.0.1): autofocus the safe default ("Stay") so the
+    // dialog opens with a focused button, not an unfocused row.
+    // (Back also means Stay, and Exit is one press away.)
+    val stayFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { stayFocus.requestFocus() } }
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0xCC000000)),
         contentAlignment = Alignment.Center
@@ -826,7 +855,7 @@ private fun ExitConfirmDialog(onExit: () -> Unit, onStay: () -> Unit) {
             Spacer(modifier = Modifier.height(28.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 M3TvButton("Exit", onClick = onExit)
-                M3TvButton("Stay", onClick = onStay)
+                M3TvButton("Stay", modifier = Modifier.focusRequester(stayFocus), onClick = onStay)
             }
         }
     }
