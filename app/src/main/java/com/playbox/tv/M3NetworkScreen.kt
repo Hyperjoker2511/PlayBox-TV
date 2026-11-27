@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -206,13 +207,29 @@ internal fun M3NetworkScreen(
             val media = entries.filter { !it.isDir && VideoFilter.isMediaFile(it.name) }
                 .map { VideoItem(path = it.url, name = it.name, sizeBytes = it.size, dateAddedSec = it.lastModified / 1000) }
             items(entries.filter { it.isDir }, key = { it.url }) { entry ->
-                Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)).clickable { onPath(entry.url) }.padding(20.dp)) {
+                // m6 (2.0.1): network rows get the zephFocus ring —
+                // they were plain clickables with no ring.
+                val rowInteraction = remember { MutableInteractionSource() }
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
+                        .zephFocus(rowInteraction, focusScale = 1f, cornerRadius = 16.dp)
+                        .clickable(interactionSource = rowInteraction, indication = null) { onPath(entry.url) }
+                        .padding(20.dp)
+                ) {
                     Text("Folder: ${entry.name}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
             items(media, key = { it.path }) { item ->
-                Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)).clickable { onOpen(item, media) }.padding(20.dp)) {
+                val rowInteraction = remember { MutableInteractionSource() }
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
+                        .zephFocus(rowInteraction, focusScale = 1f, cornerRadius = 16.dp)
+                        .clickable(interactionSource = rowInteraction, indication = null) { onOpen(item, media) }
+                        .padding(20.dp)
+                ) {
                     Text(if (item.likelyUnsupported) "${item.name}  ·  May not play" else item.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(modifier = Modifier.height(12.dp))
@@ -228,8 +245,15 @@ internal fun M3NetworkScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
             items(servers, key = { it.host + "/" + it.share }) { srv ->
+                val rowInteraction = remember { MutableInteractionSource() }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(modifier = Modifier.weight(1f).background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)).clickable { onServer(srv); onPath(srv.url()) }.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.weight(1f)
+                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
+                            .zephFocus(rowInteraction, focusScale = 1f, cornerRadius = 16.dp)
+                            .clickable(interactionSource = rowInteraction, indication = null) { onServer(srv); onPath(srv.url()) }
+                            .padding(20.dp)
+                    ) {
                         Text("${srv.host} / ${srv.share}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     M3TvButton("Remove") {
