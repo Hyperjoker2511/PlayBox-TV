@@ -282,6 +282,13 @@ private fun M3BrowseRoot(
                         ZephTonalButton(
                             text = "Open stream",
                             onClick = onOpenStream,
+                            // m5 (2.0.1): fallback focus target. The
+                            // firstCardFocus requester is also on the
+                            // first storage card (composed later, so
+                            // it wins when roots exist); with no
+                            // roots, focus lands here instead of
+                            // nowhere.
+                            modifier = Modifier.focusRequester(firstCardFocus),
                             icon = Icons.Filled.Stream
                         )
                         ZephButton(
@@ -553,7 +560,20 @@ private fun M3BrowseFolderView(
     error: String?
 ) {
     val firstRowFocus = remember { FocusRequester() }
-    LaunchedEffect(crumbs) { firstRowFocus.requestFocus() }
+    val upFocus = remember { FocusRequester() }
+    // M21 (2.0.1): keyed on (crumbs, loading), not just crumbs.
+    // The old effect fired when the folder changed but the rows
+    // load asynchronously afterwards, so the request landed
+    // before row 0 existed and focus was orphaned. Now it waits
+    // for loading to finish, then focuses row 0 — or the Up
+    // button when the folder is empty / errored (no row 0).
+    LaunchedEffect(crumbs, loading) {
+        if (loading) return@LaunchedEffect
+        runCatching {
+            if (rows.isNotEmpty()) firstRowFocus.requestFocus()
+            else upFocus.requestFocus()
+        }
+    }
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(modifier = Modifier.height(20.dp))
         M3ScreenHeader(
@@ -569,6 +589,7 @@ private fun M3BrowseFolderView(
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .focusRequester(upFocus)
                         .zephFocus(upInteraction, focusScale = 1f, cornerRadius = 20.dp)
                         .clickable(interactionSource = upInteraction, indication = null) { onUp() },
                     contentAlignment = Alignment.Center
