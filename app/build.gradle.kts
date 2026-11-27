@@ -127,7 +127,7 @@ dependencies {
     // and glow. Mobile material3 alone cannot do TV focus properly,
     // which is why the Library highlights never felt like M3.
     implementation("androidx.tv:tv-material:1.1.0")
-    implementation("androidx.tv:tv-foundation:1.1.0")
+    implementation("androidx.tv:tv-foundation:1.0.0")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.1")
