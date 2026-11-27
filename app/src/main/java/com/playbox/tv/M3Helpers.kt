@@ -45,6 +45,49 @@ internal fun isResumeOn(context: Context): Boolean =
 internal fun isReduceMotion(context: Context): Boolean =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("reduce_motion", false)
 
+/** Patch 8 (Settings two-pane): the design's Video/Audio switches.
+ * Defaults are the design's store.tsx DEFAULTS. The prefs are real
+ * persisted state; the player-side wiring for AFR / passthrough /
+ * replay gain / gapless lands in a later player update (like the EQ
+ * dialog, which is display-only until wired). The visualizer and
+ * dynamic-artwork switches ARE wired now — they gate the real Now
+ * Playing visualizer and dynamic-colour wash. */
+internal fun isAfrOn(context: Context): Boolean =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("afr", true)
+
+internal fun saveAfrOn(context: Context, on: Boolean) =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("afr", on).apply()
+
+internal fun isPassthroughOn(context: Context): Boolean =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("audio_passthrough", false)
+
+internal fun savePassthroughOn(context: Context, on: Boolean) =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("audio_passthrough", on).apply()
+
+internal fun isReplayGainOn(context: Context): Boolean =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("replay_gain", true)
+
+internal fun saveReplayGainOn(context: Context, on: Boolean) =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("replay_gain", on).apply()
+
+internal fun isGaplessOn(context: Context): Boolean =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("gapless", true)
+
+internal fun saveGaplessOn(context: Context, on: Boolean) =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("gapless", on).apply()
+
+internal fun isVisualizerOn(context: Context): Boolean =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("visualizer_on", true)
+
+internal fun saveVisualizerOn(context: Context, on: Boolean) =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("visualizer_on", on).apply()
+
+internal fun isDynamicArtworkOn(context: Context): Boolean =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("dynamic_artwork", true)
+
+internal fun saveDynamicArtworkOn(context: Context, on: Boolean) =
+    context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("dynamic_artwork", on).apply()
+
 /** Resume applies only when the setting is on and the saved position
  * is worth resuming. (unit-tested) */
 internal fun shouldResumeAt(savedMs: Long, durationMs: Long, resumeOn: Boolean): Boolean =
