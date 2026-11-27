@@ -310,6 +310,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
+    var seekSettleUntilMs by remember { mutableStateOf(0L) }
+    // 2.0.4 (seek fix): after a seek, the player may take a moment
+    // to actually move. The 500ms poll overwrote positionMs from the
+    // not-yet-moved player, so the time jumped to the target then
+    // snapped straight back — the user saw the numbers move but the
+    // video never did. During this settle window the poll keeps the
+    // optimistic target on screen; once the player catches up (or
+    // the window expires) the real position takes over again.
     var speed by remember { mutableStateOf(startSpeed ?: settings.getFloat("default_speed", 1f)) }
     // 1.9.1 (P10 / Se6): the dock's Volume chip drives the device
     // music-stream volume. It starts at the device's current
@@ -717,17 +725,30 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             val c = controller
             try {
                 if (c != null) {
-                    positionMs = c.currentPosition; durationMs = c.duration
+                    val realPos = c.currentPosition
+                    durationMs = c.duration
+                    // 2.0.4 (seek fix): during the settle window after
+                    // a seek, keep the optimistic target on screen
+                    // unless the player has caught up to it — the
+                    // player may take a moment to move, and letting
+                    // the poll overwrite positionMs from the
+                    // not-yet-moved player is the snap-back.
+                    val now = System.currentTimeMillis()
+                    if (now >= seekSettleUntilMs || kotlin.math.abs(realPos - positionMs) < 2000L) {
+                        positionMs = realPos
+                        if (now >= seekSettleUntilMs) seekSettleUntilMs = 0L
+                    }
                     // B9b: throttled save while playing — a process kill on a
-                    // low-RAM TV loses at most ~10s of progress.
-                    if (isPlaying && positionMs > 5_000L && positionMs - lastSavedMs >= 10_000L) {
+                    // low-RAM TV loses at most ~10s of progress. Save the
+                    // REAL position, never the optimistic seek target.
+                    if (isPlaying && realPos > 5_000L && realPos - lastSavedMs >= 10_000L) {
                         persistResumePosition(context, c, item)
-                        lastSavedMs = positionMs
+                        lastSavedMs = realPos
                     }
                     // Patch 5: A–B repeat and the sleep timer, checked
                     // on the same tick.
                     val a = ab
-                    if (a != null && positionMs >= a.second) { c.seekTo(a.first); positionMs = a.first }
+                    if (a != null && realPos >= a.second) { c.seekTo(a.first); positionMs = a.first }
                     if (sleepUntilMs > 0 && System.currentTimeMillis() >= sleepUntilMs) {
                         c.pause(); sleepUntilMs = 0; sleepMin = 0; status = "Sleep timer stopped playback"
                     }
@@ -780,7 +801,11 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     fun pokeControls() { showControls = true; interactionTick++ }
     fun seekBy(delta: Long) {
         val target = SeekHelper.clampSeek(positionMs, delta, durationMs)
-        player.seekTo(target); positionMs = target; pokeControls()
+        player.seekTo(target); positionMs = target
+        // 2.0.4 (seek fix): give the player a second to actually move
+        // before the poll is allowed to overwrite the target again.
+        seekSettleUntilMs = System.currentTimeMillis() + 1000L
+        pokeControls()
         // Patch 7: a real skip (±10s / the skip setting) pops the
         // design's seek-flash circle; a 33ms step-frame does not.
         if (kotlin.math.abs(delta) >= 1000L) {
