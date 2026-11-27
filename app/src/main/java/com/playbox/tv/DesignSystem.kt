@@ -51,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -286,6 +288,20 @@ internal fun saveKeepDiscoverable(context: android.content.Context, keep: Boolea
         .apply()
 }
 
+// M25 (2.0.1): the cast receiver on/off. Default ON (the old
+// behaviour — the receiver always ran while the app was open).
+// Off stops the receiver entirely, so no phone can cast to
+// this TV until it is switched back on.
+internal fun castReceiverOn(context: android.content.Context): Boolean =
+    context.getSharedPreferences("playbox_settings", android.content.Context.MODE_PRIVATE)
+        .getBoolean("cast_receiver_on", true)
+
+internal fun saveCastReceiverOn(context: android.content.Context, on: Boolean) {
+    context.getSharedPreferences("playbox_settings", android.content.Context.MODE_PRIVATE).edit()
+        .putBoolean("cast_receiver_on", on)
+        .apply()
+}
+
 /** How long the floating rail stays open after the user leaves it
  * (focus moves back into the content) before it hides. */
 internal const val FloatingRailHideDelayMs = 5000L
@@ -321,7 +337,11 @@ private fun DesignRailContent(
     tab: Tab,
     onTab: (Tab) -> Unit,
     onSearch: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // M23 (2.0.1): a requester for the selected tab item, so
+    // MainActivity can return focus to the rail when an overlay
+    // (Details) closes and the focused element unmounts.
+    selectedTabFocus: FocusRequester? = null
 ) {
     Column(
         modifier = modifier.padding(vertical = DsSpace.lg),
@@ -368,7 +388,9 @@ private fun DesignRailContent(
                         tab = t,
                         // On the Search route the rail's active item is Home.
                         selected = if (tab == Tab.Search) t == Tab.Home else tab == t,
-                        onClick = { onTab(t) }
+                        onClick = { onTab(t) },
+                        // M23: the selected tab carries the requester.
+                        focusRequester = if ((if (tab == Tab.Search) t == Tab.Home else tab == t)) selectedTabFocus else null
                     )
                 }
             }
@@ -397,7 +419,8 @@ private fun DesignRailContent(
 private fun RailPillItem(
     tab: Tab,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
@@ -413,6 +436,7 @@ private fun RailPillItem(
     )
     Column(
         modifier = Modifier.width(72.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .zephFocus(interaction, focusScale = 1f, cornerRadius = 16.dp)
             .clickable(interactionSource = interaction, indication = null) { onClick() }
             .padding(vertical = 2.dp),
@@ -495,11 +519,13 @@ internal fun DesignRail(
     onTab: (Tab) -> Unit,
     onSearch: () -> Unit,
     labelMode: RailLabelMode = RailLabelMode.ALWAYS,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedTabFocus: FocusRequester? = null
 ) {
     DesignRailContent(
         tab = tab, onTab = onTab, onSearch = onSearch,
-        modifier = modifier.width(DesignRailWidth).fillMaxHeight()
+        modifier = modifier.width(DesignRailWidth).fillMaxHeight(),
+        selectedTabFocus = selectedTabFocus
     )
 }
 
@@ -507,7 +533,14 @@ internal fun DesignRail(
  * 88dp surface strip on the left — no pill, no border — and the
  * content fills the rest. The same rail on every screen size: the
  * phone gets this rail too (the §11 correction), scrolling when
- * the screen is short. `content` is the tab's screen. */
+ * the screen is short. `content` is the tab's screen.
+ *
+ * 2.0.1 (Bug 3): overscan-safe inset. The rail sat flush at x=0
+ * with no margin, and budget TVs (the user's Koryo) commonly
+ * crop 3–5% of the edges on HDMI — cutting the rail off-screen
+ * entirely, so the user couldn't see it or its focus ring and
+ * couldn't reach the tabs. The whole layout is now inset 24dp
+ * on both sides, so the rail starts inside the visible area. */
 @Composable
 internal fun RailLayout(
     labelMode: RailLabelMode,
@@ -515,14 +548,15 @@ internal fun RailLayout(
     onTab: (Tab) -> Unit,
     onSearch: () -> Unit,
     modifier: Modifier = Modifier,
+    selectedTabFocus: FocusRequester? = null,
     content: @Composable () -> Unit
 ) {
-    Row(modifier = modifier.fillMaxSize()) {
+    Row(modifier = modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Box(
             modifier = Modifier.width(DesignRailWidth).fillMaxHeight()
                 .background(MaterialTheme.colorScheme.surface)
         ) {
-            DesignRail(tab = tab, onTab = onTab, onSearch = onSearch, labelMode = labelMode)
+            DesignRail(tab = tab, onTab = onTab, onSearch = onSearch, labelMode = labelMode, selectedTabFocus = selectedTabFocus)
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content() }
     }
