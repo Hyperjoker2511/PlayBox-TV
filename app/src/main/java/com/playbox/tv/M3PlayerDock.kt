@@ -18,6 +18,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -25,6 +27,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -35,6 +38,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -62,6 +67,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -83,7 +89,9 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -523,13 +531,23 @@ internal fun M3VideoSlider(
                 }
             }
         }
+        // M9 (2.0.1): ONE focusable for the seek control. The outer
+        // Box owns focus + Left/Right (seek by the skip amount).
+        // onPreviewKeyEvent intercepts Left/Right BEFORE the inner
+        // Slider's own small-step handling, so Left/Right always
+        // seeks by skipMs whichever node holds focus. The Slider
+        // itself is focusable(false) so focus can't land on it
+        // separately and fight the Box over the same keys.
+        // (Before: onKeyEvent on the Box never fired — seekFocus
+        // was never requested, so the Slider took focus and
+        // Left/Right only nudged by a tiny step.)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(seekFocus)
                 .focusable(interactionSource = interaction)
-                .onKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
                         Key.DirectionLeft -> { onSeekBy(-skipMs); true }
                         Key.DirectionRight -> { onSeekBy(skipMs); true }
@@ -555,7 +573,7 @@ internal fun M3VideoSlider(
                     seeking = false
                     onSeekTo((seekFraction * durationMs).toLong())
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusable(false),
                 interactionSource = interaction,
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
@@ -682,45 +700,59 @@ internal fun M3PlayerDock(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(4.dp))
-            // Pill row.
+            // Pill row (m17, 2.0.1): horizontally scrollable as
+            // insurance — 9 pills + gear can clip on narrower
+            // widths. Two groups + SpaceBetween keeps Info/Pop-up/
+            // gear at the right edge when it fits, and scrolls
+            // when it doesn't (a weight spacer collapses to 0
+            // inside a scrollable Row, so it can't do the job).
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                M3PlayerPill(Icons.Filled.MusicNote, audioLabel, onClick = onAudio)
-                M3PlayerPill(
-                    Icons.Filled.ClosedCaption,
-                    if (subLabel.startsWith("Subtitles · ")) subLabel.removePrefix("Subtitles · ") else subLabel,
-                    onClick = onSubtitles
-                )
-                M3PlayerPill(Icons.Filled.Speed, speedText, onClick = onSpeed)
-                M3PlayerPill(Icons.Filled.AspectRatio, aspectLabel, onClick = onAspect)
-                M3PlayerPill(
-                    Icons.Filled.Repeat, abLabel.ifBlank { "A–B loop" },
-                    active = abActive, onClick = onAB
-                )
-                M3PlayerPill(Icons.Filled.PlayCircle, engineLabel, onClick = onEngine)
-                Spacer(modifier = Modifier.weight(1f))
-                M3PlayerPill(Icons.Filled.Info, "Info", onClick = onInfo)
-                M3PlayerPill(Icons.Filled.PictureInPictureAlt, "Pop-up", onClick = onPip)
-                // The gear — full VLC settings (never hidden behind
-                // the engine switch). An icon button, not a pill:
-                // the design's row ends with Info + Pop-up.
-                val gearInteraction = remember { MutableInteractionSource() }
-                IconButton(
-                    onClick = onGear,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.15f))
-                        .zephFocus(gearInteraction, cornerRadius = 20.dp),
-                    interactionSource = gearInteraction
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Filled.Settings, contentDescription = "Player settings",
-                        tint = Color.White, modifier = Modifier.size(22.dp)
+                    M3PlayerPill(Icons.Filled.MusicNote, audioLabel, onClick = onAudio)
+                    M3PlayerPill(
+                        Icons.Filled.ClosedCaption,
+                        if (subLabel.startsWith("Subtitles · ")) subLabel.removePrefix("Subtitles · ") else subLabel,
+                        onClick = onSubtitles
                     )
+                    M3PlayerPill(Icons.Filled.Speed, speedText, onClick = onSpeed)
+                    M3PlayerPill(Icons.Filled.AspectRatio, aspectLabel, onClick = onAspect)
+                    M3PlayerPill(
+                        Icons.Filled.Repeat, abLabel.ifBlank { "A–B loop" },
+                        active = abActive, onClick = onAB
+                    )
+                    M3PlayerPill(Icons.Filled.PlayCircle, engineLabel, onClick = onEngine)
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    M3PlayerPill(Icons.Filled.Info, "Info", onClick = onInfo)
+                    M3PlayerPill(Icons.Filled.PictureInPictureAlt, "Pop-up", onClick = onPip)
+                    // The gear — full VLC settings (never hidden behind
+                    // the engine switch). An icon button, not a pill:
+                    // the design's row ends with Info + Pop-up.
+                    val gearInteraction = remember { MutableInteractionSource() }
+                    IconButton(
+                        onClick = onGear,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.15f))
+                            .zephFocus(gearInteraction, cornerRadius = 20.dp),
+                        interactionSource = gearInteraction
+                    ) {
+                        Icon(
+                            Icons.Filled.Settings, contentDescription = "Player settings",
+                            tint = Color.White, modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
         }
@@ -729,22 +761,40 @@ internal fun M3PlayerDock(
 
 /** The design's side sheet: slides in from the right (420ms
  * emphasized-decelerate) over a scrim, 400dp wide, with a title
- * and a close button. The caller composes the rows. */
+ * and a close button. The caller composes the rows.
+ *
+ * 2.0.1 fixes:
+ * - C3: rows live in a scrollable Column, not a Box — a Box
+ *   stacked every row on top of each other, so only the topmost
+ *   row of Audio/Subtitles/Speed/Aspect/Engine/Info was visible.
+ * - C4: the scrim is touch-only (pointerInput tap) — the old
+ *   clickable scrim was a focusable full-screen target that
+ *   swallowed D-pad focus and closed the sheet on OK.
+ * - M6/M7: the sheet's focusRequester is the fallback focus
+ *   target on the Close button. Sheets with rows attach it to
+ *   their first row instead (composed later, so that wins);
+ *   row-less sheets (Info, empty Audio) fall back to Close,
+ *   so focus is never lost when a sheet opens.
+ * - M24: the Close button has the zephFocus ring. */
 @Composable
 internal fun M3PlayerSheet(
     title: String,
     onClose: () -> Unit,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
-    content: @Composable BoxScope.() -> Unit
+    content: @Composable ColumnScope.() -> Unit
 ) {
+    val closeInteraction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.CenterEnd
     ) {
+        // Touch-only scrim: tap outside closes. pointerInput adds
+        // no focus, so the D-pad never lands on this full-screen
+        // target (C4). Back / the Close button close it by remote.
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))
-                .clickable { onClose() }
+                .pointerInput(onClose) { detectTapGestures { onClose() } }
         )
         AnimatedVisibility(
             visible = true,
@@ -778,7 +828,12 @@ internal fun M3PlayerSheet(
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    IconButton(onClick = onClose) {
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier
+                            .focusRequester(focusRequester)
+                            .zephFocus(closeInteraction, focusScale = 1f, cornerRadius = 20.dp)
+                    ) {
                         Icon(
                             Icons.Filled.Close, contentDescription = "Close",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -786,7 +841,14 @@ internal fun M3PlayerSheet(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Box(modifier = Modifier.fillMaxSize(), content = content)
+                // Rows stack vertically and scroll (C3) — a file
+                // can have many audio/subtitle tracks.
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    content = content
+                )
             }
         }
     }
@@ -832,9 +894,18 @@ internal fun M3PlayerSheetRadioRow(
                 )
             }
         }
+        // M8 (2.0.1): the radio is visual only — the row itself
+        // is the clickable/focusable target. onClick = null keeps
+        // it out of focus traversal (focus used to land on this
+        // small circle with no visible ring). Explicit colours so
+        // a null onClick doesn't render it faded/disabled.
         RadioButton(
             selected = option.selected,
-            onClick = onClick
+            onClick = null,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = MaterialTheme.colorScheme.primary,
+                unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         )
     }
 }
