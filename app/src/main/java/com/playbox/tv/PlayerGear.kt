@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -172,7 +173,11 @@ internal fun GearSheet(
 ) {
     val context = LocalContext.current
     var tab by remember { mutableStateOf("Playback") }
-    var jumpText by remember { mutableStateOf("") }
+    // M14 (2.0.1): Close is reachable via Up from the tab row.
+    // Before, Close sat top-right and focus started on the
+    // leftmost tab, with nothing above it — Back was the only
+    // way out by remote. Up from any tab now goes to Close.
+    val closeFocus = remember { FocusRequester() }
     var marks by remember { mutableStateOf(bookmarks(context, item.path)) }
     var subSize by remember { mutableStateOf(subStyle(context).sizeSp) }
     var subColor by remember { mutableStateOf(context.getSharedPreferences(SUB_STYLE_PREFS, Context.MODE_PRIVATE).getString("color", "white") ?: "white") }
@@ -189,10 +194,13 @@ internal fun GearSheet(
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Player settings", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
-            M3GearButton("Close") { onClose() }
+            M3GearButton("Close", modifier = Modifier.focusRequester(closeFocus)) { onClose() }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyRow(
+            modifier = Modifier.focusProperties { up = closeFocus },
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             listOf("Playback", "Subtitles", "Audio", "Video", "Info").forEachIndexed { i, name ->
                 item {
                     M3GearButton(
@@ -249,36 +257,13 @@ internal fun GearSheet(
                         }
                     }
                     item {
+                        // M13 (2.0.1): the "Jump to time" text field
+                        // is gone — it was a bare BasicTextField with
+                        // no focus ring and no D-pad text-entry path,
+                        // so a remote could focus it but never type
+                        // a time into it. The ±1/±5 min buttons below
+                        // (plus the seek slider) cover jumping.
                         M3GearSection("Jump to time") {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Box(
-                                    modifier = Modifier.width(200.dp).height(56.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(28.dp))
-                                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(28.dp))
-                                        .padding(horizontal = 20.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    BasicTextField(
-                                        value = jumpText,
-                                        onValueChange = { jumpText = it },
-                                        singleLine = true,
-                                        textStyle = TextStyle(fontSize = 20.sp, color = White),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        decorationBox = { inner ->
-                                            Box(contentAlignment = Alignment.CenterStart) {
-                                                if (jumpText.isEmpty()) Text("1:23:45", fontSize = 20.sp, color = Muted)
-                                                inner()
-                                            }
-                                        }
-                                    )
-                                }
-                                M3GearButton("Go") {
-                                    val ms = parseTimeToMs(jumpText)
-                                    if (ms == null) onStatus("Time like 1:23:45 or 90")
-                                    else { onSeekTo(ms); onStatus("Jumped to ${TimeFormatter.format(ms)}") }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 M3GearButton("−5 min") { onSeekTo(positionMs - 5 * 60_000L) }
                                 M3GearButton("−1 min") { onSeekTo(positionMs - 60_000L) }
