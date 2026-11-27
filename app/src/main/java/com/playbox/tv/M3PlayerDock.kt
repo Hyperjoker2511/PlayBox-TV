@@ -504,6 +504,11 @@ internal fun M3VideoSlider(
     // M10 (2.0.2): Up from the seek slider goes to the play/pause
     // Fab — the main Up/Down path in the HUD.
     playPauseFocus: FocusRequester,
+    // 2.0.4 (gear fix): the gear lives in the time row above the
+    // slider, and Up from the slider is the only way to reach it —
+    // before, Up went straight to play/pause, so the gear was a
+    // focus orphan no D-pad path could reach.
+    gearFocus: FocusRequester,
     modifier: Modifier = Modifier
 ) {
     val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -554,8 +559,11 @@ internal fun M3VideoSlider(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(seekFocus)
-                // M10 (2.0.2): Up from seek goes to the play Fab.
-                .focusProperties { up = playPauseFocus }
+                // 2.0.4 (gear fix): Up from seek goes to the gear in
+                // the time row (not straight to play/pause) — the
+                // gear's own Up goes on to play/pause, so the chain
+                // is seek → gear → play/pause, all reachable.
+                .focusProperties { up = gearFocus }
                 .focusable(interactionSource = interaction)
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -729,6 +737,10 @@ internal fun M3PlayerDock(
                             // M11 (2.0.2): focus returns here when the
                             // gear sheet closes.
                             .focusRequester(gearFocus)
+                            // 2.0.4 (gear fix): the gear is the middle
+                            // of the chain — Down back to the seek
+                            // slider, Up on to play/pause.
+                            .focusProperties { down = seekFocus; up = playPauseFocus }
                             .zephFocus(gearInteraction, cornerRadius = 20.dp),
                         interactionSource = gearInteraction
                     ) {
@@ -749,6 +761,8 @@ internal fun M3PlayerDock(
                 onSeekBy = onSeekBy,
                 seekFocus = seekFocus,
                 playPauseFocus = playPauseFocus,
+                // 2.0.4 (gear fix): Up from seek goes to the gear.
+                gearFocus = gearFocus,
                 modifier = Modifier.fillMaxWidth()
             )
             // 2.0.2: the pill row is gone — the dock shows essentials
