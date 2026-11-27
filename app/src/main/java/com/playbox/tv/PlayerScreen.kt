@@ -406,9 +406,15 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     val seekFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     val endedFocus = remember { FocusRequester() }
-    LaunchedEffect(showControls, panel, sheet, ended) {
+    // M12 (2.0.1): the lock overlay's unlock button is a focus
+    // target. Before, it had no requester and the focus effect
+    // had no locked branch, so when locked the remote did nothing
+    // except Back — Center/OK was swallowed by the root handler.
+    val lockedFocus = remember { FocusRequester() }
+    LaunchedEffect(showControls, panel, sheet, ended, locked) {
         runCatching {
             when {
+                locked -> lockedFocus.requestFocus()
                 ended -> endedFocus.requestFocus()
                 panel != null || sheet != null -> panelFocus.requestFocus()
                 showControls -> playPauseFocus.requestFocus()
@@ -440,7 +446,21 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             Executor { it.run() }
         )
     }
-    DisposableEffect(Unit) { onDispose { controller?.release() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            // M1 (2.0.1): exiting a video must stop its audio.
+            // Releasing the controller alone left the shared
+            // PlaybackService player running with no UI — the
+            // audio kept playing after Back, and the user had no
+            // way to stop it. Audio items keep playing by design
+            // (MiniPlayer / Now Playing); only video stops here.
+            if (item.isVideo) {
+                runCatching { PlayerHolder.player?.pause() }
+                runCatching { PlayerHolder.player?.stop() }
+            }
+            controller?.release()
+        }
+    }
 
     // The player listener lives here now (it used to be attached in the
     // ExoPlayer.Builder): sync the UI state on connect, then keep it live.
@@ -558,6 +578,15 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         subtitleReady = true
     }
 
+    // M4 (2.0.1): only auto-play on a genuinely new setup. The
+    // old code called c.play() every time this effect re-ran —
+    // including when the controller reconnected after the user
+    // had paused, or after leaving and returning — so a paused
+    // video restarted by itself. Now the play call only fires
+    // for a new (item, fromStart) setup; a reconnect for the
+    // same item restores position and keeps the player's own
+    // paused/playing state.
+    val lastSetupKey = remember { mutableStateOf<String?>(null) }
     // Player setup — runs once the subtitle lookup has finished AND the
     // controller has connected. The no-op branch exists because
     // DisposableEffect must always end in onDispose.
@@ -608,7 +637,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             c.shuffleModeEnabled = shuffleOn
             c.trackSelectionParameters = c.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsOn).build()
-            c.play()
+            // M4: play only on a fresh setup (new item / new
+            // from-start intent). A reconnect for the same item
+            // keeps the player's own paused/playing state.
+            val setupKey = "${item.path}|$fromStart"
+            if (lastSetupKey.value != setupKey) {
+                c.play()
+                lastSetupKey.value = setupKey
+            }
             CrashLog.step(context, "media3: play called for ${item.name}")
             onDispose { }
         }
@@ -897,6 +933,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
+            .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 // Patch 1.3.1: locked — no seeking or toggling.
@@ -1348,9 +1385,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         // Patch 1.3.1: locked — only the unlock button is on screen.
         // Patch 7: M3 (no glass) — the lock overlay is rebuilt on a
         // plain surface, so GlassButton is gone.
+        // M12 (2.0.1): the button is the focus target when locked
+        // (lockedFocus), so OK unlocks it; "tap" was touch language
+        // on a remote-only TV. Back also unlocks (BackHandler).
         if (locked) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                ZephButton("🔒 Locked — tap to unlock", onClick = { locked = false })
+                ZephButton(
+                    "🔒 Locked — press OK to unlock",
+                    onClick = { locked = false },
+                    modifier = Modifier.focusRequester(lockedFocus)
+                )
             }
         }
 
