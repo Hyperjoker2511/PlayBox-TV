@@ -114,6 +114,50 @@ data class VideoItem(
     val isAudio: Boolean get() = VideoFilter.isAudioFile(name)
     /** Batch 1.4: Media3 cannot play this format yet (see VideoFilter). */
     val likelyUnsupported: Boolean get() = VideoFilter.isLikelyUnsupported(name)
+    /** 2.0.3: the clean title for display ("Avengers Endgame"),
+     * not the raw file name. */
+    val displayTitle: String get() = cleanDisplayTitle(name)
+}
+
+/** 2.0.3: a clean display title from a raw file name.
+ * The library stores the raw file name ("Avengers.Endgame.
+ * Encore.2026.1080p.10Bit..."), and the hero + cards showed it
+ * verbatim — wrapping, clipping, and looking broken. This turns
+ * it into "Avengers Endgame Encore": dots/underscores/dashes
+ * become spaces, the extension goes, and everything from the
+ * first release tag (year, resolution, codec, source) is dropped.
+ * A leading year that IS the title ("1917", "2001 A Space
+ * Odyssey") is kept. */
+internal fun cleanDisplayTitle(rawName: String): String {
+    val noExt = rawName.substringBeforeLast('.', rawName)
+    val spaced = noExt.replace('.', ' ').replace('_', ' ').replace('-', ' ')
+    val tokens = spaced.split(' ').filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return rawName
+    val tags = setOf(
+        "1080p", "720p", "480p", "2160p", "1440p", "4k", "8k",
+        "10bit", "8bit", "12bit",
+        "hdr", "hdr10", "hdr10plus", "dolby", "vision", "atmos",
+        "x264", "x265", "h264", "h265", "hevc", "avc", "xvid",
+        "aac", "ac3", "dts", "truehd", "flac", "opus",
+        "webdl", "webrip", "brrip", "hdrip", "bluray", "bdrip", "dvdrip",
+        "remux", "proper", "repack", "extended", "unrated", "imax",
+        "3d", "sbs", "multi", "eng", "hin", "dual", "audio", "complete"
+    )
+    val yearRe = Regex("^(19|20)\\d{2}$")
+    val resRe = Regex("^\\d{3,4}p$")
+    val out = mutableListOf<String>()
+    for ((i, token) in tokens.withIndex()) {
+        val t = token.lowercase()
+        if (t in tags || resRe.matches(t)) break
+        if (yearRe.matches(token)) {
+            // A year is a release tag when at least two title
+            // words precede it; otherwise it IS the title.
+            if (i >= 2) break else { out.add(token); continue }
+        }
+        out.add(token)
+    }
+    val title = out.joinToString(" ").trim()
+    return if (title.isEmpty()) rawName else title
 }
 
 /** Batch 2: Library sort orders. */
