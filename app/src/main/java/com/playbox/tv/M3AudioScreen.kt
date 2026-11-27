@@ -45,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -107,6 +110,11 @@ internal fun M3AudioScreen(
     val totalMinutes = remember(audio) {
         Math.round(audio.sumOf { it.durationMs } / 60_000.0).toInt()
     }
+    // M15 (2.0.1): autofocus on entry — the Shuffle button is
+    // the first focusable; the user navigates down into the
+    // songs from there.
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(modifier = Modifier.height(20.dp))
@@ -123,6 +131,11 @@ internal fun M3AudioScreen(
                             onPlayFromStart(shuffled[Random.nextInt(shuffled.size)], shuffled)
                         }
                     },
+                    modifier = Modifier.focusRequester(firstFocus),
+                    // m4 (2.0.1): disabled when empty — the buttons
+                    // were focusable but dead (guarded by
+                    // audio.isNotEmpty() with no feedback).
+                    enabled = audio.isNotEmpty(),
                     icon = Icons.Filled.Shuffle
                 )
                 ZephButton(
@@ -133,6 +146,7 @@ internal fun M3AudioScreen(
                             onPlayFromStart(audio.first(), audio)
                         }
                     },
+                    enabled = audio.isNotEmpty(),
                     icon = Icons.Filled.PlayArrow
                 )
             }
