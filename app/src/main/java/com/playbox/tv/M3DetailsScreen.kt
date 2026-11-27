@@ -455,10 +455,15 @@ internal fun M3DetailsScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
             // Actions row (D8): Play / Add to Up next / Share.
+            // 2.0.4 (resume fix): when a saved position exists, the
+            // first button is an explicit "Resume · 1:25" — before,
+            // it just said "Play", so the resume option looked
+            // missing/empty to the user even though Play did resume.
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val hasResume = saved > 5_000L && isResumeOn(context)
                     ZephButton(
-                        text = "Play",
+                        text = if (hasResume) "Resume · ${TimeFormatter.format(saved)}" else "Play",
                         onClick = { onPlay(item, false) },
                         icon = Icons.Filled.PlayArrow
                     )
