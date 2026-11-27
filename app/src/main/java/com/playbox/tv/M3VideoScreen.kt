@@ -37,6 +37,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,6 +96,12 @@ internal fun M3VideoScreen(
             else -> filtered.sortedByDescending { it.dateAddedSec }
         }
     }
+    // M15 (2.0.1): autofocus on entry — opening this tab from
+    // Home "See all", Details "See all" or the player landed
+    // with nothing focused. The first filter chip is the entry
+    // point; the user navigates down into the grid from there.
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(modifier = Modifier.height(20.dp))
@@ -131,7 +140,10 @@ internal fun M3VideoScreen(
         // is the design's mb-4; the chips' 12dp below is its mb-3.)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                ZephFilterChip("All", selected = filter == "all", onClick = { filter = "all" })
+                ZephFilterChip(
+                    "All", selected = filter == "all", onClick = { filter = "all" },
+                    modifier = Modifier.focusRequester(firstFocus)
+                )
             }
             item {
                 ZephFilterChip("In progress", selected = filter == "progress", onClick = { filter = "progress" })
