@@ -260,7 +260,9 @@ object MediaLibrary {
             bmp
         } catch (e: Exception) {
             Log.w(TAG, "thumbnail failed for ${item.path}", e)
-            runCatching { retrieveFrame(item, width, height) }?.also { if (it != null) ThumbnailCache.put(cacheKey, it) }
+            val fallback = runCatching { retrieveFrame(item, width, height) }.getOrNull()
+            if (fallback != null) ThumbnailCache.put(cacheKey, fallback)
+            fallback
         }
     }
 
