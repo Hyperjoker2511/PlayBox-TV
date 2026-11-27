@@ -831,10 +831,15 @@ private fun DetailsOverlay(
 }
 
 /** Patch 4 (exit confirm): "Exit Zeph Player?" — shown only when
- * Back is pressed on Home. Exit closes the app fully: the DLNA
- * renderer and the playback service stop, nothing stays in the
- * background. Stay just closes this dialog. Back while the dialog
- * is open also means Stay. */
+ * Back is pressed on Home. Exit closes the app fully. Stay just
+ * closes this dialog. Back while the dialog is open also means
+ * Stay.
+ *
+ * 2.0.3: the old body line ("The app closes fully — no
+ * background, no cast receiver left running.") is gone. It read
+ * like the app was missing background play and Cast, which is
+ * not what it meant — so the dialog is now just the question
+ * and the two buttons, nothing confusing. */
 @Composable
 private fun ExitConfirmDialog(onExit: () -> Unit, onStay: () -> Unit) {
     BackHandler { onStay() }
@@ -853,11 +858,6 @@ private fun ExitConfirmDialog(onExit: () -> Unit, onStay: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("Exit Zeph Player?", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                "The app closes fully — no background, no cast receiver left running.",
-                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
             Spacer(modifier = Modifier.height(28.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 M3TvButton("Exit", onClick = onExit)
