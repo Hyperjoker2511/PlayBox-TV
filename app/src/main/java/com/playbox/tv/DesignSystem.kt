@@ -46,13 +46,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -541,7 +551,19 @@ internal fun DesignRail(
  * crop 3–5% of the edges on HDMI — cutting the rail off-screen
  * entirely, so the user couldn't see it or its focus ring and
  * couldn't reach the tabs. The whole layout is now inset 24dp
- * on both sides, so the rail starts inside the visible area. */
+ * on both sides, so the rail starts inside the visible area.
+ *
+ * 2.0.3: explicit rail bridge. The content is a LazyColumn, and
+ * Compose's focus search from inside a lazy list cannot find
+ * the rail to the left — so Left from the content did nothing
+ * and the user could never reach Settings / Search / the other
+ * tabs (2.0.2 only made the ring brighter, which is useless if
+ * focus can't get there). This intercepts DPAD_LEFT while focus
+ * is in the content: it first tries the normal move (so Left
+ * still steps between cards in a horizontal row), and only when
+ * there is nothing to the left does it jump to the rail's
+ * selected item. Right is left to the default search — the
+ * content is a big target to the right, so it already works. */
 @Composable
 internal fun RailLayout(
     labelMode: RailLabelMode,
@@ -552,13 +574,41 @@ internal fun RailLayout(
     selectedTabFocus: FocusRequester? = null,
     content: @Composable () -> Unit
 ) {
-    Row(modifier = modifier.fillMaxSize().padding(horizontal = 24.dp)) {
+    // Which panel currently holds focus — tracked so Left is only
+    // bridged out of the content, never out of the rail itself
+    // (Left on the rail is already the left edge: do nothing).
+    var contentHasFocus by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    Row(
+        modifier = modifier.fillMaxSize().padding(horizontal = 24.dp)
+            .onPreviewKeyEvent { event ->
+                if (event.key == Key.DirectionLeft &&
+                    event.type == KeyEventType.KeyDown && contentHasFocus
+                ) {
+                    // Normal move first (previous card in a row).
+                    val moved = runCatching {
+                        focusManager.moveFocus(FocusDirection.Left)
+                    }.getOrDefault(false)
+                    if (!moved) {
+                        // Nothing to the left in the content — land
+                        // on the rail's selected tab.
+                        runCatching { selectedTabFocus?.requestFocus() }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+    ) {
         Box(
             modifier = Modifier.width(DesignRailWidth).fillMaxHeight()
                 .background(MaterialTheme.colorScheme.surface)
         ) {
             DesignRail(tab = tab, onTab = onTab, onSearch = onSearch, labelMode = labelMode, selectedTabFocus = selectedTabFocus)
         }
-        Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content() }
+        Box(
+            modifier = Modifier.weight(1f).fillMaxHeight()
+                .onFocusChanged { contentHasFocus = it.hasFocus }
+        ) { content() }
     }
 }
