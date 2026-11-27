@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -104,11 +105,16 @@ internal fun M3SearchScreen(
     val focusManager = LocalFocusManager.current
     var recent by remember { mutableStateOf(recentSearches(context)) }
     var keyboardVisible by remember { mutableStateOf(false) }
+    // m9 (2.0.1): hiding the keyboard returns focus to the
+    // search field — it used to clearFocus() entirely, leaving
+    // the remote with nothing focused. The field requester is
+    // shared by the three layout branches (only one is composed).
+    val searchFieldFocus = remember { FocusRequester() }
     // K7: Back hides the keyboard first; only then does Back leave
     // Search (MainActivity's handler takes it from there).
     BackHandler(enabled = keyboardVisible) {
         keyboardVisible = false
-        focusManager.clearFocus()
+        runCatching { searchFieldFocus.requestFocus() }
     }
     val shown = searchFilter(items, search)
     val videos = remember(shown) { shown.filter { it.isVideo } }
@@ -158,7 +164,8 @@ internal fun M3SearchScreen(
                 )
                 M3SearchField(
                     search = search, onSearch = onSearch,
-                    onVoice = onVoice, onFieldTap = showKeyboard
+                    onVoice = onVoice, onFieldTap = showKeyboard,
+                    focusRequester = searchFieldFocus
                 )
                 if (!keyboardVisible) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -222,7 +229,8 @@ internal fun M3SearchScreen(
                     )
                     M3SearchField(
                         search = search, onSearch = onSearch,
-                        onVoice = onVoice, onFieldTap = showKeyboard
+                        onVoice = onVoice, onFieldTap = showKeyboard,
+                        focusRequester = searchFieldFocus
                     )
                     if (!keyboardVisible) {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -276,7 +284,8 @@ internal fun M3SearchScreen(
                     )
                     M3SearchField(
                         search = search, onSearch = onSearch,
-                        onVoice = onVoice, onFieldTap = showKeyboard
+                        onVoice = onVoice, onFieldTap = showKeyboard,
+                        focusRequester = searchFieldFocus
                     )
                     if (!keyboardVisible) {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -324,15 +333,26 @@ private fun M3SearchField(
     search: String,
     onSearch: (String) -> Unit,
     onVoice: (() -> Unit)?,
-    onFieldTap: () -> Unit
+    onFieldTap: () -> Unit,
+    focusRequester: FocusRequester? = null
 ) {
+    // m7 (2.0.1): ONE focusable — the container, with the
+    // zephFocus ring. Before, the container, the inner
+    // read-only text field and the mic button were three nested
+    // focusables with no ring on the container. The inner field
+    // is now focusable(false): the container's click opens the
+    // keyboard, and the mic keeps its own ringed target.
+    val fieldInteraction = remember { MutableInteractionSource() }
+    val micInteraction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .fillMaxWidth().widthIn(max = 560.dp).height(56.dp)
             .then(coverSharedModifier("search-bar"))
             .clip(RoundedCornerShape(28.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable { onFieldTap() }
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .zephFocus(fieldInteraction, focusScale = 1f, cornerRadius = 28.dp)
+            .clickable(interactionSource = fieldInteraction, indication = null) { onFieldTap() }
             .padding(start = 18.dp, end = 8.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -352,8 +372,7 @@ private fun M3SearchField(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = MaterialTheme.typography.bodyLarge.fontSize
                 ),
-                modifier = Modifier.weight(1f)
-                    .onFocusChanged { if (it.hasFocus) onFieldTap() },
+                modifier = Modifier.weight(1f).focusable(false),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (search.isEmpty()) {
@@ -375,7 +394,8 @@ private fun M3SearchField(
                     modifier = Modifier.size(38.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
-                        .clickable { onVoice() },
+                        .zephFocus(micInteraction, focusScale = 1f, cornerRadius = 19.dp)
+                        .clickable(interactionSource = micInteraction, indication = null) { onVoice() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -500,6 +520,10 @@ private fun LazyListScope.searchContentItems(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // m10 (2.0.1): a Clear action — before, clearing
+                // meant backspacing through the whole query.
+                Spacer(modifier = Modifier.height(16.dp))
+                ZephButton(text = "Clear search", onClick = { onSearch("") })
             }
         }
     } else {
@@ -626,6 +650,31 @@ private fun M3SearchSongRow(
 // (zephFocus: scale + ring).
 
 @Composable
+/** One suggestion pill in the on-screen keyboard (m8, 2.0.1):
+ * its own interaction source so the zephFocus ring shows only
+ * on the focused pill. */
+@Composable
+private fun M3SuggestionPill(label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier.height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .zephFocus(interaction, focusScale = 1f, cornerRadius = 20.dp)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 private fun M3OnScreenKeyboard(
     query: String,
     onQuery: (String) -> Unit,
@@ -688,6 +737,10 @@ private fun M3OnScreenKeyboard(
         }
     }
 
+    // m8 (2.0.1): the Hide row and suggestion pills get the
+    // zephFocus ring — they were plain clickables with no ring,
+    // so the user couldn't tell when they were focused.
+    val hideInteraction = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
             .clip(MaterialTheme.shapes.extraLarge)
@@ -709,7 +762,9 @@ private fun M3OnScreenKeyboard(
             )
             Spacer(modifier = Modifier.weight(1f))
             Row(
-                modifier = Modifier.clickable { onHide() },
+                modifier = Modifier
+                    .zephFocus(hideInteraction, focusScale = 1f, cornerRadius = 12.dp)
+                    .clickable(interactionSource = hideInteraction, indication = null) { onHide() },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -730,22 +785,7 @@ private fun M3OnScreenKeyboard(
         if (!compact && suggestions.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 suggestions.forEach { s ->
-                    Box(
-                        modifier = Modifier.height(40.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainer)
-                            .clickable { onQuery(s) }
-                            .padding(horizontal = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            s,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    M3SuggestionPill(label = s, onClick = { onQuery(s) })
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
