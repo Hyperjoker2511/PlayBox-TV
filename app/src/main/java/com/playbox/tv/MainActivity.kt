@@ -755,7 +755,12 @@ private fun PlayBoxApp() {
                                             sleep = audioSleep,
                                             onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
                                             onExpand = { nowPlayingOpen = true },
-                                            onPlayingChange = { playerIsPlaying = it }
+                                            onPlayingChange = { playerIsPlaying = it },
+                                            // M20 (2.0.1): the MiniPlayer's Stop button
+                                            // calls onStop after halting the player —
+                                            // clear the playing item so the bar itself
+                                            // goes away instead of showing a stopped track.
+                                            onStop = { playing = null }
                                         )
                                     }
                                 }
