@@ -182,6 +182,17 @@ class CastService : Service(), DlnaHandler {
             player.playbackParameters = androidx.media3.common.PlaybackParameters(1f)
             player.play()
         }
+        // C6 (2.0.1): bring the app to the foreground so the cast
+        // video is visible and stoppable. Before, playback started
+        // with no UI at all when the app was closed — audio played
+        // blind on the TV with no player screen, no PiP and no way
+        // to stop it. A cast receiver must show what it plays.
+        runCatching {
+            val openApp = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            startActivity(openApp)
+        }
         // Put the cast video on screen, at normal speed (a sender expects
         // 1x, not the user's default speed — see MainActivity).
         mainHandler.post {
