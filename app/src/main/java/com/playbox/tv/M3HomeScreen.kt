@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -824,6 +825,15 @@ internal fun M3VideoCard(
         if (focused) 1.10f else 1f,
         tween(500, easing = Motion.Emphasized), label = "homeCardThumb"
     )
+    // 2.0.4 (Material 3 for TV): the focused container colour. A TV
+    // M3 card does not just scale and ring — its container lifts to
+    // a lighter tonal surface when focused, so the focused card is
+    // unmistakable even before the ring registers.
+    val containerColor by animateColorAsState(
+        if (focused) MaterialTheme.colorScheme.surfaceContainerHigh
+        else MaterialTheme.colorScheme.surfaceContainerLow,
+        tween(300, easing = Motion.Emphasized), label = "homeCardContainer"
+    )
     val playAlpha by animateFloatAsState(
         if (focused) 1f else 0f,
         tween(300, easing = Motion.Emphasized), label = "homeCardPlayAlpha"
@@ -835,7 +845,7 @@ internal fun M3VideoCard(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .background(containerColor)
             .zephFocus(interaction)
             .clickable(interactionSource = interaction, indication = null) { onOpen() }
             .riseIn(minOf(index, 8) * 45)
