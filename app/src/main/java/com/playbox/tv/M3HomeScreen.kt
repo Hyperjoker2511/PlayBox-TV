@@ -857,7 +857,10 @@ internal fun M3VideoCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White,
                         modifier = Modifier.align(Alignment.BottomEnd)
-                            .padding(8.dp)
+                            // 2.0.2 (gridlines fix 4): badge 12dp from
+                            // the card's right edge, aligned with the
+                            // card text column (was 8dp).
+                            .padding(end = 12.dp, bottom = 8.dp)
                             .clip(MaterialTheme.shapes.extraSmall)
                             .background(Color(0xB3000000))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -962,7 +965,9 @@ private fun M3HomeAlbumCard(
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 2.dp, end = 2.dp, top = 8.dp)
+            // 2.0.2 (gridlines fix 2): album title/artist 12dp from
+            // the card edge, matching the video card text (was 2dp).
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp)
         )
         Text(
             artist,
@@ -970,7 +975,7 @@ private fun M3HomeAlbumCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 2.dp, end = 2.dp)
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp)
         )
     }
 }
