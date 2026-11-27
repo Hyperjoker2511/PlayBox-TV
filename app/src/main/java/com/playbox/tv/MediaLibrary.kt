@@ -269,21 +269,47 @@ object MediaLibrary {
     /** Pull a frame directly from the file (10% in, so it's a real
      * scene, not a black leader). Used when the system thumbnail
      * comes back null. Returns null for content:// URIs it can't
-     * open and for files the retriever can't read. */
+     * open and for files the retriever can't read.
+     * 2.0.4 (poster fix): the retriever fails outright on 10-bit
+     * HEVC on this box, so it now tries several timestamps and
+     * falls back to an unscaled frame scaled down by hand — a
+     * scaled request can fail where the plain frame succeeds. */
     private fun retrieveFrame(item: VideoItem, width: Int = 320, height: Int = 180): Bitmap? {
         if (!item.path.startsWith("/")) return null
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(item.path)
             val durationUs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            val atUs = (durationUs / 10).coerceAtLeast(0L)
-            val frame = if (Build.VERSION.SDK_INT >= 27) {
-                retriever.getScaledFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, width, height)
-            } else {
-                @Suppress("DEPRECATION")
-                retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            if (durationUs <= 0L) return null
+            // Try 10%, then 5%, 25%, 50% — a black leader or a bad
+            // keyframe at one spot should not sink the poster.
+            val fractions = listOf(0.10, 0.05, 0.25, 0.50)
+            for (fraction in fractions) {
+                val atUs = (durationUs * fraction).toLong().coerceAtLeast(0L)
+                val scaled = runCatching {
+                    if (Build.VERSION.SDK_INT >= 27) {
+                        retriever.getScaledFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, width, height)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    }
+                }.getOrNull()
+                if (scaled != null) return scaled
+                // Unscaled frame, scaled down by hand — succeeds
+                // where the scaled request fails (notably 10-bit).
+                val raw = runCatching {
+                    @Suppress("DEPRECATION")
+                    retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                }.getOrNull()
+                if (raw != null) {
+                    val out = runCatching {
+                        android.graphics.Bitmap.createScaledBitmap(raw, width, height, true)
+                    }.getOrNull()
+                    if (raw != out) runCatching { raw.recycle() }
+                    if (out != null) return out
+                }
             }
-            frame
+            null
         } catch (e: Exception) {
             Log.w(TAG, "frame retrieve failed for ${item.path}", e)
             null
