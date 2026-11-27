@@ -406,20 +406,31 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     val seekFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     val endedFocus = remember { FocusRequester() }
+    // M11 (2.0.2): the gear button in the dock — focus returns here
+    // when the gear sheet closes.
+    val gearFocus = remember { FocusRequester() }
     // M12 (2.0.1): the lock overlay's unlock button is a focus
     // target. Before, it had no requester and the focus effect
     // had no locked branch, so when locked the remote did nothing
     // except Back — Center/OK was swallowed by the root handler.
     val lockedFocus = remember { FocusRequester() }
+    // M11 (2.0.2): remember which panel was open, so closing the
+    // gear sheet can put focus back on the gear button that opened
+    // it instead of the play button.
+    var lastPanel by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(showControls, panel, sheet, ended, locked) {
         runCatching {
             when {
                 locked -> lockedFocus.requestFocus()
                 ended -> endedFocus.requestFocus()
                 panel != null || sheet != null -> panelFocus.requestFocus()
+                // M11 (2.0.2): the gear sheet just closed — back to
+                // the gear button, not the play button.
+                showControls && lastPanel == "gear" -> gearFocus.requestFocus()
                 showControls -> playPauseFocus.requestFocus()
                 else -> rootFocus.requestFocus()
             }
+            lastPanel = panel
         }
     }
 
@@ -1087,6 +1098,8 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             onSeekForward = { seekBy(skipMs) },
             onNext = ::playNext,
             playFocus = playPauseFocus,
+            // M10 (2.0.2): Down from play goes to the seek slider.
+            seekFocus = seekFocus,
             visible = controlsVisible,
             modifier = Modifier.align(Alignment.Center)
         )
@@ -1136,9 +1149,15 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             },
             onGear = { panel = "gear" },
             seekFocus = seekFocus,
+            // M10 (2.0.2): Up from seek goes to play/pause.
+            playPauseFocus = playPauseFocus,
+            // M11 (2.0.2): focus returns here when the gear sheet closes.
+            gearFocus = gearFocus,
             visible = controlsVisible,
             modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(start = 32.dp, end = 32.dp, bottom = 20.dp)
+                // 2.0.2 (gridlines fix 6): dock 24dp from the screen
+                // edge, matching the top bar (was 32dp).
+                .padding(start = 24.dp, end = 24.dp, bottom = 20.dp)
         )
         // The seek-flash circles (700ms seek-pop).
         seekFlash?.let { (forward, _) ->
