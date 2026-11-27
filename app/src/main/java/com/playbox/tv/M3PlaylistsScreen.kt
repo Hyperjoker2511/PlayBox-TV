@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -80,6 +83,10 @@ internal fun M3PlaylistsScreen(
     }
 
     BackHandler(enabled = selected != null) { selected = null }
+    // M15 (2.0.1): autofocus on entry — the "New playlist"
+    // button is the first focusable.
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { firstFocus.requestFocus() } }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(modifier = Modifier.height(20.dp))
@@ -88,7 +95,12 @@ internal fun M3PlaylistsScreen(
                 title = "Playlists",
                 subtitle = if (names.isEmpty()) null else "${names.size} playlists · $totalSongs songs",
                 actions = {
-                    ZephButton(text = "New playlist", onClick = { showNew = true }, icon = Icons.Filled.Add)
+                    ZephButton(
+                        text = "New playlist",
+                        onClick = { showNew = true },
+                        modifier = Modifier.focusRequester(firstFocus),
+                        icon = Icons.Filled.Add
+                    )
                 }
             )
             if (names.isEmpty()) {
