@@ -388,9 +388,14 @@ private fun AppearancePanel(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ThemePresets.forEach { (preset, label) ->
                     val selected = theme == preset
+                    // m13 (2.0.1): each swatch gets its own
+                    // interaction source + zephFocus ring so the
+                    // D-pad shows where focus is.
+                    val swatchInteraction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier.size(44.dp)
                             .clip(CircleShape)
+                            .zephFocus(swatchInteraction, cornerRadius = 22.dp)
                             .background(presetPrimary(preset), CircleShape)
                             .border(
                                 if (selected) 3.dp else 1.dp,
@@ -398,7 +403,7 @@ private fun AppearancePanel(
                                 else MaterialTheme.colorScheme.outline,
                                 CircleShape
                             )
-                            .clickable { onThemeChange(preset) },
+                            .clickable(interactionSource = swatchInteraction, indication = null) { onThemeChange(preset) },
                         contentAlignment = Alignment.Center
                     ) {
                         if (selected) {
@@ -417,11 +422,14 @@ private fun AppearancePanel(
             // "Pick a colour" — a 44dp rainbow swatch that opens the
             // colour-grid dialog (the hex field lives inside the
             // dialog as the advanced path).
+            // m13 (2.0.1): zephFocus ring so the D-pad shows it.
+            val pickColourInteraction = remember { MutableInteractionSource() }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
-                    .clickable { showColourPicker = true }
+                    .zephFocus(pickColourInteraction, cornerRadius = 16.dp)
+                    .clickable(interactionSource = pickColourInteraction, indication = null) { showColourPicker = true }
             ) {
                 Box(
                     modifier = Modifier.size(44.dp)
@@ -539,6 +547,7 @@ private fun VideoPanel() {
     var rememberVol by remember { mutableStateOf(rememberVolume(context)) }
     var brightness by remember { mutableStateOf(brightnessPct(context)) }
     var keepDisc by remember { mutableStateOf(keepDiscoverable(context)) }
+    var castOn by remember { mutableStateOf(castReceiverOn(context)) }
     var smbServers by remember { mutableStateOf(SmbNetwork.servers(context)) }
 
     fun save(block: android.content.SharedPreferences.Editor.() -> Unit) {
@@ -658,10 +667,28 @@ private fun VideoPanel() {
             // The cast door: the receiver is always on while the app
             // runs (live status), and the toggle decides whether it
             // stays discoverable after the app closes.
+            // M25 (2.0.1): the receiver itself can now be switched
+            // off — it starts/stops immediately, so no phone can
+            // cast to this TV while it is off.
             Text("Cast receiver", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(modifier = Modifier.height(8.dp))
+            ZephSwitchRow(
+                title = "Cast receiver",
+                subtitle = if (castOn) "On — your phone can cast videos to Zeph Player." else "Off — no phone can cast to this TV.",
+                checked = castOn,
+                onCheckedChange = { on ->
+                    castOn = on
+                    saveCastReceiverOn(context, on)
+                    if (on) {
+                        context.startService(android.content.Intent(context, CastService::class.java))
+                    } else {
+                        context.stopService(android.content.Intent(context, CastService::class.java))
+                    }
+                }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
-                "On — your phone can cast videos to Zeph Player. The receiver starts with the app.",
+                "The receiver starts with the app.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
