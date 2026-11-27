@@ -640,7 +640,8 @@ private fun PlayBoxApp() {
                         // Patch 5 rebuilds it.
                         Tab.Video -> M3VideoScreen(
                             videos = videos, loading = !libraryLoaded,
-                            onOpen = { item, list -> details = item; detailList = list }
+                            onOpen = { item, list -> details = item; detailList = list },
+                            onSearch = { tab = Tab.Search }
                         )
                         // 2.0.0 (Patch 5): the Playlists tab is the
                         // design's screen now — grid + detail +
