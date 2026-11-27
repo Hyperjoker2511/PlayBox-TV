@@ -60,8 +60,13 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val player = mediaSession?.player
-        if (player == null || !player.playWhenReady) stopSelf()
+        // M2 (2.0.1): never leave audio playing with no app UI.
+        // The old code only stopped when already paused, so
+        // removing the app while anything played left audio
+        // running with nothing to stop it. Pause now (audio
+        // stops immediately) and stop the service.
+        runCatching { mediaSession?.player?.pause() }
+        stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 
