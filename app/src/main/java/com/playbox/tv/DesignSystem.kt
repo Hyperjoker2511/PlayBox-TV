@@ -116,10 +116,11 @@ internal object DsRadius {
  * label per item. Labels are always on; there is no collapsed mode. */
 internal val DesignRailWidth = 88.dp
 
-/** Shared focus (2.0.0 design): scale 1.06 on focus + a 3dp ring
- * in the M3 secondary colour + a black lift shadow. Transform +
- * opacity only. */
-internal const val DesignFocusScale = 1.06f
+/** Shared focus (2.0.2): scale 1.10 on focus + a 5dp ring
+ * in the M3 on-surface colour (near-white in dark, near-black in
+ * light — maximally visible on any background) + a state-layer
+ * fill + a black lift shadow. Transform + opacity only. */
+internal const val DesignFocusScale = 1.10f
 
 /** A design palette — the ONLY thing that differs between Nova, Qwen
  * and Aura now. Structure (rail, glass, focus, spacing, font, icons)
