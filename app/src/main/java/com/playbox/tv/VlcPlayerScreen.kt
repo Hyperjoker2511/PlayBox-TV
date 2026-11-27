@@ -181,9 +181,13 @@ internal fun VlcPlayerScreen(
     val seekFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     val endedFocus = remember { FocusRequester() }
-    LaunchedEffect(showControls, panel, sheet, ended) {
+    // M12 (2.0.1): the lock overlay's unlock button is a focus
+    // target (see PlayerScreen for the same fix).
+    val lockedFocus = remember { FocusRequester() }
+    LaunchedEffect(showControls, panel, sheet, ended, locked) {
         runCatching {
             when {
+                locked -> lockedFocus.requestFocus()
                 ended -> endedFocus.requestFocus()
                 panel != null || sheet != null -> panelFocus.requestFocus()
                 showControls -> playPauseFocus.requestFocus()
@@ -334,6 +338,13 @@ internal fun VlcPlayerScreen(
         }
     }
 
+    // M4 (2.0.1): only re-arm auto-play for a new item or when
+    // it was actually playing. The old code set pendingPlay = true
+    // on every engine/item change, so a paused video restarted
+    // by itself whenever the engine was recreated. A reconnect
+    // for the same paused item now stays paused; a reconnect
+    // while it was playing resumes (isPlaying is still true).
+    val lastVlcSetupKey = remember { mutableStateOf<String?>(null) }
     // Player setup — runs when the engine (re)starts or the file
     // changes. Deinterlace / rotation changes re-play through
     // replayAt() below, which bumps restartNonce only for adjust.
@@ -377,7 +388,12 @@ internal fun VlcPlayerScreen(
                 }
             }
             CrashLog.step(context, "vlc: engine created, setup done")
-            pendingPlay = true
+            // M4: arm auto-play only for a new item (or a new
+            // from-start intent) or when it was playing. A
+            // reconnect for the same paused item stays paused.
+            val vlcSetupKey = "${item.path}|$fromStart"
+            pendingPlay = isPlaying || lastVlcSetupKey.value != vlcSetupKey
+            lastVlcSetupKey.value = vlcSetupKey
         }
     }
 
@@ -439,7 +455,13 @@ internal fun VlcPlayerScreen(
     DisposableEffect(lifecycleOwner, engine) {
         val observer = LifecycleEventObserver { _, e ->
             if (e == Lifecycle.Event.ON_STOP) {
-                if (item.isVideo) runCatching { engine?.player?.pause() }
+                // 2.0.1 (C5): pause audio too, not just video. A
+                // VLC audio file kept playing after Home/Back with
+                // no MediaSession, no notification and no stop path
+                // — the user had no way to stop it. (Media3 audio
+                // keeps playing by design; VLC audio has no
+                // stop UI at all, so it must pause here.)
+                runCatching { engine?.player?.pause() }
                 runCatching { engine?.player?.let { p -> saveResumePosition(context, item.path, p.time, p.length) } }
             }
         }
@@ -625,6 +647,7 @@ internal fun VlcPlayerScreen(
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
+            .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 // Locked: no seeking or toggling from the remote.
@@ -1141,9 +1164,15 @@ internal fun VlcPlayerScreen(
         // Patch 1.3.1: locked — only the unlock button is on screen.
         // Patch 7: M3 (no glass) — the lock overlay is rebuilt on a
         // plain surface, so GlassButton is gone.
+        // M12 (2.0.1): the button is the focus target when locked
+        // (lockedFocus), so OK unlocks it. Back also unlocks.
         if (locked) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                ZephButton("🔒 Locked — tap to unlock", onClick = { locked = false })
+                ZephButton(
+                    "🔒 Locked — press OK to unlock",
+                    onClick = { locked = false },
+                    modifier = Modifier.focusRequester(lockedFocus)
+                )
             }
         }
 
