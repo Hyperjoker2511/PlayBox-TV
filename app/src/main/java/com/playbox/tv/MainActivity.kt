@@ -629,14 +629,14 @@ private fun PlayBoxApp() {
                             onOpen = { item, list -> details = item; detailList = list }
                         )
                         Tab.Settings -> M3SettingsScreen(
-                            labelMode = railLabelMode,
-                            onLabelModeChange = { railLabelMode = it; saveRailLabelMode(context, it) },
                             onPrivacy = { settingsPage = "privacy" },
                             onLicences = { settingsPage = "licences" },
                             theme = theme,
                             onThemeChange = { theme = it; saveThemePreset(context, it) },
                             themeSeedHex = themeSeedHex,
-                            onThemeSeedChange = { themeSeedHex = it; saveThemeSeed(context, it) }
+                            onThemeSeedChange = { themeSeedHex = it; saveThemeSeed(context, it) },
+                            themeDarkMode = themeDarkMode,
+                            onThemeDarkChange = { themeDarkMode = it; saveThemeDark(context, it) }
                         )
                     }
                 }
