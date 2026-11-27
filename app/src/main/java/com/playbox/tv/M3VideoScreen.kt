@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,7 +30,9 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -66,7 +69,12 @@ import androidx.compose.ui.unit.dp
 internal fun M3VideoScreen(
     videos: List<VideoItem>,
     loading: Boolean,
-    onOpen: (VideoItem, List<VideoItem>) -> Unit
+    onOpen: (VideoItem, List<VideoItem>) -> Unit,
+    // 2.0.4 (search-icon fix): the rail's Search button is cut off
+    // when the Library is selected, so the Library gets its own
+    // Search button in the header — search is reachable from here
+    // even when the rail icon is clipped.
+    onSearch: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
@@ -109,6 +117,15 @@ internal fun M3VideoScreen(
             title = "Video",
             subtitle = "${shown.size} videos · ${videos.size} in library",
             actions = {
+                // 2.0.4 (search-icon fix): a Search button in the
+                // Library header, so search is reachable from here.
+                IconButton(onClick = onSearch) {
+                    Icon(
+                        Icons.Outlined.Search, contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
                 SingleChoiceSegmentedButtonRow {
                     listOf(
                         Triple("grid", Icons.Filled.GridView, "Grid"),
@@ -138,7 +155,12 @@ internal fun M3VideoScreen(
         // so the row scrolls sideways on a narrow phone instead of
         // wrapping or clipping. (The header's own 16dp bottom margin
         // is the design's mb-4; the chips' 12dp below is its mb-3.)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // 2.0.4: end content padding, so the last chip is never cut
+        // off at the screen edge.
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(end = 24.dp)
+        ) {
             item {
                 ZephFilterChip(
                     "All", selected = filter == "all", onClick = { filter = "all" },
