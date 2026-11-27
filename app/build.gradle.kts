@@ -24,8 +24,8 @@ android {
         applicationId = "com.playbox.tv"
         minSdk = 26
         targetSdk = 36
-        versionCode = 33
-        versionName = "2.0.3"
+        versionCode = 34
+        versionName = "2.0.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -122,6 +122,12 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // 2.0.4 (Material 3 for TV): the TV design system — tv-material
+    // owns D-pad focus, focus zoom (1.10x), the 3dp focused border
+    // and glow. Mobile material3 alone cannot do TV focus properly,
+    // which is why the Library highlights never felt like M3.
+    implementation("androidx.tv:tv-material:1.1.0")
+    implementation("androidx.tv:tv-foundation:1.1.0")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.1")
