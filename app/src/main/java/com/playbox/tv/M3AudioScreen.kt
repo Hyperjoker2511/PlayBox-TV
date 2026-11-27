@@ -516,7 +516,9 @@ private fun M3AlbumGridCard(
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 2.dp, end = 2.dp, top = 8.dp)
+            // 2.0.2 (gridlines fix 3): album title/artist 12dp from
+            // the card edge, matching the video card text (was 2dp).
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp)
         )
         Text(
             if (artist == "Unknown artist") "${tracks.size} tracks"
@@ -525,7 +527,7 @@ private fun M3AlbumGridCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 2.dp, end = 2.dp)
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp)
         )
     }
 }
