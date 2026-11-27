@@ -38,9 +38,19 @@ object VideoFilter {
         "mp4", "mkv", "avi", "mov", "ts", "m2ts", "webm", "flv", "wmv", "mpg", "mpeg", "3gp", "m4v",
         // 1.4.3 Patch A: formats VLC plays that were never listed —
         // they now show in the Library and route to LibVLC.
-        "vob", "rm", "rmvb", "divx", "m2v", "ogv", "f4v"
+        "vob", "rm", "rmvb", "divx", "m2v", "ogv", "f4v",
+        // 2.0.0 Patch 8 (VLC routing audit, 2026-11-26): "asf" was a
+        // dead entry — in LIKELY_UNSUPPORTED but never listed — and
+        // these VLC containers were never listed at all. They now
+        // show in the Library and route to LibVLC.
+        "asf", "nsv", "nut", "rv", "rmbv", "dv", "vid", "ty", "xa", "nsc"
     )
-    val AUDIO_EXTENSIONS = setOf("mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "opus")
+    // 2.0.0 Patch 8 (VLC routing audit): VLC audio containers that
+    // were never listed — mka is the one most likely to matter.
+    val AUDIO_EXTENSIONS = setOf(
+        "mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "opus",
+        "mka", "aiff", "aif", "au", "ra", "ram", "tta", "tac", "dts", "ac3", "a52"
+    )
 
     /**
      * Batch 1.4 (polish): formats Media3 cannot play yet — WMV/ASF has no
@@ -51,7 +61,9 @@ object VideoFilter {
      * they route to LibVLC instead of failing on Media3.
      */
     val LIKELY_UNSUPPORTED_EXTENSIONS = setOf(
-        "wmv", "asf", "avi", "flv", "vob", "rm", "rmvb", "divx", "m2v", "ogv", "f4v"
+        "wmv", "asf", "avi", "flv", "vob", "rm", "rmvb", "divx", "m2v", "ogv", "f4v",
+        // 2.0.0 Patch 8: the new VLC video containers route to LibVLC.
+        "nsv", "nut", "rv", "rmbv", "dv", "vid", "ty", "xa", "nsc"
     )
 
     fun isVideoFile(name: String): Boolean =
