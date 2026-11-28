@@ -22,8 +22,14 @@ class PlaybackLogicTest {
         assertEquals(0L, SeekHelper.stepBack(5_000L, 100_000L))
     }
 
-    @Test fun seek_unknownDurationReturnsZero() {
-        assertEquals(0L, SeekHelper.clampSeek(5_000L, 10_000L, 0L))
+    @Test fun seek_unknownDurationNoUpperClamp() {
+        // 2.0.9 (review A1): unknown duration must NOT force 0 —
+        // a +10s skip from 5s lands at 15s.
+        assertEquals(15_000L, SeekHelper.clampSeek(5_000L, 10_000L, 0L))
+    }
+
+    @Test fun seek_unknownDurationFloorsAtZero() {
+        assertEquals(0L, SeekHelper.clampSeek(5_000L, -10_000L, 0L))
     }
 
     @Test fun timeFormats() {
