@@ -47,9 +47,11 @@ internal fun resumePositions(context: Context): Map<String, Long> {
 }
 
 // ---------- Resume positions (Batch 1.3) ----------
-// Keys are the video path itself (see ResumeStore.keyFor). Batch 1.2 used
-// path.hashCode(), which can collide and splits one video into two keys
-// when it is reached as a file path and as a content:// URI.
+// Keys are the video's storage key (see ResumeStore.keyFor — the path
+// itself, except FTP/SFTP play URLs, which are keyed without their
+// password since 2.1.0). Batch 1.2 used path.hashCode(), which can
+// collide and splits one video into two keys when it is reached as a
+// file path and as a content:// URI.
 
 internal fun savedResumePosition(context: Context, path: String): Long {
     val prefs = context.getSharedPreferences("playbox_resume", Context.MODE_PRIVATE)

@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -122,7 +121,11 @@ internal fun M3AudioScreen(
             title = "Audio",
             subtitle = "${audio.size} songs · ${albums.size} albums · $totalMinutes min",
             actions = {
-                ZephTonalButton(
+                // 2.1.0 (UI batch): the design photo shows both
+                // header actions as PLAIN TEXT with icons (white),
+                // not a tonal + a filled button. Same handlers,
+                // same autofocus, same disabled-when-empty.
+                ZephTextButton(
                     text = "Shuffle",
                     onClick = {
                         if (audio.isNotEmpty()) {
@@ -136,9 +139,10 @@ internal fun M3AudioScreen(
                     // were focusable but dead (guarded by
                     // audio.isNotEmpty() with no feedback).
                     enabled = audio.isNotEmpty(),
-                    icon = Icons.Filled.Shuffle
+                    icon = Icons.Filled.Shuffle,
+                    contentColor = MaterialTheme.colorScheme.onSurface
                 )
-                ZephButton(
+                ZephTextButton(
                     text = "Play all",
                     onClick = {
                         if (audio.isNotEmpty()) {
@@ -147,7 +151,8 @@ internal fun M3AudioScreen(
                         }
                     },
                     enabled = audio.isNotEmpty(),
-                    icon = Icons.Filled.PlayArrow
+                    icon = Icons.Filled.PlayArrow,
+                    contentColor = MaterialTheme.colorScheme.onSurface
                 )
             }
         )
@@ -158,24 +163,23 @@ internal fun M3AudioScreen(
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val wide = maxWidth >= 700.dp
             val cols = if (wide) 5 else 3
-            // The design's tab content fades through on switch
-            // (Music.tsx: key={tab} className="anim-screen pt-3"
-            // — the same 420ms fade-through as a screen change:
-            // opacity 0 until 35%, scale 0.94).
+            // Sub-tab content swaps on the same sequenced
+            // fade-through as a screen change (2.1.0, motion
+            // batch — audit MOT-7: this used to be a second,
+            // hand-rolled copy of the old 420ms hold-and-scale
+            // spec, with its own 200ms exit; the shell tabs, the
+            // Settings panels and these sub-tabs are one spec now).
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = {
-                    (fadeIn(
-                        tween(
-                            420, easing = { fraction ->
-                                if (fraction < 0.35f) 0f
-                                else (fraction - 0.35f) / 0.65f
-                            }
-                        )
-                    ) + scaleIn(
-                        tween(420, easing = Motion.EmphasizedDecelerate),
-                        initialScale = 0.94f
-                    )) togetherWith fadeOut(tween(200))
+                    // 2.1.0 (motion batch, MOT-31): reduce motion
+                    // collapses the swap to a plain short fade,
+                    // like the shell's transitions.
+                    if (isReduceMotion(context)) {
+                        fadeIn(Motion.reducedFade()) togetherWith fadeOut(Motion.reducedFade())
+                    } else {
+                        fadeIn(Motion.screenEnterSpec()) togetherWith fadeOut(Motion.screenExitSpec())
+                    }
                 },
                 label = "audioTab"
             ) { currentTab ->
@@ -251,7 +255,7 @@ internal fun M3AudioScreen(
                                         item = track,
                                         isCurrent = playing?.path == track.path,
                                         isPlaying = isPlaying,
-                                        isFav = favourites.contains(track.path),
+                                        isFav = favourites.contains(storageKeyFor(track.path)),
                                         wide = wide,
                                         index = audio.indexOf(track),
                                         onPlay = { onPlayFromStart(track, audio) }
@@ -289,7 +293,11 @@ private fun hueOf(name: String): Int = ((name.hashCode() % 360) + 360) % 360
  * label side by side, selected = primary text + a 3dp primary
  * indicator (inset 12dp, scale-x 400ms emphasized). The design's
  * Tab component stacks icon over text, so this is built by hand
- * to keep the icon beside the label. */
+ * to keep the icon beside the label.
+ * 2.1.0 (UI batch): the design PHOTO's selected tab reads
+ * on-surface (white) — only the indicator stays primary — and
+ * the indicator spans the tab's content width (inset 24dp =
+ * the content's own horizontal padding). */
 @Composable
 private fun M3AudioTabs(
     tab: String,
@@ -327,7 +335,7 @@ private fun M3AudioTabs(
                             // selected (m3.tsx: filled={selected}).
                             if (selected) icons.first else icons.second,
                             contentDescription = null,
-                            tint = if (selected) MaterialTheme.colorScheme.primary
+                            tint = if (selected) MaterialTheme.colorScheme.onSurface
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
                         )
@@ -335,7 +343,7 @@ private fun M3AudioTabs(
                         Text(
                             label,
                             style = MaterialTheme.typography.titleSmall,
-                            color = if (selected) MaterialTheme.colorScheme.primary
+                            color = if (selected) MaterialTheme.colorScheme.onSurface
                             else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -343,7 +351,7 @@ private fun M3AudioTabs(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
+                            .padding(horizontal = if (wide) 24.dp else 16.dp)
                             .height(3.dp)
                             .graphicsLayer { scaleX = indicatorScale }
                             .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))

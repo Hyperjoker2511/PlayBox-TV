@@ -22,7 +22,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
@@ -34,7 +33,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +56,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -183,6 +184,46 @@ private fun PermissionRationaleScreen(onAllow: () -> Unit, onNotNow: () -> Unit)
     }
 }
 
+/** 2.1.0 (motion batch): the top-level screens of PlayBoxApp —
+ * the key of the one AnimatedContent that replaced the plain
+ * if/else chain (audit MOT-4). The key is picked with the same
+ * precedence the chain had: exit dialog, crash gate, permission
+ * rationale, HDR-probe hold, player / Now Playing, Settings
+ * sub-pages, shell. */
+private enum class AppScreen {
+    ExitDialog, CrashGate, Rationale, Hold, Player, NowPlaying, Privacy, Licences, Shell
+}
+
+/** The top-level transition (2.1.0, motion batch): the player
+ * and Now Playing ENTER with the container treatment Motion.kt
+ * has always promised (480ms fade + scale from 0.88, transform +
+ * opacity only) and leave with a plain fade while the shell
+ * fades in under them; every other screen swap is the sequenced
+ * fade-through (see Motion.screenEnterSpec). */
+private fun appScreenTransition(initial: AppScreen, target: AppScreen, reduceMotion: Boolean): ContentTransform {
+    // 2.1.0 (motion batch, MOT-31): reduce motion — every
+    // top-level swap is a plain short fade, no container scale.
+    if (reduceMotion) {
+        return fadeIn(Motion.reducedFade()) togetherWith fadeOut(Motion.reducedFade())
+    }
+    val container = target == AppScreen.Player || target == AppScreen.NowPlaying
+    val leavingContainer = initial == AppScreen.Player || initial == AppScreen.NowPlaying
+    return when {
+        container ->
+            (fadeIn(Motion.containerEnter()) + scaleIn(Motion.containerEnter(), initialScale = 0.88f)) togetherWith
+                fadeOut(tween(durationMillis = Motion.FadeThroughMs, easing = Motion.EmphasizedAccelerate))
+        leavingContainer ->
+            fadeIn(tween(durationMillis = Motion.ScreenEnterMs, easing = Motion.EmphasizedDecelerate)) togetherWith
+                (fadeOut(tween(durationMillis = Motion.ScreenEnterMs, easing = Motion.EmphasizedAccelerate)) +
+                    scaleOut(
+                        tween(durationMillis = Motion.ScreenEnterMs, easing = Motion.EmphasizedAccelerate),
+                        targetScale = 0.94f
+                    ))
+        else ->
+            fadeIn(Motion.screenEnterSpec()) togetherWith fadeOut(Motion.screenExitSpec())
+    }
+}
+
 /** Tab order for the slide direction (2.0.0 rail order): Home 0,
  * Video 1, Audio 2, Browse 3, Playlists 4, Settings 5, Search 6.
  * Positive = forward (the new screen slides in from the right),
@@ -192,11 +233,48 @@ internal fun tabSlideDirection(from: Tab, to: Tab): Int {
     return (order.indexOf(to) - order.indexOf(from)).coerceIn(-1, 1)
 }
 
+/** 2.1.0 (audit N32, bounded form): an open item survives process
+ * death. VideoItem is five plain fields, so a list saver round-trips
+ * it — the path above all, which is the item's identity everywhere. */
+private val VideoItemSaver: Saver<VideoItem?, List<String>> = listSaver(
+    save = { item ->
+        item?.let {
+            listOf(
+                it.path, it.name,
+                it.durationMs.toString(), it.sizeBytes.toString(), it.dateAddedSec.toString()
+            )
+        } ?: emptyList()
+    },
+    restore = { saved ->
+        if (saved.isEmpty()) null
+        else VideoItem(
+            path = saved[0],
+            name = saved.getOrNull(1) ?: saved[0].substringAfterLast('/'),
+            durationMs = saved.getOrNull(2)?.toLongOrNull() ?: 0L,
+            sizeBytes = saved.getOrNull(3)?.toLongOrNull() ?: 0L,
+            dateAddedSec = saved.getOrNull(4)?.toLongOrNull() ?: 0L
+        )
+    }
+)
+
 @Composable
 private fun PlayBoxApp() {
     val context = LocalContext.current
-    var tab by remember { mutableStateOf(Tab.Home) }
-    var details by remember { mutableStateOf<VideoItem?>(null) }
+    // 2.1.0 (motion batch, audit MOT-31): reduce motion, read
+    // here where the top-level and tab transitions are built —
+    // when on, both collapse to plain short fades (see
+    // appScreenTransition and tabSwitch below). Read during
+    // composition like the app's other prefs, so a change in
+    // Settings applies from the next navigation on.
+    val reduceMotion = isReduceMotion(context)
+    // 2.1.0 (audit N32, bounded form): the top-level screen and the
+    // open items are rememberSaveable — when Android kills and
+    // recreates the activity (routine on a small-RAM TV box), the
+    // app returns to the same tab and the same item instead of
+    // restarting at Home with the place forgotten. The back stack
+    // and player internals are deliberately NOT persisted.
+    var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+    var details by rememberSaveable(stateSaver = VideoItemSaver) { mutableStateOf<VideoItem?>(null) }
     // M23 (2.0.1): return focus to the rail when Details closes.
     // Closing Details unmounted the focused Play FAB, leaving
     // focus nowhere — the remote did nothing until the user
@@ -210,13 +288,13 @@ private fun PlayBoxApp() {
         }
         prevDetails = details
     }
-    var playing by remember { mutableStateOf<VideoItem?>(null) }
+    var playing by rememberSaveable(stateSaver = VideoItemSaver) { mutableStateOf<VideoItem?>(null) }
     var playList by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     // Patch 5: the full Now Playing screen is showing (audio only).
     // When false and audio is playing, the MiniPlayer shows over the
     // tabs instead. Video ignores this — the video player always
     // shows full-screen.
-    var nowPlayingOpen by remember { mutableStateOf(false) }
+    var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
     // Patch 5: the sleep timer, shared by Now Playing and the
     // MiniPlayer so collapsing does not lose a set timer.
     val audioSleep = remember { AudioSleepState() }
@@ -376,6 +454,8 @@ private fun PlayBoxApp() {
     // the note screen is the first thing shown. Read once per cold
     // start; Continue clears the records and lets the app through.
     val crashNote = remember { CrashLog.note(context) }
+    // 2.1.0: the dead attempt's step trail, shown on the note screen.
+    val crashTrail = remember { CrashLog.trail(context) }
     val staleVlcDeath = remember { hasStaleVlcAttempt(context) }
     // 2.0.9 (review C1+D5): when the guard fired, name the suspect
     // — the file and decoding mode from the last VLC attempt — so
@@ -405,7 +485,25 @@ private fun PlayBoxApp() {
     // that val wherever the code reads a member after a null check.
     val playingItem = playing
     val playingVlcAvailable = !hasStaleVlcAttempt(context)
-    val playingHdr = remember(playingItem?.path) { playingItem?.let { HdrDetect.isHdr(it.path) } ?: false }
+    // 2.1.0 (audit N8): the HDR probe is MediaExtractor file I/O —
+    // it used to run synchronously inside this composition, on the
+    // main thread, the first time each local file played. It now
+    // runs on IO into state. Until the probe for THIS item lands,
+    // the player branch below waits (playingHdrKnown) instead of
+    // opening on a not-yet-known value and switching engines a
+    // moment later. Paths HdrDetect never probes (anything with
+    // "://" — streams, shares, content URIs) are known at once:
+    // not HDR, no wait, exactly as the probe itself treats them.
+    var hdrProbe by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    LaunchedEffect(playingItem?.path) {
+        val item = playingItem ?: return@LaunchedEffect
+        if (!item.path.contains("://")) {
+            hdrProbe = item.path to withContext(Dispatchers.IO) { HdrDetect.isHdr(item.path) }
+        }
+    }
+    val playingHdrKnown = playingItem == null || playingItem.path.contains("://") ||
+        hdrProbe?.first == playingItem.path
+    val playingHdr = hdrProbe?.takeIf { it.first == playingItem?.path }?.second ?: false
     val playingEngine = if (playingItem != null) engineFor(
         playingItem,
         engineOverride?.takeIf { it.first == playingItem.path }?.second
@@ -419,10 +517,19 @@ private fun PlayBoxApp() {
     // engine is created.
     LaunchedEffect(playingItem?.path, playingEngine) {
         if (playingItem != null) {
-            CrashLog.step(context, "engine chosen: $playingEngine for ${playingItem.name}")
+            // 2.1.0: a new attempt starts a fresh breadcrumb trail,
+            // so the crash screen shows THIS attempt's path through
+            // the open, not a mixture of two attempts.
+            CrashLog.beginAttempt(context, "engine chosen: $playingEngine for ${playingItem.name}")
             // 2.0.9 (review C1): name the suspect here too — this
             // mark runs before the player screen composes.
-            if (playingEngine == PlayerEngine.VLC) markVlcAttempt(context, playingItem.path, hwDecPref(context))
+            // 2.1.0: record the EFFECTIVE mode (per-file pin first),
+            // not just the global setting — the crash note must name
+            // the mode the file actually opened with.
+            if (playingEngine == PlayerEngine.VLC) markVlcAttempt(
+                context, playingItem.path,
+                chosenHwDec(context, playingItem.path) ?: hwDecPref(context)
+            )
         }
     }
     // Patch 4 (exit confirm): Back only asks on Home. Back from
@@ -459,16 +566,62 @@ private fun PlayBoxApp() {
     // (preset + custom seed) and M3 Expressive motion scheme live here.
     ZephTheme(preset = theme, seedHex = themeSeedHex, dark = themeDarkMode) {
         Box(modifier = Modifier.fillMaxSize().background(Bg)) {
-            if (showExitDialog) {
+            // 2.1.0 (motion batch, audit MOT-4/MOT-5): the top-level
+            // screen used to be a plain if/else chain — the players,
+            // Now Playing, the crash gate and the Settings sub-pages
+            // all hard-cut in and out, though Motion.kt's header has
+            // always promised a container transform for the player
+            // entering. The chain is now ONE AnimatedContent keyed by
+            // the screen the chain would have picked (same precedence
+            // as the old if/else order): the player and Now Playing
+            // enter with the container treatment, everything else
+            // with the sequenced fade-through.
+            val appScreen = when {
+                showExitDialog -> AppScreen.ExitDialog
+                showCrashGate -> AppScreen.CrashGate
+                showRationale -> AppScreen.Rationale
+                playingItem != null && !playingHdrKnown -> AppScreen.Hold
+                playingItem != null && (playingItem.isVideo || playingEngine != PlayerEngine.MEDIA3 || nowPlayingOpen) ->
+                    if (!playingItem.isVideo && playingEngine == PlayerEngine.MEDIA3 && nowPlayingOpen) {
+                        AppScreen.NowPlaying
+                    } else {
+                        AppScreen.Player
+                    }
+                settingsPage == "privacy" -> AppScreen.Privacy
+                settingsPage == "licences" -> AppScreen.Licences
+                else -> AppScreen.Shell
+            }
+            // The exiting player/Now Playing content stays composed
+            // for its exit transition, after `playing` has already
+            // been cleared — it must keep showing the item it was
+            // playing (the same last-item pattern the Details
+            // overlay uses below), not read a null.
+            var lastPlayingItem by remember { mutableStateOf<VideoItem?>(null) }
+            var lastPlayingEngine by remember { mutableStateOf(PlayerEngine.MEDIA3) }
+            LaunchedEffect(playingItem, playingEngine) {
+                if (playingItem != null) {
+                    lastPlayingItem = playingItem
+                    lastPlayingEngine = playingEngine
+                }
+            }
+            AnimatedContent(
+                targetState = appScreen,
+                transitionSpec = { appScreenTransition(initialState, targetState, reduceMotion) },
+                label = "appScreen"
+            ) { screen ->
+                when (screen) {
+                    AppScreen.ExitDialog -> {
                 ExitConfirmDialog(
                     onExit = { showExitDialog = false; exitApp() },
                     onStay = { showExitDialog = false }
                 )
-            } else if (showCrashGate) {
+                    }
+                    AppScreen.CrashGate -> {
                 CrashNoteScreen(
                     note = crashNote,
                     lastStep = CrashLog.lastStep(context),
                     vlcDeath = vlcDeath,
+                    trail = crashTrail,
                     onContinue = {
                         CrashLog.clear(context)
                         // 2.0.10: pin the dead file BEFORE clearing
@@ -491,7 +644,8 @@ private fun PlayBoxApp() {
                         crashGateDone = true
                     }
                 )
-            } else if (showRationale) {
+                    }
+                    AppScreen.Rationale -> {
                 PermissionRationaleScreen(
                     onAllow = {
                         val perms = if (Build.VERSION.SDK_INT >= 33) {
@@ -506,13 +660,22 @@ private fun PlayBoxApp() {
                         showRationale = false
                     }
                 )
-            } else if (playingItem != null && (playingItem.isVideo || playingEngine != PlayerEngine.MEDIA3 || nowPlayingOpen)) {
-                if (!playing!!.isVideo && playingEngine == PlayerEngine.MEDIA3 && nowPlayingOpen) {
+                    }
+                    AppScreen.Hold -> {
+                // 2.1.0 (audit N8): the HDR probe for this local
+                // file is still running (one header read). Hold on
+                // the plain background for those few milliseconds
+                // rather than opening the wrong engine and
+                // switching when the answer lands.
+                    }
+                    AppScreen.NowPlaying -> {
+                val item = playingItem ?: lastPlayingItem
+                if (item != null) {
                     // Patch 5: audio on Media3 opens Now Playing,
                     // not the video player (audit A2). Audio that
                     // needs VLC falls through to the video player below.
                     M3NowPlayingScreen(
-                        item = playing!!,
+                        item = item,
                         queue = playList.ifEmpty { all },
                         shuffleOn = shuffleOn,
                         onShuffleChange = { shuffleOn = it },
@@ -521,28 +684,34 @@ private fun PlayBoxApp() {
                         onExit = { playing = null; nowPlayingOpen = false; playFromStart = false; playStartSpeed = null },
                         onCollapse = { nowPlayingOpen = false },
                         onEngineFailed = {
-                            if (fallbackDoneFor != playing!!.path) {
-                                fallbackDoneFor = playing!!.path
-                                engineOverride = playing!!.path to PlayerEngine.VLC
+                            if (fallbackDoneFor != item.path) {
+                                fallbackDoneFor = item.path
+                                engineOverride = item.path to PlayerEngine.VLC
                             }
                         },
                         onPlayingChange = { playerIsPlaying = it }
                     )
-                } else if (playingEngine == PlayerEngine.VLC) {
+                }
+                    }
+                    AppScreen.Player -> {
+                val item = playingItem ?: lastPlayingItem
+                val engine = if (playingItem != null) playingEngine else lastPlayingEngine
+                if (item != null) {
+                if (engine == PlayerEngine.VLC) {
                     VlcPlayerScreen(
-                        item = playing!!,
+                        item = item,
                         queue = playList.ifEmpty { all },
                         fromStart = playFromStart,
                         startSpeed = playStartSpeed,
                         onExit = { playing = null; playFromStart = false; playStartSpeed = null },
                         onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
-                        onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.MEDIA3 },
+                        onSwitchEngine = { engineOverride = item.path to PlayerEngine.MEDIA3 },
                         onEnterPip = enterPip,
                         // v5: the dock's engine door — Auto clears the
                         // override (the default + format rules decide),
                         // Media3 / VLC switch to that engine now.
                         onEngineDoor = { eng ->
-                            engineOverride = if (eng == null) null else playing!!.path to eng
+                            engineOverride = if (eng == null) null else item.path to eng
                         },
                         // Patch 1.3.1: the VLC engine could not start —
                         // open the same file on Media3 instead of crashing.
@@ -550,9 +719,9 @@ private fun PlayBoxApp() {
                         // so it cannot loop back to Media3 after a
                         // Media3→VLC fallback for the same file.
                         onEngineFailed = {
-                            if (fallbackDoneFor != playing!!.path) {
-                                fallbackDoneFor = playing!!.path
-                                engineOverride = playing!!.path to PlayerEngine.MEDIA3
+                            if (fallbackDoneFor != item.path) {
+                                fallbackDoneFor = item.path
+                                engineOverride = item.path to PlayerEngine.MEDIA3
                             }
                         },
                         // 1.9.1 (P11): "See all" in the dock's Up Next
@@ -562,28 +731,28 @@ private fun PlayBoxApp() {
                     )
                 } else {
                     PlayerScreen(
-                        item = playing!!,
+                        item = item,
                         queue = playList.ifEmpty { all },
                         fromStart = playFromStart,
                         startSpeed = playStartSpeed,
                         onExit = { playing = null; playFromStart = false; playStartSpeed = null },
                         onPlayNext = { next -> playing = next; playFromStart = false; playStartSpeed = null },
-                        onSwitchEngine = { engineOverride = playing!!.path to PlayerEngine.VLC },
+                        onSwitchEngine = { engineOverride = item.path to PlayerEngine.VLC },
                         onEnterPip = enterPip,
                         // v5: the dock's engine door — Auto clears the
                         // override (the default + format rules decide),
                         // Media3 / VLC switch to that engine now.
                         onEngineDoor = { eng ->
-                            engineOverride = if (eng == null) null else playing!!.path to eng
+                            engineOverride = if (eng == null) null else item.path to eng
                         },
                         // 1.4.5 Patch B: Media3 failed to play this
                         // file — retry it on LibVLC instead of
                         // showing an error. Guarded to once per file,
                         // so the two engines cannot ping-pong.
                         onEngineFailed = {
-                            if (fallbackDoneFor != playing!!.path) {
-                                fallbackDoneFor = playing!!.path
-                                engineOverride = playing!!.path to PlayerEngine.VLC
+                            if (fallbackDoneFor != item.path) {
+                                fallbackDoneFor = item.path
+                                engineOverride = item.path to PlayerEngine.VLC
                             }
                         },
                         // 1.9.1 (P11): "See all" in the dock's Up Next
@@ -592,13 +761,17 @@ private fun PlayBoxApp() {
                         onPlayingChange = { playerIsPlaying = it }
                     )
                 }
-            } else if (settingsPage == "privacy") {
+                }
+                    }
+                    AppScreen.Privacy -> {
                 // Patch 4 (Jio): Privacy Policy, opened from Settings → About.
                 M3PrivacyPolicyScreen(onBack = { settingsPage = null })
-            } else if (settingsPage == "licences") {
+                    }
+                    AppScreen.Licences -> {
                 // Patch 4 (Jio): open-source licences, opened from Settings → About.
                 M3LicencesScreen(onBack = { settingsPage = null })
-            } else {
+                    }
+                    AppScreen.Shell -> {
                 // 2.0.0: library modes map to tabs — "Music" opens
                 // Audio, everything else opens Video (folders and
                 // network move to Browse in Patch 4). The rail's
@@ -697,24 +870,22 @@ private fun PlayBoxApp() {
                 var lastDetails by remember { mutableStateOf<VideoItem?>(null) }
                 LaunchedEffect(details) { if (details != null) lastDetails = details }
                 val tabSwitch: AnimatedContentTransitionScope<Tab>.() -> ContentTransform = {
-                    // 2.0.0 design: fade-through 420ms — opacity holds
-                    // at 0 for the first 35% (147ms), then fades in;
-                    // the screen scales 0.94→1 on the
-                    // emphasized-decelerate easing. The old screen
-                    // unmounts instantly — the design has no
-                    // screen-exit animation (fix pass: the app used
-                    // to add a 200ms fade-out).
-                    (fadeIn(
-                        keyframes {
-                            durationMillis = Motion.ScreenFadeThroughMs
-                            0f at 0
-                            0f at 147
-                            1f at Motion.ScreenFadeThroughMs
-                        }
-                    ) + scaleIn(
-                        Motion.screenFadeThrough(),
-                        initialScale = 0.94f
-                    )) togetherWith ExitTransition.None
+                    // 2.1.0 (motion batch, audit MOT-6/MOT-36): the
+                    // 2.0.0 design's 420ms fade-through held opacity
+                    // at 0 for its first 147ms while the old screen
+                    // cut out instantly — every tab press read as
+                    // the app going blank for a beat. Replaced by
+                    // the Motion system's sequenced fade-through:
+                    // the old screen fades out in 100ms, then the
+                    // new one fades in over 300ms. No hold, and no
+                    // full-screen scale (MOT-32) — opacity alone
+                    // carries the switch. Under reduce motion
+                    // (MOT-31) it collapses to a plain short fade.
+                    if (reduceMotion) {
+                        fadeIn(Motion.reducedFade()) togetherWith fadeOut(Motion.reducedFade())
+                    } else {
+                        fadeIn(Motion.screenEnterSpec()) togetherWith fadeOut(Motion.screenExitSpec())
+                    }
                 }
                 val detailsPlay: (VideoItem, Boolean) -> Unit = { item, fromStart ->
                     playing = item
@@ -801,6 +972,8 @@ private fun PlayBoxApp() {
                         }
                     }
                     } // LocalZephSharedTransitionScope
+                }
+                    }
                 }
             }
         }

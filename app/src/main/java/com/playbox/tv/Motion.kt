@@ -8,7 +8,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -42,13 +46,32 @@ internal object Motion {
     const val SharedAxisMs = 400
     const val SharedAxisLargeMs = 400
     const val ContainerTransformMs = 480
-    // 2.0.0 design: the screen fade-through is 420ms on the
-    // emphasized-decelerate easing (the design's fade-through holds
-    // opacity at 0 for the first 35% — see MainActivity's tabSwitch).
-    const val ScreenFadeThroughMs = 420
+    // (Removed in 2.1.0's motion batch: the 2.0.0 design's 420ms
+    // screen fade-through, whose first-35% opacity hold read as
+    // the app going blank on every tab press — audit MOT-6. The
+    // sequenced ScreenExitMs/ScreenEnterMs pair below is the
+    // screen swap now.)
     // 2.0.0 design: rise — 520ms, translateY 22dp + scale 0.97→1
     // (the design's anim-rise, staggered 30–70ms/item).
     const val RiseMs = 520
+    // 2.1.0 (motion batch, audit MOT-4/MOT-6): the sequenced
+    // fade-through for screen-level swaps — the outgoing screen
+    // fades out fast on the accelerate easing, then the incoming
+    // screen fades in on the decelerate easing. No opacity hold,
+    // no full-screen scale (the old 420ms tab spec held opacity
+    // at 0 for its first 147ms — a visible void on every tab
+    // press — and scaled the whole incoming screen).
+    const val ScreenExitMs = 100
+    const val ScreenEnterMs = 300
+    // 2.1.0 (motion batch): under reduce motion, screen-level
+    // transitions collapse to this plain short fade.
+    const val ReducedFadeMs = 100
+    // 2.1.0 (motion batch): the side-sheet pair — a 250ms scrim
+    // fade and a 420ms panel slide. These were the values the
+    // sheets already used as raw literals in three files; they
+    // are tokens now so every sheet in the app shares them.
+    const val ChromeMs = 250
+    const val SheetSlideMs = 420
 
     // M3 emphasized easings (cubic-bezier from the M3 motion spec).
     val Emphasized: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -87,28 +110,68 @@ internal object Motion {
     fun <T> fadeThrough(): FiniteAnimationSpec<T> =
         tween(durationMillis = FadeThroughMs, easing = Emphasized)
 
-    // 2.0.0 design: the screen fade-through (420ms, emphasized
-    // decelerate) — tab content swaps in the new design.
-    fun <T> screenFadeThrough(): FiniteAnimationSpec<T> =
-        tween(durationMillis = ScreenFadeThroughMs, easing = EmphasizedDecelerate)
-
     fun <T> bouncy(): FiniteAnimationSpec<T> =
         tween(durationMillis = ContainerTransformMs, easing = EmphasizedDecelerate)
 
     fun <T> snap(): FiniteAnimationSpec<T> =
         tween(durationMillis = FadeThroughMs, easing = Emphasized)
+
+    // 2.1.0 (motion batch): the screen-level specs — the ONE
+    // implementation of the fade-through every screen swap uses
+    // (top-level screens, shell tabs, Audio sub-tabs, Settings
+    // panels). screenEnterSpec delays by the exit's length, so
+    // the pair runs sequenced: out first, then in, no overlap
+    // void and no double-image crossfade.
+    fun <T> screenEnterSpec(): FiniteAnimationSpec<T> =
+        tween(
+            durationMillis = ScreenEnterMs,
+            delayMillis = ScreenExitMs,
+            easing = EmphasizedDecelerate
+        )
+
+    fun <T> screenExitSpec(): FiniteAnimationSpec<T> =
+        tween(durationMillis = ScreenExitMs, easing = EmphasizedAccelerate)
+
+    // The container transform's enter (480ms, emphasized
+    // decelerate) — the player and Now Playing entering, per
+    // the header above. Paired with a scaleIn from 0.88 at the
+    // call site.
+    fun <T> containerEnter(): FiniteAnimationSpec<T> =
+        tween(durationMillis = ContainerTransformMs, easing = EmphasizedDecelerate)
+
+    // Reduce motion: screen-level swaps become this plain fade.
+    fun <T> reducedFade(): FiniteAnimationSpec<T> =
+        tween(durationMillis = ReducedFadeMs, easing = Emphasized)
+
+    // The side-sheet specs (player gear sheets, Now Playing's
+    // queue sheet): scrim fades on scrimFade(), the panel slides
+    // on sheetSlide(), in AND out.
+    fun <T> scrimFade(): FiniteAnimationSpec<T> =
+        tween(durationMillis = ChromeMs, easing = Emphasized)
+
+    fun <T> sheetSlide(): FiniteAnimationSpec<T> =
+        tween(durationMillis = SheetSlideMs, easing = EmphasizedDecelerate)
 }
 
 // 2.0.0 design: rise — the design's anim-rise as a Modifier.
 // 520ms emphasized-decelerate, translateY 22dp + scale 0.97→1 +
-// fade, staggered by delayMs. Under reduce motion it is just a
-// fade (no movement), like the design's reduce-motion mode.
+// fade, staggered by delayMs. Under reduce motion there is no
+// entrance at all — the item starts at its final state.
+// 2.1.0 (motion batch, audit MOT-23): the entrance plays ONCE
+// per item. The Animatable used to live in plain remember, so
+// a lazy-list item disposed by scrolling away replayed its
+// full 520ms rise when it scrolled back. The played flag is
+// rememberSaveable — a lazy list keeps an item's saved state
+// across disposal (under the item's key), so a returning item
+// starts at its final state instead of rising again.
 @Composable
 internal fun Modifier.riseIn(delayMs: Int): Modifier {
     val reduceMotion = isReduceMotion(LocalContext.current)
-    val progress = remember { Animatable(if (reduceMotion) 1f else 0f) }
+    var played by rememberSaveable { mutableStateOf(false) }
+    val progress = remember { Animatable(if (reduceMotion || played) 1f else 0f) }
     LaunchedEffect(Unit) {
-        if (!reduceMotion) {
+        if (!reduceMotion && !played) {
+            played = true
             progress.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(

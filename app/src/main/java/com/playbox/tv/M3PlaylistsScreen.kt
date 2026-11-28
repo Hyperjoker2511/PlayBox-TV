@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistPlay
@@ -73,14 +74,16 @@ internal fun M3PlaylistsScreen(
     var refreshNonce by remember { mutableStateOf(0) }
     val names = remember(refreshNonce) { LibraryStores.playlistNames(context) }
     val all = remember(audio, videos) { audio + videos }
-    val byPath = remember(all) { all.associateBy { it.path } }
+    // 2.1.0 (audit N24): playlist entries are storage keys (no
+    // password) — index the items by their key so a stored entry
+    // still resolves to the full item, credentials and all, for
+    // playback.
+    val byPath = remember(all) { all.associateBy { storageKeyFor(it.path) } }
     var selected by remember { mutableStateOf<String?>(null) }
     var showNew by remember { mutableStateOf(false) }
-    val totalSongs = remember(names, byPath) {
-        names.sumOf { name ->
-            LibraryStores.playlistItems(context, name).count { p -> byPath[p]?.isAudio == true }
-        }
-    }
+    // 2.1.0 (UI batch): the design photo's subtitle is just
+    // "N playlists" — the old "· N songs" total (and its store
+    // walk) is gone.
 
     BackHandler(enabled = selected != null) { selected = null }
     // M15 (2.0.1): autofocus on entry — the "New playlist"
@@ -93,14 +96,35 @@ internal fun M3PlaylistsScreen(
         if (selected == null) {
             M3ScreenHeader(
                 title = "Playlists",
-                subtitle = if (names.isEmpty()) null else "${names.size} playlists · $totalSongs songs",
+                subtitle = if (names.isEmpty()) null else "${names.size} playlists",
                 actions = {
-                    ZephButton(
-                        text = "New playlist",
-                        onClick = { showNew = true },
-                        modifier = Modifier.focusRequester(firstFocus),
-                        icon = Icons.Filled.Add
-                    )
+                    // 2.1.0 (UI batch): the photo's "New playlist"
+                    // is a DARK rounded-rect (surface-container
+                    // fill, 16dp corners), not the filled primary
+                    // pill. Same onClick, same autofocus.
+                    val newInteraction = remember { MutableInteractionSource() }
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .zephFocus(newInteraction, focusScale = 1.0f, cornerRadius = 16.dp)
+                            .clickable(interactionSource = newInteraction, indication = null) { showNew = true }
+                            .focusRequester(firstFocus)
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.PlaylistAdd, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            "New playlist",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             )
             if (names.isEmpty()) {
@@ -176,28 +200,33 @@ private fun M3PlaylistCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .zephFocus(interaction, focusScale = 1.03f, cornerRadius = 16.dp)
+            // 2.1.0 (UI batch): 24dp corners (the photo's collages
+            // are visibly rounder than 16dp) and the name/meta
+            // inset 12dp from the card edge, like the video cards.
+            .clip(RoundedCornerShape(24.dp))
+            .zephFocus(interaction, focusScale = 1.03f, cornerRadius = 24.dp)
             .clickable(interactionSource = interaction, indication = null) { onClick() }
             .riseIn(minOf(index, 10) * 30)
     ) {
         M3PlaylistCollage(
             items = items,
             fallbackHue = audioHueOf(name),
-            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp))
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(24.dp))
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             name,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1, overflow = TextOverflow.Ellipsis
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 12.dp)
         )
         Text(
             label,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1, overflow = TextOverflow.Ellipsis
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 12.dp)
         )
     }
 }
@@ -217,12 +246,14 @@ private fun M3PlaylistCollage(
             hue to if (item.isAudio) Icons.Filled.MusicNote else Icons.Filled.PlayArrow
         } ?: (fallbackHue to Icons.Filled.MusicNote)
     }
-    Column(modifier = modifier) {
-        Row(modifier = Modifier.weight(1f)) {
+    // 2.1.0 (UI batch): 2dp gaps between the quadrants — the
+    // photo's collages show thin dark seams, not a flush join.
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             M3AlbumArt(hue = quads[0].first, icon = quads[0].second, iconSize = 24.dp, modifier = Modifier.weight(1f).fillMaxHeight())
             M3AlbumArt(hue = quads[1].first, icon = quads[1].second, iconSize = 24.dp, modifier = Modifier.weight(1f).fillMaxHeight())
         }
-        Row(modifier = Modifier.weight(1f)) {
+        Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             M3AlbumArt(hue = quads[2].first, icon = quads[2].second, iconSize = 24.dp, modifier = Modifier.weight(1f).fillMaxHeight())
             M3AlbumArt(hue = quads[3].first, icon = quads[3].second, iconSize = 24.dp, modifier = Modifier.weight(1f).fillMaxHeight())
         }

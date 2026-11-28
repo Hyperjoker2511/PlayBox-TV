@@ -40,36 +40,58 @@ internal fun containerOf(item: VideoItem): String {
 internal fun isResumeOn(context: Context): Boolean =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("resume_on", true)
 
-/** Reduce motion is off by default; when on, the Search entry stretch
- * and the focus zoom are skipped. */
+/** Reduce motion is off by default. When on (2.1.0, motion
+ * batch — audit MOT-31 wired the readers): the focus zoom is
+ * skipped (zephFocus — the ring and fill still mark focus),
+ * screen / tab / sub-tab / Settings-panel transitions collapse
+ * to a plain short fade (Motion.reducedFade), riseIn entrances
+ * are skipped, and Now Playing's track-change art snaps to its
+ * final state. */
 internal fun isReduceMotion(context: Context): Boolean =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("reduce_motion", false)
 
 /** Patch 8 (Settings two-pane): the design's Video/Audio switches.
- * Defaults are the design's store.tsx DEFAULTS. The prefs are real
- * persisted state; the player-side wiring for AFR / passthrough /
- * replay gain / gapless lands in a later player update (like the EQ
- * dialog, which is display-only until wired). The visualizer and
- * dynamic-artwork switches ARE wired now — they gate the real Now
+ * Defaults are the design's store.tsx DEFAULTS. 2.1.0 (audits
+ * N27–N30): the player-side wiring has landed — AFR is read by
+ * both video players (frame-rate match), passthrough and replay
+ * gain by libVlcOptions (VLC engine; Media3 exposes no lever for
+ * either — see the notes there), and gapless by Now Playing /
+ * the MiniPlayer (the queue becomes the player's playlist). The
+ * visualizer and dynamic-artwork switches gate the real Now
  * Playing visualizer and dynamic-colour wash. */
+/** 2.1.0 (audit N27): consumed by both video players
+ * (PlayerScreen / VlcPlayerScreen), which set the window's
+ * preferred display mode from the video's frame rate via
+ * applyFrameRateMatch below. */
 internal fun isAfrOn(context: Context): Boolean =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("afr", true)
 
 internal fun saveAfrOn(context: Context, on: Boolean) =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("afr", on).apply()
 
+/** 2.1.0 (audit N28): consumed by libVlcOptions (VlcEngine.kt),
+ * which adds libvlc's "--spdif" when this is on. VLC only —
+ * Media3's sink decides passthrough from the connected device
+ * and exposes no app-level lever (see the libVlcOptions note). */
 internal fun isPassthroughOn(context: Context): Boolean =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("audio_passthrough", false)
 
 internal fun savePassthroughOn(context: Context, on: Boolean) =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("audio_passthrough", on).apply()
 
+/** 2.1.0 (audit N29): consumed by libVlcOptions (VlcEngine.kt),
+ * which adds "--audio-replay-gain-mode=track" when this is on.
+ * VLC only — Media3 has no replay-gain facility to wire. */
 internal fun isReplayGainOn(context: Context): Boolean =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("replay_gain", true)
 
 internal fun saveReplayGainOn(context: Context, on: Boolean) =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean("replay_gain", on).apply()
 
+/** 2.1.0 (audit N30): consumed by Now Playing and the MiniPlayer
+ * (M3NowPlayingScreen.kt) — when on, the audio queue is loaded
+ * into the shared player as its playlist (loadAudioIntoPlayer)
+ * and the player owns advance, repeat and shuffle. */
 internal fun isGaplessOn(context: Context): Boolean =
     context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("gapless", true)
 
@@ -317,13 +339,19 @@ internal fun probeVideoMeta(context: Context, item: VideoItem): VideoMeta? {
             }
         }
         if (width <= 0 || height <= 0) return null
+        // 2.1.0 (audit N7): classify by the frame's LONG edge, not
+        // its height alone. Movies are cropped — a 1080p encode is
+        // commonly 1920×804 or 1920×1036 — and the old height-only
+        // buckets stamped every one of them "720p". The long edge
+        // names the frame's class whichever way it is cropped.
+        val longEdge = maxOf(width, height)
         val res = when {
-            height >= 2160 -> "4K"
-            height >= 1440 -> "1440p"
-            height >= 1080 -> "1080p"
-            height >= 720 -> "720p"
-            height >= 480 -> "480p"
-            else -> "${height}p"
+            longEdge >= 3800 -> "4K"
+            longEdge >= 2500 -> "1440p"
+            longEdge >= 1900 -> "1080p"
+            longEdge >= 1200 -> "720p"
+            longEdge >= 850 -> "480p"
+            else -> "SD"
         }
         val audio = when {
             aCodec.isEmpty() -> ""
@@ -355,12 +383,13 @@ private const val VOLUME_PREFS = "playbox_volume"
 
 internal fun storedVolumeFor(context: Context, path: String): Float? {
     val prefs = context.getSharedPreferences(VOLUME_PREFS, Context.MODE_PRIVATE)
-    return if (prefs.contains(path)) prefs.getFloat(path, 1f) else null
+    val key = storageKeyFor(path)
+    return if (prefs.contains(key)) prefs.getFloat(key, 1f) else null
 }
 
 internal fun saveVolumeFor(context: Context, path: String, volume: Float) {
     context.getSharedPreferences(VOLUME_PREFS, Context.MODE_PRIVATE).edit()
-        .putFloat(path, volume.coerceIn(0f, 1f)).apply()
+        .putFloat(storageKeyFor(path), volume.coerceIn(0f, 1f)).apply()
 }
 
 /** Playback brightness (Se7): 0–100, default 80. Applied to the
@@ -382,6 +411,89 @@ internal fun setWindowBrightness(activity: android.app.Activity?, pct: Int) {
     attrs.screenBrightness = if (pct < 0) -1f else (pct / 100f).coerceIn(0.05f, 1f)
     window.attributes = attrs
 }
+
+/** 2.1.0 (audit N27): picks the display mode the window should
+ * prefer while a video of [frameRate] fps plays — the mode with
+ * the same picture size as the display's current mode whose
+ * refresh rate is the lowest near-integer multiple of the video
+ * rate (23.976 → 23.976, then 47.952, then 71.928…), so film
+ * plays without the 3:2 judder of a fixed 60 Hz panel. When no
+ * mode is a near multiple, the closest refresh rate wins.
+ * Returns 0 ("no preference") when the rate is unknown or the
+ * display reports nothing usable — the caller then leaves the
+ * window alone. (Pure apart from reading the display's modes.) */
+internal fun bestDisplayModeId(activity: android.app.Activity?, frameRate: Float): Int {
+    if (activity == null || frameRate <= 0f) return 0
+    val display = runCatching { activity.windowManager.defaultDisplay }.getOrNull() ?: return 0
+    val current = display.mode ?: return 0
+    val sameSize = display.supportedModes.filter {
+        it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+    }
+    if (sameSize.isEmpty()) return 0
+    fun score(rate: Float): Float {
+        for (k in 1..5) {
+            if (kotlin.math.abs(rate - frameRate * k) <= 0.6f) return k.toFloat()
+        }
+        return 100f + kotlin.math.abs(rate - frameRate)
+    }
+    val best = sameSize.minWithOrNull(compareBy<android.view.Display.Mode> { score(it.refreshRate) }.thenBy { it.refreshRate })
+        ?: return 0
+    return if (best.modeId == current.modeId) 0 else best.modeId
+}
+
+/** 2.1.0 (audit N27): applies the frame-rate match — sets the
+ * window's preferred display mode (see [bestDisplayModeId]).
+ * A no-op when no mode fits better than the current one. */
+internal fun applyFrameRateMatch(activity: android.app.Activity?, frameRate: Float) {
+    val window = activity?.window ?: return
+    val id = bestDisplayModeId(activity, frameRate)
+    if (id == 0) return
+    val attrs = window.attributes
+    if (attrs.preferredDisplayModeId != id) {
+        attrs.preferredDisplayModeId = id
+        window.attributes = attrs
+    }
+}
+
+/** 2.1.0 (audit N27): restores the system-default display mode
+ * when a player screen exits, so the rest of the app is not
+ * left running at the last video's refresh rate. */
+internal fun clearFrameRateMatch(activity: android.app.Activity?) {
+    val window = activity?.window ?: return
+    val attrs = window.attributes
+    if (attrs.preferredDisplayModeId != 0) {
+        attrs.preferredDisplayModeId = 0
+        window.attributes = attrs
+    }
+}
+
+/** The video's frame rate from its container metadata, for the
+ * frame-rate match. Local files and content URIs only (the same
+ * restriction as the VLC screen's resolution probe) — streams
+ * and network paths return 0 ("unknown"), and the match simply
+ * does not engage for them. */
+internal fun probeFrameRate(context: Context, item: VideoItem): Float = runCatching {
+    val extractor = MediaExtractor()
+    try {
+        when {
+            item.path.startsWith("content://") || item.path.startsWith("file://") ->
+                extractor.setDataSource(context, Uri.parse(item.path), null)
+            item.path.startsWith("/") -> extractor.setDataSource(item.path)
+            else -> return@runCatching 0f
+        }
+        for (i in 0 until extractor.trackCount) {
+            val format = extractor.getTrackFormat(i)
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+            if (!mime.startsWith("video/")) continue
+            return@runCatching if (format.containsKey(MediaFormat.KEY_FRAME_RATE)) {
+                format.getInteger(MediaFormat.KEY_FRAME_RATE).toFloat()
+            } else 0f
+        }
+        0f
+    } finally {
+        runCatching { extractor.release() }
+    }
+}.getOrDefault(0f)
 
 /** Sets the device music-stream volume from a 0–100 percent
  * (P10): the one volume the dock chip and the remote's Up / Down

@@ -72,30 +72,25 @@ import java.io.File
 // (Play from start, Favourites, Add to playlist, the "May not
 // play" note) are kept and restyled, not deleted.
 
-/** Patch 7: delete a video — the file itself (a local path, or a
- * content:// URI via the ContentResolver), plus its resume
- * position, favourite and playlist entries. Returns true only
- * when the file itself was deleted; the library entries are
- * cleared only then, so a failed delete never silently removes
- * a file that still exists. Network files (smb/ftp/sftp/http)
- * are not deletable from here — the caller hides Remove for
- * them instead of offering a delete that cannot work. */
-internal fun deleteVideoFile(context: android.content.Context, item: VideoItem): Boolean {
-    val deleted = try {
-        when {
-            item.path.startsWith("content://") -> {
-                runCatching {
-                    context.contentResolver.delete(Uri.parse(item.path), null, null) > 0
-                }.getOrDefault(false)
-            }
-            item.path.startsWith("/") -> {
-                val f = File(item.path)
-                if (f.exists()) f.delete() else false
-            }
-            else -> false
-        }
-    } catch (_: Exception) { false }
-    if (!deleted) return false
+/** 2.1.0 (audit N26): the three ways a delete from Details ends.
+ * [Deleted] — the file (and its MediaStore row) is gone and the
+ * library entries were cleared. [Failed] — nothing was deleted;
+ * the caller says so instead of failing silently. [NeedsConsent]
+ * — Android requires the user's approval for this file (it is a
+ * MediaStore file this app doesn't own); the caller launches the
+ * intent sender and, on approval, the system performs the delete
+ * and the caller clears the library entries via [forgetDeletedItem]. */
+internal sealed interface DeleteOutcome {
+    object Deleted : DeleteOutcome
+    object Failed : DeleteOutcome
+    class NeedsConsent(val intentSender: android.content.IntentSender) : DeleteOutcome
+}
+
+/** Clear a deleted file's resume position, favourite flag and
+ * playlist entries. Only ever called once the file itself is
+ * gone, so a failed delete never removes entries for a file that
+ * still exists. */
+internal fun forgetDeletedItem(context: android.content.Context, item: VideoItem) {
     runCatching { clearResumePosition(context, item.path) }
     runCatching {
         if (LibraryStores.isFavourite(context, item.path)) {
@@ -107,7 +102,97 @@ internal fun deleteVideoFile(context: android.content.Context, item: VideoItem):
             LibraryStores.removeFromPlaylist(context, name, item.path)
         }
     }
-    return true
+}
+
+/** The MediaStore row for a raw file path, if the file is indexed.
+ * The Files collection covers video and audio alike. */
+private fun mediaStoreUriForPath(context: android.content.Context, path: String): Uri? {
+    val collection = android.provider.MediaStore.Files.getContentUri("external")
+    return try {
+        context.contentResolver.query(
+            collection,
+            arrayOf(android.provider.MediaStore.Files.FileColumns._ID),
+            "${android.provider.MediaStore.Files.FileColumns.DATA} = ?",
+            arrayOf(path),
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                android.content.ContentUris.withAppendedId(collection, cursor.getLong(0))
+            } else null
+        }
+    } catch (_: Exception) { null }
+}
+
+/** The consent sender for deleting [uri]: on Android 11+ the
+ * platform delete request (one approval covers the delete); on
+ * Android 10 the sender the RecoverableSecurityException itself
+ * carries. */
+private fun deleteConsentSender(
+    context: android.content.Context,
+    uri: Uri,
+    e: android.app.RecoverableSecurityException
+): android.content.IntentSender =
+    if (android.os.Build.VERSION.SDK_INT >= 30) {
+        android.provider.MediaStore.createDeleteRequest(context.contentResolver, listOf(uri)).intentSender
+    } else {
+        e.userAction.actionIntent.intentSender
+    }
+
+/** Patch 7: delete a video — the file itself (a local path, or a
+ * content:// URI via the ContentResolver), plus its resume
+ * position, favourite and playlist entries.
+ * 2.1.0 (audit N26): the old version swallowed
+ * RecoverableSecurityException, so on Android 11+ a MediaStore
+ * video the app doesn't own could NEVER be deleted from here —
+ * the tap just did nothing — and a raw-path delete left the
+ * MediaStore row behind as a ghost entry. Now: an indexed file
+ * is deleted through the resolver (file and row together), a
+ * consent requirement comes back as [DeleteOutcome.NeedsConsent]
+ * for the caller to launch, and a plain file delete also removes
+ * any MediaStore row for the path. Network files (smb/ftp/sftp/
+ * http) are not deletable from here — the caller hides Remove
+ * for them instead of offering a delete that cannot work. */
+internal fun deleteVideoFile(context: android.content.Context, item: VideoItem): DeleteOutcome {
+    val resolver = context.contentResolver
+    val outcome: DeleteOutcome = try {
+        when {
+            item.path.startsWith("content://") -> {
+                val uri = Uri.parse(item.path)
+                try {
+                    if (resolver.delete(uri, null, null) > 0) DeleteOutcome.Deleted
+                    else DeleteOutcome.Failed
+                } catch (e: android.app.RecoverableSecurityException) {
+                    DeleteOutcome.NeedsConsent(deleteConsentSender(context, uri, e))
+                }
+            }
+            item.path.startsWith("/") -> {
+                val storeUri = mediaStoreUriForPath(context, item.path)
+                var handled: DeleteOutcome? = null
+                if (storeUri != null) {
+                    handled = try {
+                        if (resolver.delete(storeUri, null, null) > 0) DeleteOutcome.Deleted else null
+                    } catch (e: android.app.RecoverableSecurityException) {
+                        DeleteOutcome.NeedsConsent(deleteConsentSender(context, storeUri, e))
+                    }
+                }
+                handled ?: run {
+                    // Not indexed, or the row delete didn't take:
+                    // delete the file directly, then remove any
+                    // MediaStore row so no ghost entry remains.
+                    val f = File(item.path)
+                    if (f.exists() && f.delete()) {
+                        if (storeUri != null) {
+                            runCatching { resolver.delete(storeUri, null, null) }
+                        }
+                        DeleteOutcome.Deleted
+                    } else DeleteOutcome.Failed
+                }
+            }
+            else -> DeleteOutcome.Failed
+        }
+    } catch (_: Exception) { DeleteOutcome.Failed }
+    if (outcome == DeleteOutcome.Deleted) forgetDeletedItem(context, item)
+    return outcome
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -135,6 +220,22 @@ internal fun M3DetailsScreen(
     // from here, so they get no Remove button at all.
     val canDelete = item.path.startsWith("/") || item.path.startsWith("content://")
     var confirmRemove by remember { mutableStateOf(false) }
+    // 2.1.0 (audit N26): the platform delete-consent flow. When a
+    // delete needs the user's approval (a MediaStore file this app
+    // doesn't own, Android 11+), deleteVideoFile returns the
+    // consent sender; this launcher shows the system approval and,
+    // on OK, the file is gone — clear its library entries and
+    // close Details. On refusal, say so plainly.
+    val deleteConsentLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            forgetDeletedItem(context, item)
+            onBack()
+        } else {
+            addedNote = "Couldn't delete this file"
+        }
+    }
     LaunchedEffect(addedNote) {
         if (addedNote != null) {
             delay(2500)
@@ -574,10 +675,17 @@ internal fun M3DetailsScreen(
             onConfirm = {
                 confirmRemove = false
                 scope.launch(Dispatchers.IO) {
-                    val ok = deleteVideoFile(context, item)
+                    val outcome = deleteVideoFile(context, item)
                     withContext(Dispatchers.Main) {
-                        if (ok) onBack()
-                        else addedNote = "Couldn't delete this file"
+                        when (outcome) {
+                            DeleteOutcome.Deleted -> onBack()
+                            DeleteOutcome.Failed -> addedNote = "Couldn't delete this file"
+                            is DeleteOutcome.NeedsConsent -> runCatching {
+                                deleteConsentLauncher.launch(
+                                    androidx.activity.result.IntentSenderRequest.Builder(outcome.intentSender).build()
+                                )
+                            }.onFailure { addedNote = "Couldn't delete this file" }
+                        }
                     }
                 }
             },

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -321,13 +322,17 @@ internal fun M3SearchScreen(
     }
 }
 
-/** The search field (K10, Patch 6): 56dp, surface-high, NO
- * border, search icon onSurfaceVariant, a static placeholder
- * (K11 — no typewriter), the mic in a 38dp secondaryContainer
+/** The search field (K10, Patch 6): 56dp, search icon
+ * onSurfaceVariant, the mic in a 38dp secondaryContainer
  * circle, and no Clear button. Capped at 560dp wide, like the
  * design's max-w-[560px]. Read-only: the on-screen keyboard is
  * the input, so the phone's soft keyboard never appears. Tapping
- * it shows the on-screen keyboard. */
+ * it shows the on-screen keyboard.
+ * 2.1.0 (UI batch): the design photo's field is an OUTLINED box
+ * (12dp corners, 2dp primary border, transparent fill) with the
+ * "Search your library" label floated into a notch in the top
+ * border — not the old filled pill with an in-field placeholder.
+ * The mic stays (voice search is real; the photo has none). */
 @Composable
 private fun M3SearchField(
     search: String,
@@ -348,14 +353,26 @@ private fun M3SearchField(
         modifier = Modifier
             .fillMaxWidth().widthIn(max = 560.dp).height(56.dp)
             .then(coverSharedModifier("search-bar"))
-            .clip(RoundedCornerShape(28.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clip(RoundedCornerShape(12.dp))
+            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .zephFocus(fieldInteraction, focusScale = 1f, cornerRadius = 28.dp)
+            .zephFocus(fieldInteraction, focusScale = 1f, cornerRadius = 12.dp)
             .clickable(interactionSource = fieldInteraction, indication = null) { onFieldTap() }
             .padding(start = 18.dp, end = 8.dp),
         contentAlignment = Alignment.CenterStart
     ) {
+        // The floating label, notched into the top border (its
+        // surface-coloured backing masks the border behind it).
+        Text(
+            "Search your library",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(x = 0.dp, y = (-9).dp)
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 4.dp)
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Filled.Search, contentDescription = null,
@@ -374,16 +391,9 @@ private fun M3SearchField(
                 ),
                 modifier = Modifier.weight(1f).focusable(false),
                 decorationBox = { inner ->
+                    // No in-field placeholder any more — the
+                    // floated label above names the field.
                     Box(contentAlignment = Alignment.CenterStart) {
-                        if (search.isEmpty()) {
-                            Text(
-                                "Search your library",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
                         inner()
                     }
                 }
@@ -479,9 +489,11 @@ private fun LazyListScope.searchContentItems(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // 2.1.0 (UI batch): the photo's trending row is
+                // plain text with the trending icon — no chip boxes.
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(SEARCH_SUGGEST, key = { it }) { term ->
-                        ZephFilterChip(
+                        ZephTextChip(
                             label = term,
                             selected = false,
                             onClick = { onSearch(term) },
@@ -540,7 +552,7 @@ private fun LazyListScope.searchContentItems(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     itemsIndexed(videos, key = { _, v -> v.path }) { index, video ->
                         val progress = if (video.durationMs > 0) {
-                            (resume[video.path] ?: 0L).toFloat() / video.durationMs
+                            (resume[storageKeyFor(video.path)] ?: 0L).toFloat() / video.durationMs
                         } else 0f
                         M3VideoCard(
                             item = video,

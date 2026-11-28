@@ -193,11 +193,40 @@ object VideoSorter {
         runCatching { SortOrder.valueOf(name) }.getOrDefault(SortOrder.DATE_ADDED)
 }
 
+/** 2.1.0 (audit N24): the key under which a path is PERSISTED —
+ * resume positions, watch times, recents, favourites, playlists.
+ * An FTP/SFTP play URL carries its password in the userinfo
+ * (ftp://user:pass@host/…), and the raw URL used to become the
+ * storage key, copying the password into every one of those
+ * stores. The key keeps scheme, user, host, port and path and
+ * drops only the password. Playback is unaffected — it always
+ * uses the item's real path; only persisted keys change. Entries
+ * stored before 2.1.0 under password-bearing keys are orphaned
+ * (the position/marks stay behind under the old key). Pure string
+ * surgery (no android.net.Uri) so unit tests can run it. */
+internal fun storageKeyFor(path: String): String {
+    val schemeEnd = path.indexOf("://")
+    if (schemeEnd < 0) return path
+    val authorityStart = schemeEnd + 3
+    val pathStart = path.indexOf('/', authorityStart)
+    val authorityEnd = if (pathStart < 0) path.length else pathStart
+    val authority = path.substring(authorityStart, authorityEnd)
+    val at = authority.lastIndexOf('@')
+    if (at < 0) return path
+    val userinfo = authority.substring(0, at)
+    val colon = userinfo.indexOf(':')
+    if (colon < 0) return path // user only — no password embedded
+    val user = userinfo.substring(0, colon)
+    return path.substring(0, authorityStart) + user + "@" +
+        path.substring(authorityStart + at + 1)
+}
+
 object ResumeStore {
     /** Preference key for a video's saved position: the path itself, so the
      * same video reached two ways (MediaStore path vs SAF content:// URI)
-     * does not get two different keys. Batch 1.2 used path.hashCode(). */
-    fun keyFor(path: String): String = path
+     * does not get two different keys. Batch 1.2 used path.hashCode().
+     * 2.1.0: FTP/SFTP paths are keyed by storageKeyFor — no password. */
+    fun keyFor(path: String): String = storageKeyFor(path)
 
     /** A position is worth resuming only if it is past 5s and at least 10s from the end.
      * 2.0.10: when the duration is unknown (<= 0) the "10s from the end" check cannot

@@ -57,6 +57,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -90,6 +91,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -203,12 +205,24 @@ internal fun ZephSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    // 2.1.0 (UI batch): optional leading icon — the Settings
+    // design photo's panel rows carry one (bulb, palette…).
+    // Null (every existing call site) changes nothing.
+    icon: ImageVector? = null
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (icon != null) {
+            Icon(
+                icon, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 title,
@@ -228,6 +242,16 @@ internal fun ZephSwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            // 2.1.0 (UI batch): the photo's switch is the M3
+            // with-icon variant — a check in the thumb when on.
+            thumbContent = if (checked) {
+                {
+                    Icon(
+                        Icons.Filled.Check, contentDescription = null,
+                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                    )
+                }
+            } else null,
             modifier = if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
         )
     }
@@ -293,12 +317,21 @@ internal fun Modifier.zephFocus(
 ): Modifier {
     val focused by interactionSource.collectIsFocusedAsState()
     val pressed by interactionSource.collectIsPressedAsState()
+    // 2.1.0 (motion batch, audit MOT-31): reduce motion finally
+    // reaches the focus zoom — isReduceMotion's own doc has
+    // always said "the focus zoom is skipped" when on, but this
+    // function never read the pref. When on, both scales stay
+    // at 1f; the ring and the state-layer fill (drawn below,
+    // not scaled) still mark focus, so focus stays visible —
+    // it just doesn't grow.
+    val reduceMotion = isReduceMotion(LocalContext.current)
     val focusAnim = tween<Float>(durationMillis = 300, easing = Motion.Emphasized)
     val scale by animateFloatAsState(
-        if (focused && enabled) focusScale else 1f,
+        if (focused && enabled && !reduceMotion) focusScale else 1f,
         focusAnim, label = "zephFocusScale"
     )
     val pressTarget = when {
+        reduceMotion -> 1f
         !pressed || !enabled -> 1f
         focused && focusScale > 1f -> 0.98f
         else -> 0.97f
@@ -313,8 +346,9 @@ internal fun Modifier.zephFocus(
         .then(
             // The lift shadow only exists when the element lifts
             // (focusScale > 1) — a no-lift element (the rail) has an
-            // outline and a state layer, but no shadow.
-            if (focused && enabled && focusScale > 1f) {
+            // outline and a state layer, but no shadow. Under
+            // reduce motion there is no lift, so no shadow either.
+            if (focused && enabled && focusScale > 1f && !reduceMotion) {
                 Modifier.shadow(
                     18.dp, RoundedCornerShape(cornerRadius),
                     spotColor = Color.Black.copy(alpha = 0.6f),
@@ -459,7 +493,11 @@ internal fun ZephTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    // 2.1.0 (UI batch): the design photos' header/section text
+    // actions read on-surface (white), not primary. Null keeps
+    // the M3 default (primary) for dialogs and panels.
+    contentColor: Color? = null
 ) {
     val interaction = remember { MutableInteractionSource() }
     TextButton(
@@ -468,6 +506,8 @@ internal fun ZephTextButton(
         modifier = modifier.zephFocus(interaction, enabled, cornerRadius = 20.dp),
         interactionSource = interaction,
         shape = CircleShape,
+        colors = if (contentColor != null) ButtonDefaults.textButtonColors(contentColor = contentColor)
+        else ButtonDefaults.textButtonColors(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             horizontal = 12.dp, vertical = 10.dp
         )
@@ -554,6 +594,44 @@ internal fun ZephFilterChip(
             selectedBorderWidth = 0.dp
         )
     )
+}
+
+/** Zeph text chip — the design photos' header / filter treatment:
+ * plain text with NO container, border or fill. In the photos
+ * every item reads on-surface (white); the ONLY selected marker
+ * is the check mark (unselected shows its leading icon instead).
+ * Focus is the ring only (no lift — it is text, not a card).
+ * Used where the photos show bare text actions: Home's
+ * "Hardware decoding", the Video screen's filter/sort row,
+ * Search's trending row. The boxed ZephFilterChip stays for
+ * dense pickers (settings panels, the Browse breadcrumb,
+ * Details). */
+@Composable
+internal fun ZephTextChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val color = MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .zephFocus(interaction, focusScale = 1.0f, cornerRadius = 8.dp)
+            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (selected) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+        } else if (leadingIcon != null) {
+            Icon(leadingIcon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+        }
+        Text(label, style = MaterialTheme.typography.labelLarge, color = color)
+    }
 }
 
 /** Zeph section title — the design's SectionTitle (m3.tsx):

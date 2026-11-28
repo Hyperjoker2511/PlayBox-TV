@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.media.audiofx.Equalizer
 import android.media.audiofx.Visualizer
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -59,7 +60,10 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.AlertDialog
@@ -77,6 +81,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,6 +95,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
@@ -116,7 +122,10 @@ import kotlin.math.roundToInt
 // owns the player, so audio keeps playing when this screen closes
 // and the MiniPlayer takes over. Repeat and shuffle are managed in
 // the UI — the queue is a UI list, not the player's playlist, so
-// the player itself stays on one item with repeat off.
+// the player itself stays on one item with repeat off. 2.1.0
+// (audit N30): with the Gapless setting on, the queue DOES go
+// into the player as its playlist (see loadAudioIntoPlayer) and
+// the player owns advance, repeat and shuffle instead.
 
 // ------------------------------------------------------------------
 // Audio helpers (same folder rules as the Audio screen)
@@ -187,6 +196,40 @@ internal fun prevAudioTrack(queue: List<VideoItem>, current: VideoItem): VideoIt
     val idx = queue.indexOfFirst { it.path == current.path }
     if (idx <= 0) return null
     return queue[idx - 1]
+}
+
+/** The Now Playing EQ's persisted band levels: 8 UI bands,
+ * 0..1 each, 0.5 = flat, stored as one comma-joined string in
+ * the settings prefs ("np_eq_bands"). Anything malformed falls
+ * back to flat. (2.1.0, audit N10 — before this the bands lived
+ * in remember state only and reset on every open.) */
+private fun loadNpEqBands(settings: android.content.SharedPreferences): FloatArray {
+    val raw = settings.getString("np_eq_bands", null) ?: return FloatArray(8) { 0.5f }
+    val parts = raw.split(",").mapNotNull { it.toFloatOrNull() }
+    return if (parts.size == 8) FloatArray(8) { parts[it].coerceIn(0f, 1f) } else FloatArray(8) { 0.5f }
+}
+
+/** Centre frequencies (Hz) of the 8 UI bands in EQ_BAND_LABELS. */
+private val EQ_BAND_HZ = listOf(60, 150, 400, 1_000, 2_400, 6_000, 12_000, 16_000)
+
+/** Maps each UI band to the device Equalizer band whose centre
+ * frequency is nearest (log scale — EQ bands are geometric).
+ * The device EQ's band count is its own (often 5, not 8), so
+ * two UI bands can land on one device band; the higher UI band
+ * is applied last and wins. -1 marks "no device band". */
+private fun eqBandMapFor(eq: Equalizer): IntArray {
+    val count = runCatching { eq.numberOfBands.toInt() }.getOrDefault(0)
+    if (count <= 0) return IntArray(EQ_BAND_HZ.size) { -1 }
+    val centres = (0 until count).map { band ->
+        runCatching { eq.getCenterFreq(band.toShort()) }.getOrDefault(0)
+    }
+    return IntArray(EQ_BAND_HZ.size) { ui ->
+        val target = EQ_BAND_HZ[ui] * 1000 // getCenterFreq is millihertz
+        centres.indices.minByOrNull { band ->
+            val f = centres[band]
+            if (f > 0) kotlin.math.abs(kotlin.math.ln(f.toDouble() / target.toDouble())) else Double.MAX_VALUE
+        } ?: -1
+    }
 }
 
 /** The sleep timer, shared by Now Playing and the MiniPlayer: it
@@ -307,6 +350,53 @@ private fun ZephVisualizer(
     }
 }
 
+/** 2.1.0 (audit N11): the audio path's resume save — the same store
+ * the video players use (saveResumePosition), so a podcast, audiobook
+ * or long mix reopens where it stopped instead of at 0:00. Called on
+ * pause, on dispose and throttled during playback, mirroring the
+ * video path's B9 saves. */
+private fun saveAudioPosition(context: Context, player: Player?, item: VideoItem) {
+    val p = player ?: return
+    runCatching { saveResumePosition(context, item.path, p.currentPosition, p.duration) }
+}
+
+/** One queue entry as a MediaItem — the shape both audio UIs load. */
+private fun audioMediaItem(track: VideoItem): MediaItem =
+    MediaItem.Builder().setUri(Uri.parse(track.path))
+        .setMediaId(track.path)
+        .setMediaMetadata(MediaMetadata.Builder().setTitle(track.name).build())
+        .build()
+
+/** 2.1.0 (audit N30 / N12): loads [item] into the shared player.
+ * Gapless OFF: exactly the old behaviour — a single MediaItem,
+ * and the UI advances the queue itself at STATE_ENDED.
+ * Gapless ON: the whole audio queue goes in as the player's own
+ * playlist, starting at [item], so the PLAYER advances track to
+ * track with no gap (the old one-item loading made that
+ * structurally impossible). Repeat and shuffle are then the
+ * player's own — the caller sets them on the player — and the
+ * UI follows the playing item through onMediaItemTransition.
+ * Either way the caller applies the resume position after this
+ * returns: seekTo() lands inside the starting item in both
+ * modes. [startPositionMs] is only for the queue-rebuild case
+ * (same starting item, different queue — see the setup effects):
+ * the rebuilt playlist starts where the track is already playing
+ * instead of at 0. It never applies with gapless off. */
+private fun loadAudioIntoPlayer(c: Player, audioQ: List<VideoItem>, item: VideoItem, gapless: Boolean, startPositionMs: Long = 0L) {
+    // 2.1.0 (audit N21): every local audio load takes the shared
+    // player back to neutral gain — a cast sender's volume lives in
+    // the player's own volume property, which no local control
+    // reads; local volume is the device stream volume.
+    runCatching { c.volume = 1f }
+    if (gapless) {
+        val startIndex = audioQ.indexOfFirst { it.path == item.path }.coerceAtLeast(0)
+        c.setMediaItems(audioQ.map { audioMediaItem(it) }, startIndex, startPositionMs)
+    } else {
+        c.setMediaItem(audioMediaItem(item))
+    }
+    c.prepare()
+}
+
 // ------------------------------------------------------------------
 // Now Playing (design: slide-up full screen, dynamic-colour wash)
 // ------------------------------------------------------------------
@@ -331,6 +421,10 @@ internal fun M3NowPlayingScreen(
     // at the same time, so a fresh open picks up the new value.
     val dynamicArtworkOn = remember { isDynamicArtworkOn(context) }
     val visualizerOn = remember { isVisualizerOn(context) }
+    // 2.1.0 (audit N30): gapless, read once per open like the
+    // switches above — when on, the queue is the player's
+    // playlist and the player owns advance / repeat / shuffle.
+    val gaplessOn = remember { isGaplessOn(context) }
     val audioQ = remember(queue, item) { audioQueue(queue, item) }
     val album = audioAlbumOf(item)
     val artist = audioArtistOf(item)
@@ -345,6 +439,10 @@ internal fun M3NowPlayingScreen(
     var repeatMode by remember { mutableStateOf(nowRepeatFromSettings(settings)) }
     var sheet by remember { mutableStateOf<String?>(null) } // null | "queue" | "sleep" | "eq"
     var isFav by remember(item) { mutableStateOf(LibraryStores.isFavourite(context, item.path)) }
+    // 2.1.0 (audit N11): resume bookkeeping — a position held until
+    // the player reports the real duration, and the poll-save throttle.
+    var pendingResumeMs by remember { mutableStateOf(0L) }
+    var lastSavedMs by remember { mutableStateOf(0L) }
     // M16 (2.0.1): D-pad autofocus — focus lands on the play/pause
     // Fab when Now Playing opens and on track change (see the
     // LaunchedEffect(item.path) below). The Fab is a Material 3
@@ -355,11 +453,12 @@ internal fun M3NowPlayingScreen(
     // M4 (2.0.1): only auto-play on a genuinely new item — the same
     // lastSetupKey guard as the video players (see the setup effect).
     val lastSetupKey = remember { mutableStateOf<String?>(null) }
-    // EQ dialog state — display-only (the plan: EQ is display-only
-    // until wired to a real EQ). The sliders move and the preset
-    // sticks, but nothing audible changes yet.
-    var eqPreset by remember { mutableStateOf(0) }
-    var eqBands by remember { mutableStateOf(FloatArray(8) { 0.5f }) }
+    // EQ dialog state. 2.1.0 (audit N10): real now — the bands
+    // and preset persist in prefs and drive an
+    // android.media.audiofx.Equalizer on the shared player's
+    // audio session (the effect pair below the setup effect).
+    var eqPreset by remember { mutableStateOf(settings.getInt("np_eq_preset", 0)) }
+    var eqBands by remember { mutableStateOf(loadNpEqBands(settings)) }
     // Volume: the device music-stream level, like the video player's dock.
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var volumePct by remember { mutableStateOf(deviceVolumePct(audioManager)) }
@@ -375,8 +474,12 @@ internal fun M3NowPlayingScreen(
     // The player listener. Keyed on controller + item so the end-of-
     // track handler always sees the current queue (a plain list, not
     // state). Repeat/shuffle/sleep are state reads — current at event
-    // time. Repeat and shuffle are managed in the UI, so the player
-    // itself stays on one item with repeat off.
+    // time. With gapless off, repeat and shuffle are managed in the
+    // UI, so the player itself stays on one item with repeat off.
+    // With gapless on (2.1.0, audit N30), the player holds the
+    // queue and advances itself: STATE_ENDED then means the whole
+    // playlist is done, and onMediaItemTransition is what keeps
+    // this screen on the item actually playing.
     DisposableEffect(controller, item) {
         val c = controller ?: return@DisposableEffect onDispose { }
         val listener = object : Player.Listener {
@@ -388,12 +491,40 @@ internal fun M3NowPlayingScreen(
                     if (sleep.endOfTrack) {
                         sleep.clear()
                         status = "Sleep timer stopped playback"
-                    } else if (repeatMode == NowRepeat.ONE) {
+                    } else if (!gaplessOn && repeatMode == NowRepeat.ONE) {
                         c.seekTo(0); c.play()
-                    } else {
+                    } else if (!gaplessOn) {
                         nextAudioTrack(audioQ, item, shuffleOn, repeatMode)?.let { onPlayNext(it) }
                             ?: run { c.pause() }
+                    } else {
+                        // Gapless: the playlist itself is finished
+                        // (repeat is the player's in this mode, so
+                        // ONE / ALL never reach STATE_ENDED).
+                        c.pause()
                     }
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // Gapless only: the player moved inside its own
+                // playlist (an automatic advance, or Next /
+                // Previous seeking within it). Follow it, so the
+                // screen, the resume saves and the queue sheet
+                // track the item actually playing. A transition
+                // to the item already shown needs nothing.
+                if (!gaplessOn) return
+                val nextPath = mediaItem?.mediaId ?: return
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && sleep.endOfTrack) {
+                    // "End of track" sleep in gapless mode: the
+                    // track ended and the player rolled into the
+                    // next one — stop here, at its start.
+                    sleep.clear()
+                    status = "Sleep timer stopped playback"
+                    c.pause()
+                    return
+                }
+                if (nextPath != item.path) {
+                    audioQ.firstOrNull { it.path == nextPath }?.let { onPlayNext(it) }
                 }
             }
 
@@ -434,15 +565,49 @@ internal fun M3NowPlayingScreen(
             onDispose { }
         } else {
             ended = false; positionMs = 0L; durationMs = 0L; status = ""
+            // 2.1.0 (audit N11): a held resume is per-item — never
+            // carry one (or the save throttle) into the next track.
+            pendingResumeMs = 0L; lastSavedMs = 0L
             val sessionHasItem = PlayerHolder.player?.currentMediaItem?.mediaId == item.path
-            if (c.currentMediaItem?.mediaId != item.path && !sessionHasItem) {
-                c.setMediaItem(
-                    MediaItem.Builder().setUri(Uri.parse(item.path))
-                        .setMediaId(item.path)
-                        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.name).build())
-                        .build()
-                )
-                c.prepare()
+            // 2.1.0 (audit N30 follow-on): with gapless on, the
+            // queue is part of the load. If the player's playlist
+            // is not the queue being opened, the old queue would
+            // silently stay in force while the UI shows the new
+            // one — so a differing playlist rebuilds even when
+            // the starting item already matches (the session
+            // player is the ground truth for what's loaded).
+            val queueDiffers = gaplessOn && run {
+                val src = PlayerHolder.player ?: c
+                (0 until src.mediaItemCount).map { src.getMediaItemAt(it).mediaId } != audioQ.map { it.path }
+            }
+            if ((c.currentMediaItem?.mediaId != item.path && !sessionHasItem) || queueDiffers) {
+                // A queue-only rebuild of the item already loaded
+                // keeps its live position; the saved-resume below
+                // is for genuine fresh loads only.
+                val keepPosMs = if (queueDiffers && (sessionHasItem || c.currentMediaItem?.mediaId == item.path)) {
+                    PlayerHolder.player?.currentPosition ?: c.currentPosition
+                } else 0L
+                // 2.1.0 (audit N30): one item, or the whole queue
+                // as the player's playlist when gapless is on
+                // (see loadAudioIntoPlayer). The resume seek
+                // below lands inside the starting item either way.
+                loadAudioIntoPlayer(c, audioQ, item, gaplessOn, keepPosMs)
+                // 2.1.0 (audit N11): pick up where the listener left
+                // off — the same saved position the video players
+                // resume from. Duration unknown (folder/USB audio):
+                // hold the position and let the effect below apply
+                // it once the player reports the real duration.
+                if (keepPosMs <= 0L) {
+                    val saved = savedResumePosition(context, item.path)
+                    if (item.durationMs > 0L) {
+                        if (shouldResumeAt(saved, item.durationMs, isResumeOn(context))) {
+                            c.seekTo(saved)
+                            status = "Resumed at ${TimeFormatter.format(saved)}"
+                        }
+                    } else if (ResumeStore.hasSavedPosition(saved)) {
+                        pendingResumeMs = saved
+                    }
+                }
                 val setupKey = item.path
                 if (lastSetupKey.value != setupKey) {
                     c.play()
@@ -457,11 +622,109 @@ internal fun M3NowPlayingScreen(
                 if (c.duration > 0) durationMs = c.duration
                 isPlaying = sessionPlayer?.isPlaying ?: c.isPlaying
             }
-            c.repeatMode = Player.REPEAT_MODE_OFF
-            c.shuffleModeEnabled = false
+            // 2.1.0 (audit N30): gapless hands repeat and shuffle
+            // to the player (it owns advance in that mode); with
+            // gapless off they stay UI-managed, player forced off.
+            if (gaplessOn) {
+                c.repeatMode = repeatMode.toLoopMode()
+                c.shuffleModeEnabled = shuffleOn
+            } else {
+                c.repeatMode = Player.REPEAT_MODE_OFF
+                c.shuffleModeEnabled = false
+            }
             onDispose { }
         }
     }
+
+    // 2.1.0 (audit N30): in gapless mode the player owns advance,
+    // so repeat / shuffle changes made on this screen must reach
+    // it live — the setup effect above only runs on track change.
+    LaunchedEffect(controller, repeatMode, shuffleOn) {
+        val c = controller ?: return@LaunchedEffect
+        if (gaplessOn) {
+            c.repeatMode = repeatMode.toLoopMode()
+            c.shuffleModeEnabled = shuffleOn
+        }
+    }
+
+    // 2.1.0 (audit N11): a held resume (duration was unknown at load)
+    // applies once the player reports its real duration — or is
+    // dropped if it lands too near the end. Same shape as the video
+    // player's B2 effect.
+    LaunchedEffect(durationMs) {
+        val pr = pendingResumeMs
+        val c = controller
+        if (pr > 0L && durationMs > 0L && c != null) {
+            if (shouldResumeAt(pr, durationMs, isResumeOn(context))) {
+                c.seekTo(pr)
+                positionMs = pr
+                status = "Resumed at ${TimeFormatter.format(pr)}"
+            }
+            pendingResumeMs = 0L
+        }
+    }
+
+    // 2.1.0 (audit N11): save on exit and on pause, like the video
+    // players (B9b) — the throttled poll save below covers the rest.
+    DisposableEffect(item) {
+        onDispose { saveAudioPosition(context, controller, item) }
+    }
+
+    // 2.1.0 (audit N10): a real Equalizer on the shared player's
+    // audio session — the same pattern as the video player's EQ
+    // (PlayerScreen): the session id comes from the in-process
+    // service player, the effect lives for the whole screen (not
+    // just while the dialog is open, or the EQ would die when
+    // the dialog closes), and it is released when this screen
+    // goes away. While the MiniPlayer drives playback the EQ is
+    // not applied; the bands persist and re-apply on the next
+    // open of this screen.
+    var npEq by remember { mutableStateOf<Equalizer?>(null) }
+    var npEqBandMap by remember { mutableStateOf(IntArray(0)) }
+    DisposableEffect(controller) {
+        val sessionId = runCatching { PlayerHolder.player?.audioSessionId }.getOrNull() ?: 0
+        val eq = if (sessionId > 0) runCatching { Equalizer(0, sessionId) }.getOrNull() else null
+        if (eq != null) {
+            npEqBandMap = eqBandMapFor(eq)
+            npEq = eq
+        }
+        onDispose {
+            runCatching { eq?.release() }
+            if (npEq == eq) npEq = null
+        }
+    }
+    // Apply + persist whenever the bands, the preset or the EQ
+    // itself changes. The slider range 0..1 maps onto the
+    // device's own millibel range; all-flat (the Normal preset)
+    // disables the effect, so an untouched EQ costs nothing.
+    LaunchedEffect(eqBands, eqPreset, npEq) {
+        settings.edit()
+            .putInt("np_eq_preset", eqPreset)
+            .putString("np_eq_bands", eqBands.joinToString(","))
+            .apply()
+        val eq = npEq ?: return@LaunchedEffect
+        runCatching {
+            val range = eq.bandLevelRange // [min, max], millibels
+            val span = (range[1] - range[0]).toFloat()
+            npEqBandMap.forEachIndexed { uiBand, deviceBand ->
+                if (deviceBand >= 0 && uiBand in eqBands.indices) {
+                    val mb = (range[0] + eqBands[uiBand] * span).roundToInt()
+                    eq.setBandLevel(deviceBand.toShort(), mb.toShort())
+                }
+            }
+            eq.enabled = eqBands.any { it != 0.5f }
+        }
+    }
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying && positionMs > 5_000L) saveAudioPosition(context, controller, item)
+    }
+
+    // 2.1.0 (audit N30 follow-on): the poll below is keyed on
+    // play state and controller only, so it outlives track
+    // changes — and in gapless mode the player advances on its
+    // own. Its saves must land under the track actually playing,
+    // not the one captured when the effect launched.
+    val currentItem by rememberUpdatedState(item)
 
     // Position poll + the sleep timer, on the same tick (PlayerScreen
     // polls at 500ms too).
@@ -471,6 +734,12 @@ internal fun M3NowPlayingScreen(
             try {
                 if (c != null) {
                     positionMs = c.currentPosition; durationMs = c.duration
+                    // 2.1.0 (audit N11): throttled save while playing —
+                    // a process kill loses at most ~10s of progress.
+                    if (isPlaying && positionMs > 5_000L && positionMs - lastSavedMs >= 10_000L) {
+                        saveAudioPosition(context, c, currentItem)
+                        lastSavedMs = positionMs
+                    }
                     if (sleep.untilMs > 0 && System.currentTimeMillis() >= sleep.untilMs) {
                         c.pause(); sleep.clear(); status = "Sleep timer stopped playback"
                     }
@@ -522,18 +791,32 @@ internal fun M3NowPlayingScreen(
     // then clear the playing item (onExit) so the MiniPlayer goes
     // away too. The old Close button only paused.
     val doStop: () -> Unit = {
+        // 2.1.0 (audit N11): keep the place before stopping, so a
+        // stopped podcast can still be resumed later.
+        saveAudioPosition(context, controller, item)
         controller?.pause()
         runCatching { controller?.stop() }
         runCatching { PlayerHolder.player?.stop() }
         onExit()
     }
     val doNext: () -> Unit = {
-        nextAudioTrack(audioQ, item, shuffleOn, repeatMode)?.let { onPlayNext(it) }
-            ?: controller?.pause()
+        // 2.1.0 (audit N30): in gapless mode the player's own
+        // order (including its shuffle) decides what is next —
+        // seek within the playlist and let the transition
+        // listener follow. Otherwise the UI rule picks the track.
+        if (gaplessOn) {
+            if (controller?.hasNextMediaItem() == true) controller?.seekToNextMediaItem()
+            else controller?.pause()
+        } else {
+            nextAudioTrack(audioQ, item, shuffleOn, repeatMode)?.let { onPlayNext(it) }
+                ?: controller?.pause()
+        }
     }
     val doPrev: () -> Unit = {
         if (positionMs > 3_000L) {
             controller?.seekTo(0); positionMs = 0L
+        } else if (gaplessOn) {
+            if (controller?.hasPreviousMediaItem() == true) controller?.seekToPreviousMediaItem()
         } else {
             prevAudioTrack(audioQ, item)?.let { onPlayNext(it) }
         }
@@ -575,11 +858,21 @@ internal fun M3NowPlayingScreen(
         upNext != null -> "Up next: ${upNext.name}"
         else -> "End of queue"
     }
+    // 2.1.0 (UI batch): the wide layout's up-next line carries the
+    // artist too, as the design photo shows ("Up next: X · Y").
+    val wideUpNextText = when {
+        repeatMode == NowRepeat.ONE -> "Repeat one — ${item.name}"
+        upNext != null -> "Up next: ${upNext.name} · ${audioArtistOf(upNext)}"
+        else -> "End of queue"
+    }
     val sleepLabel = when {
         sleep.endOfTrack -> "End of track"
         sleep.min > 0 -> "${sleep.min}m"
         else -> "Sleep"
     }
+    // The photo's sleep action reads "Sleep timer" when unset;
+    // once set, the dynamic label (30m / End of track) takes over.
+    val sleepDisplay = if (sleep.min > 0 || sleep.endOfTrack) sleepLabel else "Sleep timer"
     val format = containerOf(item)
     val total = if (durationMs > 0) durationMs else item.durationMs
 
@@ -609,7 +902,222 @@ internal fun M3NowPlayingScreen(
                 )
             }
         }
-        Column(
+        // 2.1.0 (UI batch): wide screens get the design photo's
+        // layout — circular artwork on the left, a left-aligned
+        // controls column on the right. Narrow screens keep the
+        // centred column below (the `else` + single expression
+        // form leaves that column's code untouched). Same state,
+        // same handlers, same play/pause autofocus either way.
+        val npWide = LocalConfiguration.current.screenWidthDp >= 700
+        if (npWide) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // The artwork: a 232dp circle (the photo's ~230dp)
+                // with the pulse rings as circles — the photo's
+                // soft halo. Same art-in / pulse animations.
+                Box(
+                    modifier = Modifier.weight(0.45f).fillMaxHeight(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(modifier = Modifier.size(232.dp), contentAlignment = Alignment.Center) {
+                        if (isPlaying) {
+                            Box(
+                                modifier = Modifier.size(232.dp)
+                                    .graphicsLayer { scaleX = ring1Scale; scaleY = ring1Scale; alpha = ring1Alpha }
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            )
+                            Box(
+                                modifier = Modifier.size(232.dp)
+                                    .graphicsLayer { scaleX = ring2Scale; scaleY = ring2Scale; alpha = ring2Alpha }
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier.size(232.dp).clip(CircleShape)
+                                .graphicsLayer { scaleX = artScale; scaleY = artScale; rotationZ = artRot }
+                        ) {
+                            M3AlbumArt(hue = hue, icon = Icons.Filled.MusicNote, iconSize = 96.dp, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 24.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    // Header: collapse chevron beside the
+                    // PLAYING FROM block (the photo has no Close
+                    // here — Stop lives in the transport row).
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onCollapse) {
+                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse to mini-player", tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Column {
+                            Text("PLAYING FROM ALBUM", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(album, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        item.name,
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        artist,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        M3NowChip(format, fill = MaterialTheme.colorScheme.tertiaryContainer, onFill = MaterialTheme.colorScheme.onTertiaryContainer)
+                        M3NowChip(if (total > 0) TimeFormatter.format(total) else "", fill = MaterialTheme.colorScheme.surfaceContainerHighest, onFill = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    if (visualizerOn) {
+                        ZephVisualizer(playing = isPlaying, modifier = Modifier.fillMaxWidth().height(40.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                    // The M3 Slider stays (the photo's thick custom
+                    // bar would change the seek interaction — the
+                    // slider's D-pad + drag seek is behaviour).
+                    Slider(
+                        value = shownFraction,
+                        onValueChange = { seeking = true; seekFraction = it },
+                        onValueChangeFinished = { seeking = false; doSeek(seekFraction) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(TimeFormatter.format(positionMs), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (total > 0) TimeFormatter.format(total) else "",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(28.dp))
+                    // Transport: centred in the column, as the
+                    // photo has it. The FAB keeps its 96dp size
+                    // and corner morph, but wears the photo's dark
+                    // container + white icon.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)
+                    ) {
+                        IconButton(onClick = { onShuffleChange(!shuffleOn) }) {
+                            Icon(
+                                Icons.Filled.Shuffle, contentDescription = "Shuffle",
+                                tint = if (shuffleOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        IconButton(onClick = doPrev) {
+                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(28.dp))
+                        }
+                        FloatingActionButton(
+                            onClick = doTogglePlay,
+                            modifier = Modifier.size(96.dp).focusRequester(playPauseFocus),
+                            shape = RoundedCornerShape(fabCorner),
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ) {
+                            Icon(
+                                if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                        IconButton(onClick = doNext) {
+                            Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(28.dp))
+                        }
+                        IconButton(onClick = cycleRepeat) {
+                            Icon(
+                                if (repeatMode == NowRepeat.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                                contentDescription = "Repeat",
+                                tint = if (repeatMode == NowRepeat.OFF) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        // The app's Stop (2.0.1) — not in the photo,
+                        // kept: the D-pad needs a reachable stop.
+                        IconButton(onClick = doStop) {
+                            Icon(
+                                Icons.Filled.Stop, contentDescription = "Stop",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(32.dp))
+                    // Actions: heart + text actions (the photo),
+                    // volume at the right.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(onClick = {
+                            isFav = LibraryStores.toggleFavourite(context, item.path)
+                        }) {
+                            Icon(
+                                if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = "Favourite",
+                                tint = if (isFav) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        ZephTextButton(
+                            text = "Queue · ${audioQ.size}",
+                            onClick = { sheet = "queue" },
+                            icon = Icons.Filled.QueueMusic,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                        ZephTextButton(
+                            text = "Equalizer",
+                            onClick = { sheet = "eq" },
+                            icon = Icons.Filled.Tune,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                        ZephTextButton(
+                            text = sleepDisplay,
+                            onClick = { sheet = "sleep" },
+                            icon = Icons.Filled.Bedtime,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Icon(Icons.Filled.VolumeUp, contentDescription = "Volume", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(
+                            value = volumePct / 100f,
+                            onValueChange = { volumePct = (it * 100f).roundToInt().coerceIn(0, 100); applyDeviceVolume(audioManager, volumePct) },
+                            modifier = Modifier.width(160.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.SkipNext, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(wideUpNextText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (status.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(modifier = Modifier.height(28.dp))
+                }
+            }
+        } else Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -661,14 +1169,16 @@ internal fun M3NowPlayingScreen(
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                M3NowChip(format)
-                M3NowChip(if (total > 0) TimeFormatter.format(total) else "")
+                M3NowChip(format, fill = MaterialTheme.colorScheme.tertiaryContainer, onFill = MaterialTheme.colorScheme.onTertiaryContainer)
+                M3NowChip(if (total > 0) TimeFormatter.format(total) else "", fill = MaterialTheme.colorScheme.surfaceContainerHighest, onFill = MaterialTheme.colorScheme.onSurface)
             }
             Spacer(modifier = Modifier.height(16.dp))
             // Patch 8: the Settings "Show visualizer" switch gates the
             // spectrum. Off hides it (the seek slider follows).
             if (visualizerOn) {
-                ZephVisualizer(playing = isPlaying, modifier = Modifier.fillMaxWidth().height(64.dp))
+                // 2.1.0 (UI batch): 40dp tall, the photo's
+                // visualizer height (was 64dp).
+                ZephVisualizer(playing = isPlaying, modifier = Modifier.fillMaxWidth().height(40.dp))
                 Spacer(modifier = Modifier.height(8.dp))
             }
             Slider(
@@ -680,7 +1190,9 @@ internal fun M3NowPlayingScreen(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(TimeFormatter.format(positionMs), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    if (total > 0) "-${TimeFormatter.format(total - positionMs)}" else "",
+                    // 2.1.0 (UI batch): the photo shows the TOTAL
+                    // time at the right, not "-remaining".
+                    if (total > 0) TimeFormatter.format(total) else "",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -784,8 +1296,8 @@ internal fun M3NowPlayingScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = sheet == "queue",
-                enter = fadeIn(tween(250)),
-                exit = fadeOut(tween(250))
+                enter = fadeIn(Motion.scrimFade()),
+                exit = fadeOut(Motion.scrimFade())
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
@@ -794,8 +1306,8 @@ internal fun M3NowPlayingScreen(
             }
             AnimatedVisibility(
                 visible = sheet == "queue",
-                enter = slideInHorizontally(tween(420, easing = Motion.EmphasizedDecelerate)) { it },
-                exit = slideOutHorizontally(tween(420, easing = Motion.EmphasizedDecelerate)) { it },
+                enter = slideInHorizontally(Motion.sheetSlide()) { it },
+                exit = slideOutHorizontally(Motion.sheetSlide()) { it },
                 modifier = Modifier.align(Alignment.CenterEnd)
             ) {
                 // M18: the old empty clickable() is gone — it was a
@@ -844,19 +1356,30 @@ internal fun M3NowPlayingScreen(
     }
 }
 
-/** A small bordered chip (the design's bitrate/genre/year chips —
- * only the format word and the duration exist in the scan, so
- * only those two are shown; no genre/year is faked). */
+/** A small chip (the design's bitrate/genre/year chips — only
+ * the format word and the duration exist in the scan, so only
+ * those two are shown; no genre/year is faked).
+ * 2.1.0 (UI batch): the photo's chips are FILLED (a brown
+ * tertiary-container chip, then a dark surface chip; only the
+ * third, year, chip is outlined) — `fill` picks the filled
+ * treatment; null keeps the old outlined one. Padding and
+ * radius up a step to the photo's chip size. */
 @Composable
-private fun M3NowChip(text: String) {
+private fun M3NowChip(text: String, fill: Color? = null, onFill: Color? = null) {
     if (text.isBlank()) return
+    val shape = RoundedCornerShape(6.dp)
     Text(
         text,
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = if (fill != null) (onFill ?: MaterialTheme.colorScheme.onSurface)
+        else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clip(shape)
+            .then(
+                if (fill != null) Modifier.background(fill)
+                else Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            )
+            .padding(horizontal = 10.dp, vertical = 4.dp)
     )
 }
 
@@ -975,9 +1498,11 @@ private fun M3SleepOption(label: String, selected: Boolean, onClick: () -> Unit)
 
 // ------------------------------------------------------------------
 // Equalizer dialog (design: 7 presets + 8 vertical band sliders).
-// Display-only in this patch (the plan): the sliders move and the
-// preset sticks, but nothing audible changes yet — the caption says
-// so plainly instead of pretending the EQ is live.
+// 2.1.0 (audit N10): wired — the bands drive a real Equalizer on
+// the player's audio session and persist in prefs (see the
+// effect pair in M3NowPlayingScreen). Before this the dialog
+// was display-only and said so in a caption; the caption is
+// gone because the claim would now be false.
 // ------------------------------------------------------------------
 
 private val EQ_BAND_LABELS = listOf("60", "150", "400", "1k", "2.4k", "6k", "12k", "16k")
@@ -1033,8 +1558,7 @@ private fun M3EqualizerDialog(
                                 // horizontal axis, so Left lowers what
                                 // the eye reads as a vertical bar and
                                 // Right raises it — the mapping looks
-                                // inverted. The EQ is display-only in
-                                // this build, so the sliders stay as-is.
+                                // inverted, and the sliders stay as-is.
                                 Slider(
                                     value = v,
                                     onValueChange = { onBand(i, it) },
@@ -1049,12 +1573,6 @@ private fun M3EqualizerDialog(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    "Preview — the equalizer isn't wired to audio yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         },
         confirmButton = { ZephTextButton(text = "Done", onClick = onDismiss) },
@@ -1095,11 +1613,18 @@ internal fun M3MiniPlayer(
     val album = audioAlbumOf(item)
     val artist = audioArtistOf(item)
     val hue = audioHueOf(album)
+    // 2.1.0 (audit N30): gapless, same rule as Now Playing — the
+    // MiniPlayer drives the same shared player, so it loads and
+    // follows the playlist the same way.
+    val gaplessOn = remember { isGaplessOn(context) }
 
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var fallbackFired by remember(item) { mutableStateOf(false) }
+    // 2.1.0 (audit N11): resume bookkeeping, same as Now Playing.
+    var pendingResumeMs by remember { mutableStateOf(0L) }
+    var lastSavedMs by remember { mutableStateOf(0L) }
     // M4 (2.0.1): same lastSetupKey guard as Now Playing — only
     // auto-play on a genuinely new item, never on a reconnect.
     val lastSetupKey = remember { mutableStateOf<String?>(null) }
@@ -1115,12 +1640,30 @@ internal fun M3MiniPlayer(
                 if (state == Player.STATE_ENDED) {
                     if (sleep.endOfTrack) {
                         sleep.clear()
-                    } else if (nowRepeatFromSettings(settings) == NowRepeat.ONE) {
+                    } else if (!gaplessOn && nowRepeatFromSettings(settings) == NowRepeat.ONE) {
                         c.seekTo(0); c.play()
-                    } else {
+                    } else if (!gaplessOn) {
                         nextAudioTrack(audioQ, item, shuffleOn, nowRepeatFromSettings(settings))?.let { onPlayNext(it) }
                             ?: run { c.pause() }
                     }
+                    // Gapless: STATE_ENDED is the whole playlist
+                    // ending — the player has already stopped.
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // 2.1.0 (audit N30): gapless only — follow the
+                // player's own advance, exactly as Now Playing
+                // does, so the bar shows the track playing.
+                if (!gaplessOn) return
+                val nextPath = mediaItem?.mediaId ?: return
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && sleep.endOfTrack) {
+                    sleep.clear()
+                    c.pause()
+                    return
+                }
+                if (nextPath != item.path) {
+                    audioQ.firstOrNull { it.path == nextPath }?.let { onPlayNext(it) }
                 }
             }
 
@@ -1146,15 +1689,40 @@ internal fun M3MiniPlayer(
         if (c == null) {
             onDispose { }
         } else {
+            // 2.1.0 (audit N11): a held resume is per-item — never
+            // carry one (or the save throttle) into the next track.
+            pendingResumeMs = 0L; lastSavedMs = 0L
             val sessionHasItem = PlayerHolder.player?.currentMediaItem?.mediaId == item.path
-            if (c.currentMediaItem?.mediaId != item.path && !sessionHasItem) {
-                c.setMediaItem(
-                    MediaItem.Builder().setUri(Uri.parse(item.path))
-                        .setMediaId(item.path)
-                        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.name).build())
-                        .build()
-                )
-                c.prepare()
+            // 2.1.0 (audit N30 follow-on): same as Now Playing —
+            // with gapless on, a player playlist that isn't the
+            // queue being opened rebuilds even when the starting
+            // item already matches, keeping its live position.
+            val queueDiffers = gaplessOn && run {
+                val src = PlayerHolder.player ?: c
+                (0 until src.mediaItemCount).map { src.getMediaItemAt(it).mediaId } != audioQ.map { it.path }
+            }
+            if ((c.currentMediaItem?.mediaId != item.path && !sessionHasItem) || queueDiffers) {
+                val keepPosMs = if (queueDiffers && (sessionHasItem || c.currentMediaItem?.mediaId == item.path)) {
+                    PlayerHolder.player?.currentPosition ?: c.currentPosition
+                } else 0L
+                // 2.1.0 (audit N30): one item, or the whole queue
+                // as the player's playlist when gapless is on
+                // (see loadAudioIntoPlayer).
+                loadAudioIntoPlayer(c, audioQ, item, gaplessOn, keepPosMs)
+                // 2.1.0 (audit N11): resume from the saved position,
+                // exactly as Now Playing does (held when the
+                // duration is unknown at load). Skipped when
+                // keepPosMs already restored the live position.
+                if (keepPosMs <= 0L) {
+                    val saved = savedResumePosition(context, item.path)
+                    if (item.durationMs > 0L) {
+                        if (shouldResumeAt(saved, item.durationMs, isResumeOn(context))) {
+                            c.seekTo(saved)
+                        }
+                    } else if (ResumeStore.hasSavedPosition(saved)) {
+                        pendingResumeMs = saved
+                    }
+                }
                 val setupKey = item.path
                 if (lastSetupKey.value != setupKey) {
                     c.play()
@@ -1166,11 +1734,54 @@ internal fun M3MiniPlayer(
                 if (c.duration > 0) durationMs = c.duration
                 isPlaying = sessionPlayer?.isPlaying ?: c.isPlaying
             }
-            c.repeatMode = Player.REPEAT_MODE_OFF
-            c.shuffleModeEnabled = false
+            // 2.1.0 (audit N30): gapless hands repeat and shuffle
+            // to the player; with gapless off they stay
+            // UI-managed, player forced off. (Repeat is read from
+            // Settings here — the MiniPlayer has no repeat button;
+            // Now Playing's live sync covers changes made there.)
+            if (gaplessOn) {
+                c.repeatMode = nowRepeatFromSettings(settings).toLoopMode()
+                c.shuffleModeEnabled = shuffleOn
+            } else {
+                c.repeatMode = Player.REPEAT_MODE_OFF
+                c.shuffleModeEnabled = false
+            }
             onDispose { }
         }
     }
+
+    // 2.1.0 (audit N30): the shuffle switch lives in MainActivity
+    // state and can flip while the MiniPlayer is up — in gapless
+    // mode the player's own shuffle flag must follow it.
+    LaunchedEffect(controller, shuffleOn) {
+        val c = controller ?: return@LaunchedEffect
+        if (gaplessOn) c.shuffleModeEnabled = shuffleOn
+    }
+
+    // 2.1.0 (audit N11): held resume applies once the real duration
+    // is known; saves on exit and on pause, like Now Playing.
+    LaunchedEffect(durationMs) {
+        val pr = pendingResumeMs
+        val c = controller
+        if (pr > 0L && durationMs > 0L && c != null) {
+            if (shouldResumeAt(pr, durationMs, isResumeOn(context))) {
+                c.seekTo(pr)
+                positionMs = pr
+            }
+            pendingResumeMs = 0L
+        }
+    }
+    DisposableEffect(item) {
+        onDispose { saveAudioPosition(context, controller, item) }
+    }
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying && positionMs > 5_000L) saveAudioPosition(context, controller, item)
+    }
+
+    // 2.1.0 (audit N30 follow-on): same as Now Playing — the poll
+    // outlives gapless auto-transitions, so its throttled saves
+    // follow the track actually playing.
+    val currentItem by rememberUpdatedState(item)
 
     LaunchedEffect(isPlaying, controller) {
         while (true) {
@@ -1178,6 +1789,11 @@ internal fun M3MiniPlayer(
             try {
                 if (c != null) {
                     positionMs = c.currentPosition; durationMs = c.duration
+                    // 2.1.0 (audit N11): throttled save while playing.
+                    if (isPlaying && positionMs > 5_000L && positionMs - lastSavedMs >= 10_000L) {
+                        saveAudioPosition(context, c, currentItem)
+                        lastSavedMs = positionMs
+                    }
                     if (sleep.untilMs > 0 && System.currentTimeMillis() >= sleep.untilMs) {
                         c.pause(); sleep.clear()
                     }
@@ -1194,18 +1810,30 @@ internal fun M3MiniPlayer(
     // then onStop() so the tab clears the playing item and this bar
     // goes away.
     val doStop: () -> Unit = {
+        // 2.1.0 (audit N11): keep the place before stopping, so a
+        // stopped podcast can still be resumed later.
+        saveAudioPosition(context, controller, item)
         controller?.pause()
         runCatching { controller?.stop() }
         runCatching { PlayerHolder.player?.stop() }
         onStop()
     }
     val doNext: () -> Unit = {
-        nextAudioTrack(audioQ, item, shuffleOn, nowRepeatFromSettings(settings))?.let { onPlayNext(it) }
-            ?: controller?.pause()
+        // 2.1.0 (audit N30): gapless — the player's own order
+        // decides; the transition listener follows it.
+        if (gaplessOn) {
+            if (controller?.hasNextMediaItem() == true) controller?.seekToNextMediaItem()
+            else controller?.pause()
+        } else {
+            nextAudioTrack(audioQ, item, shuffleOn, nowRepeatFromSettings(settings))?.let { onPlayNext(it) }
+                ?: controller?.pause()
+        }
     }
     val doPrev: () -> Unit = {
         if (positionMs > 3_000L) {
             controller?.seekTo(0); positionMs = 0L
+        } else if (gaplessOn) {
+            if (controller?.hasPreviousMediaItem() == true) controller?.seekToPreviousMediaItem()
         } else {
             prevAudioTrack(audioQ, item)?.let { onPlayNext(it) }
         }

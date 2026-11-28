@@ -361,9 +361,14 @@ internal fun adjustOptions(brightness: Float, contrast: Float, saturation: Float
  * decoder hands back formats the surface pipeline chokes on, and
  * Media3 survives the same chip because ExoPlayer's MediaCodec
  * path is more defensive. HW still decodes; frames just stop
- * going straight to the surface. */
-internal fun libVlcOptions(context: Context): List<String> =
-    when (hwDecPref(context)) {
+ * going straight to the surface.
+ * 2.1.0 (review C2, finished): the mode is a PARAMETER, not a
+ * fresh read of the global pref — a file with a per-file pin
+ * (chosenHwDec) must build its LibVLC with the PINNED mode's
+ * options. The default keeps the old behaviour for callers
+ * that have no per-file mode. */
+internal fun libVlcOptions(context: Context, mode: String = hwDecPref(context)): List<String> {
+    val options = when (mode) {
         // 2.0.9 (review A5): pass --mediacodec-dr EXPLICITLY in
         // Full mode. Before this, Full relied on libvlc's
         // mediacodec-dr defaulting to on — the mode's meaning
@@ -372,7 +377,37 @@ internal fun libVlcOptions(context: Context): List<String> =
         "full" -> listOf("--avcodec-hw=mediacodec", "--mediacodec-dr")
         "off" -> listOf("--avcodec-hw=none")
         else -> listOf("--avcodec-hw=mediacodec", "--no-mediacodec-dr")
-    }
+    }.toMutableList()
+    // 2.1.0 (audit N28): audio passthrough. "--spdif" is libvlc's
+    // core audio option (libvlc-module.c: add_bool "spdif",
+    // "Force S/PDIF support") — with it, the audio output keeps
+    // an encoded Dolby / DTS stream encoded and hands it to the
+    // device output for the receiver to decode, instead of
+    // decoding and downmixing it in the player. Read from the
+    // Settings pref at engine construction, like the decoding
+    // mode above. Scope, stated plainly: this switch controls
+    // the VLC engine. Media3 has no equivalent app-level lever
+    // in media3 1.11 — its DefaultAudioSink passes an encoded
+    // stream through whenever the connected TV / receiver
+    // reports support and decodes otherwise, regardless of this
+    // switch (the one override, DefaultAudioSink's static
+    // capabilities, is deprecated and ignored for a
+    // context-built sink), so there is nothing honest to wire
+    // on that side.
+    if (isPassthroughOn(context)) options += "--spdif"
+    // 2.1.0 (audit N29): replay gain. "audio-replay-gain-mode"
+    // is libvlc's core audio option (libvlc-module.c:
+    // add_string "audio-replay-gain-mode", values none / track /
+    // album) — in track mode the audio output applies each
+    // file's stored ReplayGain tag gain, so a loud rip and a
+    // quiet rip play at a matched loudness. Read from the
+    // Settings pref at engine construction. Scope, stated
+    // plainly: VLC only — Media3 (media3 1.11) has no
+    // replay-gain facility at all, so there is no consumer to
+    // wire on that side; the switch does not affect it.
+    if (isReplayGainOn(context)) options += "--audio-replay-gain-mode=track"
+    return options
+}
 
 /** Subtitle style as LibVLC media options, from the same
  * playbox_sub_style prefs the Settings screen and the Media3
@@ -413,6 +448,15 @@ internal fun subtitleStyleOptions(context: Context): List<String> {
 internal class VlcEngine(
     private val context: Context,
     options: List<String> = emptyList(),
+    // 2.1.0 (review C2, finished): the EFFECTIVE decoding mode
+    // for this engine (the per-file pin when one exists, else
+    // the global setting), captured at construction. play()
+    // reads THIS for its ":codec=" choice — before, play() read
+    // the global pref fresh, so a file pinned to Off still
+    // opened on MediaCodec whenever the global setting was a
+    // hardware mode. Defaults to the global pref so other
+    // construction sites keep the old behaviour.
+    private val hwDecMode: String = hwDecPref(context),
     private val onEvent: (Int) -> Unit = {}
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -520,7 +564,11 @@ internal class VlcEngine(
         // order so the NDK decoder is tried before the JNI one.
         // avcodec (software) stays last so a file always has a
         // decoder to try.
-        if (hwDecPref(context) == "off") {
+        // 2.1.0: hwDecMode (the effective mode stored at
+        // construction), NOT a fresh hwDecPref read — see the
+        // constructor note. A per-file Off pin now really does
+        // force the software decoder for this file.
+        if (hwDecMode == "off") {
             media.addOption(":codec=avcodec")
         } else {
             media.addOption(":codec=mediacodec_ndk,mediacodec_jni,mediacodec,avcodec")
@@ -530,8 +578,23 @@ internal class VlcEngine(
             media.addOption(":deinterlace-mode=$deinterlaceMode")
         }
         if (rotation != 0) {
-            media.addOption(":video-filter=transform")
-            media.addOption(":transform-type=$rotation")
+            // 2.1.0 (audit N37): the gear passes DEGREES (0 / 90 /
+            // 180 / 270), but libVLC's transform-type is an ENUM —
+            // 0 = 0°, 1 = 90°, 2 = 180°, 3 = 270°. Writing the
+            // degrees raw set an out-of-range value, so choosing a
+            // rotation never actually rotated. Map degrees to the
+            // enum here, and only add the filter when the mapped
+            // value is a real rotation.
+            val transformType = when (rotation) {
+                90 -> 1
+                180 -> 2
+                270 -> 3
+                else -> 0
+            }
+            if (transformType != 0) {
+                media.addOption(":video-filter=transform")
+                media.addOption(":transform-type=$transformType")
+            }
         }
         // Subtitle style (Size / Colour / Background) — read fresh
         // on every play, so a style changed in Settings applies to

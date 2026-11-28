@@ -279,7 +279,10 @@ private fun M3BrowseRoot(
                     title = "Browse",
                     subtitle = "Local storage, USB drives and network shares",
                     actions = {
-                        ZephTonalButton(
+                        // 2.1.0 (UI batch): the photo shows both
+                        // header actions as plain white text with
+                        // icons — no tonal/filled buttons.
+                        ZephTextButton(
                             text = "Open stream",
                             onClick = onOpenStream,
                             // m5 (2.0.1): fallback focus target. The
@@ -289,12 +292,14 @@ private fun M3BrowseRoot(
                             // roots, focus lands here instead of
                             // nowhere.
                             modifier = Modifier.focusRequester(firstCardFocus),
-                            icon = Icons.Filled.Stream
+                            icon = Icons.Filled.Stream,
+                            contentColor = MaterialTheme.colorScheme.onSurface
                         )
-                        ZephButton(
+                        ZephTextButton(
                             text = "Add server",
                             onClick = onAddServer,
-                            icon = Icons.Filled.Add
+                            icon = Icons.Filled.Add,
+                            contentColor = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 )
@@ -468,7 +473,9 @@ private fun M3BrowseSectionTitle(text: String) {
 
 /** One storage card (Browse.tsx): 48dp secondaryContainer icon
  * circle + name + "X GB of Y GB used" + a used-space progress
- * bar. All of it real (StatFs). */
+ * bar. All of it real (StatFs).
+ * 2.1.0 (UI batch): NO card fill — the photo shows the icon
+ * circle + texts + bar bare on the page background. */
 @Composable
 private fun M3StorageCard(
     root: File,
@@ -486,7 +493,6 @@ private fun M3StorageCard(
     val fraction = if (total > 0) used.toFloat() / total else 0f
     var cardModifier = modifier
         .clip(RoundedCornerShape(16.dp))
-        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
     if (focusRequester != null) cardModifier = cardModifier.focusRequester(focusRequester)
     Column(
         modifier = cardModifier

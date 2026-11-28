@@ -807,6 +807,7 @@ internal fun M3PlayerSheet(
     title: String,
     onClose: () -> Unit,
     focusRequester: FocusRequester,
+    visible: Boolean,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -818,17 +819,32 @@ internal fun M3PlayerSheet(
         // Touch-only scrim: tap outside closes. pointerInput adds
         // no focus, so the D-pad never lands on this full-screen
         // target (C4). Back / the Close button close it by remote.
-        Box(
-            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))
-                .pointerInput(onClose) { detectTapGestures { onClose() } }
-        )
+        // 2.1.0 (motion batch, audit MOT-16): the scrim fades with
+        // the sheet — it used to pop in/out instantly around the
+        // sliding panel.
         AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(tween(250)) + slideInHorizontally(
-                tween(420, easing = Motion.EmphasizedDecelerate)
+            visible = visible,
+            enter = fadeIn(Motion.scrimFade()),
+            exit = fadeOut(Motion.scrimFade())
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))
+                    .pointerInput(onClose) { detectTapGestures { onClose() } }
+            )
+        }
+        // 2.1.0 (motion batch, audit MOT-16): `visible` drives this
+        // — the sheet used to be composed with visible = true only
+        // while its caller's `if (sheet != null)` held, so on close
+        // it left composition instantly and this exit spec was dead
+        // code. Callers now keep the sheet composed (with its last
+        // kind) while it exits.
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(Motion.scrimFade()) + slideInHorizontally(
+                Motion.sheetSlide()
             ) { it },
-            exit = fadeOut(tween(250)) + slideOutHorizontally(
-                tween(420, easing = Motion.EmphasizedDecelerate)
+            exit = fadeOut(Motion.scrimFade()) + slideOutHorizontally(
+                Motion.sheetSlide()
             ) { it }
         ) {
             Column(
@@ -970,9 +986,14 @@ internal fun M3PlayerSheetInfoRow(
     }
 }
 
-/** The design's seek-flash circle (seek-pop 700ms): a 112dp
- * translucent circle with the direction icon + "10 s", on the
- * left for rewind, the right for forward. */
+/** The design's seek-flash circle: a 112dp translucent circle
+ * with the direction icon + "10 s", on the left for rewind, the
+ * right for forward. The flash LIVES 700ms (the callers' timer);
+ * 2.1.0 (motion batch, audit MOT-17): the grow now completes in
+ * 250ms (Motion.ChromeMs), then holds, then the 150ms fade —
+ * the old spec grew over the flash's whole 700ms life, so the
+ * circle was dismissed exactly as it finished growing and the
+ * "seek-pop" read as a slow swell. */
 @Composable
 internal fun M3SeekFlash(
     forward: Boolean,
@@ -983,7 +1004,7 @@ internal fun M3SeekFlash(
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(150)) + scaleIn(
-            tween(700, easing = Motion.EmphasizedDecelerate), initialScale = 0.6f
+            tween(Motion.ChromeMs, easing = Motion.EmphasizedDecelerate), initialScale = 0.6f
         ),
         exit = fadeOut(tween(150)),
         modifier = modifier

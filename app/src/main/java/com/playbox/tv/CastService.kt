@@ -210,7 +210,17 @@ class CastService : Service(), DlnaHandler {
     }
 
     override fun onStop() {
-        PlayerHolder.player?.runCatching { stop() }
+        PlayerHolder.player?.runCatching {
+            stop()
+            // 2.1.0 (audit N21): the cast session is over — hand the
+            // shared player back at neutral gain. A sender's volume
+            // lives in this player's own volume property (onSetVolume
+            // / onSetMute above), which no local control reads or
+            // resets; left set, later local playback inherited it
+            // while every on-screen volume indicator — which drives
+            // the device stream volume — said otherwise.
+            volume = 1f
+        }
         DlnaServer.notifyStateChanged()
     }
 

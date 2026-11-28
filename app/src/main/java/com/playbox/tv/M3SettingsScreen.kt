@@ -2,10 +2,9 @@ package com.playbox.tv
 
 import android.content.Context
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
+
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,15 +32,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Contrast
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -132,8 +140,12 @@ internal fun M3SettingsScreen(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wide = maxWidth >= 600.dp
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-            ZephScreenTopBar("Settings")
-            Spacer(modifier = Modifier.height(8.dp))
+            // 2.1.0 (UI batch): the standard screen header, like
+            // every other screen (the photo shows "Settings" +
+            // "Zeph Player · Material 3") — the old ZephScreenTopBar
+            // was a smaller centred title.
+            Spacer(modifier = Modifier.height(20.dp))
+            M3ScreenHeader(title = "Settings", subtitle = "Zeph Player · Material 3")
             if (wide) {
                 Row(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -197,17 +209,14 @@ internal fun M3SettingsScreen(
     }
 }
 
-/** The design's panel: surface-container-low, 12dp radius, 12dp
- * padding, and the anim-screen fade-through when the category
- * changes (420ms emphasized-decelerate, scale 0.94). */
+/** The panel wrapper. Was: surface-container-low fill, 12dp
+ * radius, 12dp padding. 2.1.0 (UI batch): the design photo's
+ * panel rows sit on the PLAIN page background — no fill, no
+ * inset. The wrapper stays so both layouts' call sites are
+ * unchanged; the category fade-through lives in CategoryPanel. */
 @Composable
 private fun SettingsPanel(modifier: Modifier, content: @Composable () -> Unit) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .padding(12.dp)
-    ) {
+    Box(modifier = modifier) {
         content()
     }
 }
@@ -224,15 +233,17 @@ private fun CategoryRow(
     val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            // 2.1.0 (UI batch): the photo's selected category is a
+            // full PILL, not a 12dp rounded rect.
+            .clip(RoundedCornerShape(50))
             .background(
                 if (selected) MaterialTheme.colorScheme.secondaryContainer
                 else Color.Transparent
             )
-            .zephFocus(interaction, cornerRadius = 12.dp)
+            .zephFocus(interaction, cornerRadius = 36.dp)
             .clickable(interactionSource = interaction, indication = null) { onSelect() }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .padding(12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -272,11 +283,20 @@ private fun CategoryPanel(
     onPrivacy: () -> Unit,
     onLicences: () -> Unit
 ) {
+    // 2.1.0 (motion batch, audit MOT-7): category swaps use the
+    // one sequenced fade-through, like every other screen-level
+    // swap — this was a third variant (420ms in, no hold, 150ms
+    // out, plus a 0.94 scale). Under reduce motion (MOT-31) the
+    // swap collapses to a plain short fade, like the shell's.
+    val panelContext = LocalContext.current
     AnimatedContent(
         targetState = category,
         transitionSpec = {
-            (fadeIn(tween(420, easing = Motion.EmphasizedDecelerate)) + scaleIn(tween(420, easing = Motion.EmphasizedDecelerate), initialScale = 0.94f)) togetherWith
-                fadeOut(tween(150))
+            if (isReduceMotion(panelContext)) {
+                fadeIn(Motion.reducedFade()) togetherWith fadeOut(Motion.reducedFade())
+            } else {
+                fadeIn(Motion.screenEnterSpec()) togetherWith fadeOut(Motion.screenExitSpec())
+            }
         },
         label = "settings-panel"
     ) { cat ->
@@ -326,6 +346,7 @@ private fun SegmentedRow(
 
 // ---------- Appearance ----------
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppearancePanel(
     theme: String,
@@ -343,25 +364,56 @@ private fun AppearancePanel(
     var seedError by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
+        // 2.1.0 (UI batch): the panel now follows the design
+        // photo's order — Theme, Dynamic colour from artwork,
+        // Seed colour, tonal strips — and the app-only rows
+        // (wallpaper Dynamic colour, Pick a colour, Reduce
+        // motion) follow after, in their old relative order.
         item {
-            SegmentedRow(
-                title = "Theme",
-                desc = "Choose a dark or light colour scheme",
-                options = listOf("Dark", "Light"),
-                selected = if (themeDarkMode) "Dark" else "Light",
-                onSelect = { onThemeDarkChange(it == "Dark") }
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-        }
-        item {
-            // The wallpaper Dynamic colour (1.9.0 Se3) — kept: it is
-            // a real Android feature with no design counterpart.
-            ZephSwitchRow(
-                title = "Dynamic colour",
-                subtitle = "Follows your device's wallpaper colours (Android 12+). Off goes back to Violet.",
-                checked = theme == ThemePresetDynamic,
-                onCheckedChange = { onThemeChange(if (it) ThemePresetDynamic else ThemePresetViolet) }
-            )
+            // The photo's Theme row: Contrast icon + title/sub +
+            // a real M3 segmented control on the right (check on
+            // the picked segment, moon/sun on the other) — the
+            // old row was two boxed chips under the title.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.Contrast, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Theme", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Choose a dark or light colour scheme",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                SingleChoiceSegmentedButtonRow {
+                    listOf(true to "Dark", false to "Light").forEachIndexed { index, (dark, label) ->
+                        SegmentedButton(
+                            selected = themeDarkMode == dark,
+                            onClick = { onThemeDarkChange(dark) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                            icon = {
+                                SegmentedButtonDefaults.Icon(active = themeDarkMode == dark) {
+                                    Icon(
+                                        if (dark) Icons.Filled.DarkMode else Icons.Filled.LightMode,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(20.dp))
         }
         item {
@@ -372,20 +424,36 @@ private fun AppearancePanel(
                 title = "Dynamic colour from artwork",
                 subtitle = "Now Playing adopts colours from the current album",
                 checked = dynamicArtwork,
-                onCheckedChange = { dynamicArtwork = it; saveDynamicArtworkOn(context, it) }
+                onCheckedChange = { dynamicArtwork = it; saveDynamicArtworkOn(context, it) },
+                icon = Icons.Outlined.Lightbulb
             )
             Spacer(modifier = Modifier.height(20.dp))
         }
         item {
-            Text("Seed colour", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            // 2.1.0 (UI batch): the photo's Seed colour block —
+            // Palette icon + title on one line, the description
+            // and the swatches indented to the title's edge.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Palette, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Seed colour", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 "Material 3 generates a complete tonal palette from one colour.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 36.dp)
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(start = 36.dp)
+            ) {
                 ThemePresets.forEach { (preset, label) ->
                     val selected = theme == preset
                     // m13 (2.0.1): each swatch gets its own
@@ -396,20 +464,20 @@ private fun AppearancePanel(
                         modifier = Modifier.size(44.dp)
                             .clip(CircleShape)
                             .zephFocus(swatchInteraction, cornerRadius = 22.dp)
-                            .background(presetPrimary(preset), CircleShape)
-                            .border(
-                                if (selected) 3.dp else 1.dp,
-                                if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline,
-                                CircleShape
-                            )
+                            // 2.1.0 (UI batch): the swatch shows the
+                            // preset's SEED colour itself (the
+                            // photo's saturated violet/blue/green/
+                            // orange/magenta/gold), not the light
+                            // scheme primary derived from it; no
+                            // border — a white check marks the pick.
+                            .background(seedColor(presetSeedHex(preset)), CircleShape)
                             .clickable(interactionSource = swatchInteraction, indication = null) { onThemeChange(preset) },
                         contentAlignment = Alignment.Center
                     ) {
                         if (selected) {
                             Icon(
                                 Icons.Filled.Check, contentDescription = "$label selected",
-                                tint = MaterialTheme.colorScheme.onPrimary,
+                                tint = Color.White,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -468,6 +536,19 @@ private fun AppearancePanel(
             Spacer(modifier = Modifier.height(20.dp))
         }
         item {
+            // The wallpaper Dynamic colour (1.9.0 Se3) — kept: it is
+            // a real Android feature with no design counterpart.
+            // 2.1.0 (UI batch): moved below the strips, per the
+            // photo's row order (it sat second before).
+            ZephSwitchRow(
+                title = "Dynamic colour",
+                subtitle = "Follows your device's wallpaper colours (Android 12+). Off goes back to Violet.",
+                checked = theme == ThemePresetDynamic,
+                onCheckedChange = { onThemeChange(if (it) ThemePresetDynamic else ThemePresetViolet) }
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+        item {
             ZephSwitchRow(
                 title = "Reduce motion",
                 subtitle = "Skips the Search stretch and the focus zoom. The app still animates, just less.",
@@ -517,7 +598,8 @@ private fun TonalPreviewStrips() {
         strips.forEach { (label, bg, fg) ->
             Box(
                 modifier = Modifier.weight(1f).height(56.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    // 2.1.0 (UI batch): 12dp strip corners (photo).
+                    .clip(RoundedCornerShape(12.dp))
                     .background(bg),
                 contentAlignment = Alignment.BottomStart
             ) {
@@ -609,9 +691,10 @@ private fun VideoPanel() {
             Spacer(modifier = Modifier.height(20.dp))
         }
         item {
-            // Patch 8: the design's switch. The player-side frame-rate
-            // matching lands in a later player update; the pref is
-            // real persisted state.
+            // Patch 8: the design's switch. 2.1.0 (audit N27): the
+            // player-side frame-rate matching is wired — both video
+            // players read this pref and set the window's preferred
+            // display mode from the video's rate (M3Helpers).
             ZephSwitchRow(
                 title = "Auto frame-rate matching",
                 subtitle = "Switch display to 23.976 / 24 / 50 / 60 Hz",
@@ -747,13 +830,15 @@ private fun AudioPanel() {
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
-            // Patch 8: the design's switches. Passthrough / replay
-            // gain / gapless are real persisted prefs; the player-side
-            // wiring lands in a later player update. The visualizer
-            // switch IS wired now — it gates the Now Playing spectrum.
+            // Patch 8: the design's switches. 2.1.0 (audits
+            // N28–N30): passthrough and replay gain are wired into
+            // the VLC engine's options (libVlcOptions — Media3
+            // exposes no lever for either), and gapless makes the
+            // Now Playing queue the player's own playlist. The
+            // visualizer switch gates the Now Playing spectrum.
             ZephSwitchRow(
                 title = "Audio passthrough",
-                subtitle = "Send Dolby / DTS bitstream to your receiver",
+                subtitle = "Send Dolby / DTS bitstream to your receiver (VLC player only)",
                 checked = passthrough,
                 onCheckedChange = { passthrough = it; savePassthroughOn(context, it) }
             )
@@ -762,7 +847,7 @@ private fun AudioPanel() {
         item {
             ZephSwitchRow(
                 title = "Replay gain",
-                subtitle = "Normalise loudness between tracks",
+                subtitle = "Normalise loudness between tracks (VLC player only)",
                 checked = replayGain,
                 onCheckedChange = { replayGain = it; saveReplayGainOn(context, it) }
             )

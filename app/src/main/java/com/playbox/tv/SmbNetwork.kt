@@ -77,6 +77,15 @@ object SmbNetwork {
     fun serverForHost(context: Context, host: String): SmbServer? =
         servers(context).firstOrNull { it.host.equals(host, ignoreCase = true) }
 
+    /** 2.1.0 (audit N22): the saved server for ONE share on a host.
+     * Storage was already keyed by host + share (see saveServer) —
+     * only the lookup ignored the share, so a second share on the
+     * same NAS was opened with the first share's login. */
+    fun serverForShare(context: Context, host: String, share: String): SmbServer? =
+        servers(context).firstOrNull {
+            it.host.equals(host, ignoreCase = true) && it.share.equals(share, ignoreCase = true)
+        }
+
     /** A context for one server: guest when no username, NTLM otherwise. */
     fun contextFor(server: SmbServer): CIFSContext {
         val props = Properties().apply {
@@ -93,11 +102,16 @@ object SmbNetwork {
         }
     }
 
-    /** Context for playing an smb:// URL: the saved server for that host,
-     * or a guest context when the server was never saved. */
+    /** Context for playing an smb:// URL: the saved server for the
+     * URL's own share (its first path segment), falling back to any
+     * saved server for the host — a pre-2.1.0 entry still covers its
+     * host's other shares when nothing share-specific exists — or a
+     * guest context when the server was never saved. */
     fun contextForUrl(context: Context, url: String): CIFSContext {
-        val host = runCatching { Uri.parse(url).host }.getOrNull() ?: ""
-        val server = serverForHost(context, host)
+        val uri = runCatching { Uri.parse(url) }.getOrNull()
+        val host = uri?.host ?: ""
+        val share = uri?.pathSegments?.firstOrNull() ?: ""
+        val server = serverForShare(context, host, share) ?: serverForHost(context, host)
         return if (server != null) contextFor(server) else contextFor(SmbServer(host, "", "", ""))
     }
 
@@ -135,11 +149,30 @@ private class SmbDataSource(private val smbContext: CIFSContext) : BaseDataSourc
         val file = SmbFile(dataSpec.uri.toString(), smbContext)
         val length = runCatching { file.length() }.getOrDefault(C.LENGTH_UNSET.toLong())
         input = file.inputStream
+        // 2.1.0 (audit N23): skip() may legally return 0 on a slow or
+        // busy stream long before the target offset — the old loop
+        // broke on the first such return and ExoPlayer decoded from
+        // wherever the stream happened to be, silently. Now a
+        // zero-skip falls back to read-and-discard; the loop only
+        // gives up at genuine end-of-stream or after several
+        // consecutive zero-progress attempts (a dead stream must not
+        // spin forever).
         var toSkip = dataSpec.position
+        val scratch = ByteArray(8192)
+        var stalled = 0
         while (toSkip > 0) {
             val skipped = input!!.skip(toSkip)
-            if (skipped <= 0) break
-            toSkip -= skipped
+            if (skipped > 0) {
+                toSkip -= skipped
+                stalled = 0
+                continue
+            }
+            val n = input!!.read(scratch, 0, minOf(scratch.size.toLong(), toSkip).toInt())
+            when {
+                n > 0 -> { toSkip -= n; stalled = 0 }
+                n < 0 -> break // genuine end of stream
+                ++stalled >= 3 -> break
+            }
         }
         bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) dataSpec.length
         else if (length != C.LENGTH_UNSET.toLong()) length - dataSpec.position

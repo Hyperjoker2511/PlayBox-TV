@@ -29,7 +29,10 @@ import java.util.Date
 // the async apply() queue:
 //  1. A breadcrumb: the last step a play attempt reached ("engine
 //     chosen", "vlc: play called", "media3: ready"…). Steps are set
-//     by the player screens as they advance.
+//     by the player screens as they advance. 2.1.0: the last few
+//     steps are kept as a trail (CrashLog.trail) and shown on the
+//     note screen — the stage-by-stage path through the open is
+//     what names the dying stage (demuxer vs tracks vs surface).
 //  2. A crash note: the full stack of any uncaught Java exception,
 //     saved by the handler installed in MainActivity.onCreate.
 // On the next cold start MainActivity shows the note screen before
@@ -41,6 +44,13 @@ internal object CrashLog {
     private const val PREFS = "playbox_crash"
     private const val KEY_NOTE = "note"
     private const val KEY_STEP = "last_step"
+    private const val KEY_TRAIL = "trail"
+
+    // 2.1.0: the trail keeps the last few steps, not just the final
+    // one — on the Jio box no log can ever be pulled, so this trail
+    // is the only crash evidence that exists, and the step BEFORE
+    // the last one is usually the stage that died.
+    private const val MAX_TRAIL = 12
 
     /** Install the uncaught-exception handler. Call once, first
      * thing in MainActivity.onCreate. The previous handler still
@@ -51,7 +61,8 @@ internal object CrashLog {
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching {
                 val trace = error.stackTraceToString().lineSequence().take(40).joinToString("\n")
-                val note = "When: ${Date()}\nLast step: ${lastStep(app)}\n\n$trace"
+                val steps = trail(app).joinToString("\n")
+                val note = "When: ${Date()}\nLast step: ${lastStep(app)}\nSteps:\n$steps\n\n$trace"
                 app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit().putString(KEY_NOTE, note).commit()
             }
@@ -63,21 +74,48 @@ internal object CrashLog {
      * purpose (see the header). Cheap: a handful of calls per play. */
     fun step(context: Context, step: String) {
         runCatching {
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putString(KEY_STEP, step).commit()
+            val app = context.applicationContext
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val steps = (trail(app) + step).takeLast(MAX_TRAIL)
+            prefs.edit()
+                .putString(KEY_STEP, step)
+                .putString(KEY_TRAIL, steps.joinToString("\n"))
+                .commit()
         }
+    }
+
+    /** Start a fresh attempt: the trail from any previous attempt
+     * is dropped, then this step is recorded as its first. Called
+     * where a play begins (MainActivity's engine-chosen point), so
+     * the trail on the crash screen is always THIS attempt's path
+     * through the open, not a mixture of two attempts. */
+    fun beginAttempt(context: Context, step: String) {
+        runCatching {
+            val app = context.applicationContext
+            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().remove(KEY_TRAIL).commit()
+        }
+        step(context, step)
     }
 
     fun lastStep(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_STEP, "") ?: ""
 
+    /** The current attempt's steps, oldest first. */
+    fun trail(context: Context): List<String> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_TRAIL, null)
+            ?.split("\n")
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
+
     fun note(context: Context): String? =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_NOTE, null)
 
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().remove(KEY_NOTE).commit()
+            .edit().remove(KEY_NOTE).remove(KEY_TRAIL).commit()
     }
 }
 
@@ -93,6 +131,7 @@ internal fun CrashNoteScreen(
     note: String?,
     lastStep: String,
     vlcDeath: Pair<String?, String?>? = null,
+    trail: List<String> = emptyList(),
     onContinue: () -> Unit
 ) {
     val continueFocus = remember { FocusRequester() }
@@ -132,10 +171,23 @@ internal fun CrashNoteScreen(
         Column(
             modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
         ) {
-            Text(
-                note ?: "Last step reached: $lastStep",
-                fontSize = 15.sp, color = Muted
-            )
+            if (note != null) {
+                Text(note, fontSize = 15.sp, color = Muted)
+            }
+            // 2.1.0: the attempt's step trail — how far the open
+            // got, stage by stage. For a native death (no note)
+            // this is the whole evidence; the last line is where
+            // it died.
+            if (trail.isNotEmpty()) {
+                if (note != null) Spacer(modifier = Modifier.height(16.dp))
+                Text("Steps it reached:", fontSize = 15.sp, color = White)
+                Spacer(modifier = Modifier.height(4.dp))
+                trail.forEach { step ->
+                    Text(step, fontSize = 15.sp, color = Muted)
+                }
+            } else if (note == null) {
+                Text("Last step reached: $lastStep", fontSize = 15.sp, color = Muted)
+            }
         }
         Spacer(modifier = Modifier.height(28.dp))
         TvButton("Continue", Modifier.focusRequester(continueFocus)) { onContinue() }

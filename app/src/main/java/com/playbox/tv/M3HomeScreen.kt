@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -48,6 +47,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Stream
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -135,12 +135,18 @@ internal fun M3HomeScreen(
     val context = LocalContext.current
     val resume = remember { resumePositions(context) }
     fun fractionOf(item: VideoItem): Float =
-        if (item.durationMs > 0) ((resume[item.path] ?: 0L).toFloat() / item.durationMs).coerceIn(0f, 1f) else 0f
-    // Continue watching: in progress, sorted by progress desc —
-    // the design sorts by progress (the hero rotates by progress,
-    // so the row and the hero agree).
-    val continueWatching = videos.filter { resume.containsKey(it.path) }
-        .sortedByDescending { fractionOf(it) }
+        if (item.durationMs > 0) ((resume[storageKeyFor(item.path)] ?: 0L).toFloat() / item.durationMs).coerceIn(0f, 1f) else 0f
+    // Continue watching: in progress, most recently watched first.
+    // 2.1.0 (audit N15): the last-watched store (resumeTimes) was
+    // written on every resume save but never read — the row sorted
+    // by progress fraction, so a video abandoned at 90% last month
+    // permanently outranked the one watched five minutes ago. The
+    // sort is stable, so items with no recorded time keep their
+    // relative order after the timestamped ones. (The hero below
+    // still picks its rotation by progress — its own rule.)
+    val watchTimes = remember { resumeTimes(context) }
+    val continueWatching = videos.filter { resume.containsKey(storageKeyFor(it.path)) }
+        .sortedByDescending { watchTimes[storageKeyFor(it.path)] ?: 0L }
     val all = videos + audio
     // Featured: the top 3 resume items by progress — the hero rotates
     // through these; with nothing in progress the newest video leads.
@@ -172,7 +178,9 @@ internal fun M3HomeScreen(
     }
     val hour = Calendar.getInstance().apply { timeInMillis = nowMs }.get(Calendar.HOUR_OF_DAY)
     val greeting = if (hour < 12) "Good morning" else if (hour < 18) "Good afternoon" else "Good evening"
-    val clockText = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(nowMs))
+    // 2.1.0 (UI batch): the design photo's clock pill shows the
+    // meridiem ("12:51 PM").
+    val clockText = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(nowMs))
 
     val freeBytes = remember {
         runCatching {
@@ -184,7 +192,7 @@ internal fun M3HomeScreen(
         SmbNetwork.servers(context).size + FtpNetwork.servers(context).size
     }
     val hwDecoding = remember { hwDecPref(context) != "off" }
-    val newVideos = videos.filter { (resume[it.path] ?: 0L) <= 0L }
+    val newVideos = videos.filter { (resume[storageKeyFor(it.path)] ?: 0L) <= 0L }
         .sortedByDescending { it.dateAddedSec }
     // Albums: Zeph's audio list is flat — group by parent folder, the
     // way a local library groups tracks into albums.
@@ -236,7 +244,9 @@ internal fun M3HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ZephFilterChip(
+                            // 2.1.0 (UI batch): the photo shows this
+                            // as plain text with a check — no chip box.
+                            ZephTextChip(
                                 label = "Hardware decoding",
                                 selected = hwDecoding,
                                 onClick = onSettings
@@ -285,7 +295,7 @@ internal fun M3HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ZephFilterChip(
+                            ZephTextChip(
                                 label = "Hardware decoding",
                                 selected = hwDecoding,
                                 onClick = onSettings
@@ -332,7 +342,7 @@ internal fun M3HomeScreen(
                 item {
                     M3HomeHero(
                         item = heroItem,
-                        resumeMs = resume[heroItem.path] ?: 0L,
+                        resumeMs = resume[storageKeyFor(heroItem.path)] ?: 0L,
                         resumeFraction = fractionOf(heroItem),
                         featured = featured,
                         heroIndex = heroI,
@@ -681,19 +691,59 @@ private fun M3HomeHero(
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ZephButton(
-                            text = if (resumeFraction > 0f) "Resume ${TimeFormatter.format(resumeMs)}" else "Play",
-                            onClick = onPlay,
-                            icon = Icons.Filled.PlayArrow,
+                    // 2.1.0 (UI batch): the design photo's hero
+                    // actions — Resume is a DARK translucent pill
+                    // with white text (not the filled primary
+                    // button), and Details is plain white text with
+                    // an info icon (not a tonal button). Same click
+                    // targets, same autofocus/focus-follow wiring.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val resumeInteraction = remember { MutableInteractionSource() }
+                        Row(
                             modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .zephFocus(resumeInteraction, focusScale = 1.0f, cornerRadius = 24.dp)
+                                .clickable(interactionSource = resumeInteraction, indication = null) { onPlay() }
                                 .focusRequester(resumeFocus)
                                 .onFocusChanged { resumeFocused = it.isFocused }
-                        )
-                        ZephTonalButton(
-                            text = "Details",
-                            onClick = onOpen
-                        )
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow, contentDescription = null,
+                                tint = Color.White, modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                if (resumeFraction > 0f) "Resume ${TimeFormatter.format(resumeMs)}" else "Play",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White
+                            )
+                        }
+                        val detailsInteraction = remember { MutableInteractionSource() }
+                        Row(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .zephFocus(detailsInteraction, focusScale = 1.0f, cornerRadius = 24.dp)
+                                .clickable(interactionSource = detailsInteraction, indication = null) { onOpen() }
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Info, contentDescription = null,
+                                tint = Color.White, modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                "Details",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }
@@ -735,9 +785,11 @@ private data class M3HomeQuickAction(
     val onClick: () -> Unit
 )
 
-/** One quick-access card: 72dp, surface-container-high, 16dp radius,
- * 40dp primaryContainer icon circle, title + sub. The design's
- * quick cards carry lift-sm (focus 1.03), not the full 1.06. */
+/** One quick-access card: 72dp, 16dp radius, 40dp
+ * primaryContainer icon circle, title + sub. The design's
+ * quick cards carry lift-sm (focus 1.03), not the full 1.06.
+ * 2.1.0 (UI batch): NO card fill — the design photo shows the
+ * icon circle + texts bare on the page background. */
 @Composable
 private fun M3HomeQuickCard(
     title: String,
@@ -751,7 +803,6 @@ private fun M3HomeQuickCard(
         modifier = modifier
             .height(72.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .zephFocus(interaction, focusScale = 1.03f, cornerRadius = 16.dp)
             .clickable(interactionSource = interaction, indication = null) { onClick() }
             .padding(horizontal = 16.dp),
@@ -776,7 +827,9 @@ private fun M3HomeQuickCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     title,
-                    style = MaterialTheme.typography.titleSmall,
+                    // 2.1.0 (UI batch): the photo's quick titles
+                    // read a step larger than titleSmall.
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -814,7 +867,11 @@ private fun M3HomeSectionHeader(
             color = MaterialTheme.colorScheme.onSurface
         )
         if (actionLabel != null && onAction != null) {
-            ZephTextButton(text = actionLabel, onClick = onAction)
+            // 2.1.0 (UI batch): the photos' "See all" reads white.
+            ZephTextButton(
+                text = actionLabel, onClick = onAction,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
@@ -839,15 +896,11 @@ internal fun M3VideoCard(
         if (focused) 1.10f else 1f,
         tween(500, easing = Motion.Emphasized), label = "homeCardThumb"
     )
-    // 2.0.4 (Material 3 for TV): the focused container colour. A TV
-    // M3 card does not just scale and ring — its container lifts to
-    // a lighter tonal surface when focused, so the focused card is
-    // unmistakable even before the ring registers.
-    val containerColor by animateColorAsState(
-        if (focused) MaterialTheme.colorScheme.surfaceContainerHigh
-        else MaterialTheme.colorScheme.surfaceContainerLow,
-        tween(300, easing = Motion.Emphasized), label = "homeCardContainer"
-    )
+    // 2.1.0 (UI batch): the 2.0.4 focused container-colour lift is
+    // GONE — the design photos (home.png, video.png) show the card
+    // with NO container at all: poster, then title + meta directly
+    // on the page background. Focus still reads from the ring, the
+    // 1.10 thumb scale and the play circle below.
     val playAlpha by animateFloatAsState(
         if (focused) 1f else 0f,
         tween(300, easing = Motion.Emphasized), label = "homeCardPlayAlpha"
@@ -858,9 +911,10 @@ internal fun M3VideoCard(
     )
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(containerColor)
-            .zephFocus(interaction)
+            // 2.1.0 (UI batch): 24dp corners — the photos' posters
+            // are visibly rounder than the old 16dp.
+            .clip(RoundedCornerShape(24.dp))
+            .zephFocus(interaction, cornerRadius = 24.dp)
             .clickable(interactionSource = interaction, indication = null) { onOpen() }
             .riseIn(minOf(index, 8) * 45)
     ) {
@@ -939,8 +993,10 @@ internal fun M3VideoCard(
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 Text(
                     // 2.0.3: clean display title, not the raw file name.
+                    // 2.1.0 (UI batch): titleMedium — the photos'
+                    // card titles read a step larger.
                     item.displayTitle,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

@@ -122,6 +122,16 @@ internal fun VlcPlayerScreen(
     val seekScope = rememberCoroutineScope()
     var pendingSeekTarget by remember { mutableStateOf<Long?>(null) }
     var pendingSeekJob by remember { mutableStateOf<Job?>(null) }
+    // 2.1.0 (audit N2, minimal): the seek-stall watch — the target
+    // of the last seek this screen actually issued (seekBy fire,
+    // scrub, or a pending-resume application) and when it was
+    // issued. The poll checks it: playback running and ~4s later
+    // the player is still not within 2s of the target means the
+    // jump silently failed (the file cannot seek — e.g. an MKV
+    // with no seek index). The poll then says so once, in plain
+    // words, instead of leaving the UI pretending forever.
+    var seekWatchTarget by remember { mutableStateOf<Long?>(null) }
+    var seekWatchSinceMs by remember { mutableStateOf(0L) }
     var speed by remember { mutableStateOf(startSpeed ?: settings.getFloat("default_speed", 1f)) }
     var status by remember { mutableStateOf("") }
     var panel by remember { mutableStateOf<String?>(null) }
@@ -153,10 +163,28 @@ internal fun VlcPlayerScreen(
     // Patch 1.3.1: the surface is only ready once the holder says so
     // — attaching VLC before that is a native crash (the 1.3.0 bug).
     var surfaceReady by remember { mutableStateOf(false) }
+    // 2.1.0 (audit N9): did this screen ever reach VLC's Playing
+    // event? The dispose effect below reads it to tell an orderly
+    // back-out (marker must be cleared) from a native death
+    // (process gone, dispose never runs, marker must survive).
+    var vlcReachedPlaying by remember { mutableStateOf(false) }
+    // 2.1.0 (crash breadcrumb): ESSelected fires once per stream —
+    // the trail records only the first selection per setup, so a
+    // mid-play track switch doesn't rewrite the open's story.
+    var vlcTracksStepDone by remember { mutableStateOf(false) }
+    // 2.1.0 (motion batch, audit MOT-20): is libVLC still opening
+    // or re-buffering? Drives the centred loading indicator in
+    // the layout below — this player had none, so a slow open
+    // sat on a black surface with nothing to say it was working.
+    var buffering by remember(item) { mutableStateOf(true) }
     // Patch 1.3.1: player lock + play-as-audio + the switchable UI.
     var locked by remember { mutableStateOf(false) }
     var playAsAudio by remember { mutableStateOf(false) }
     var vlcResolution by remember(item) { mutableStateOf("") }
+    // 2.1.0 (audit N27): the file's frame rate (metadata probe
+    // below) — the frame-rate match keys off it.
+    var videoFps by remember(item) { mutableStateOf(0f) }
+    val afrOn = remember { isAfrOn(context) }
     var trackChoiceApplied by remember(item) { mutableStateOf(false) }
     // Patch 1.3.0: the seek bar's focus lives in the shared dock now.
     // Patch 7: VLC settings. Brightness / contrast / saturation live
@@ -181,7 +209,24 @@ internal fun VlcPlayerScreen(
     val activity = context as? android.app.Activity
     DisposableEffect(activity) {
         setWindowBrightness(activity, brightnessPct(context))
-        onDispose { setWindowBrightness(activity, -1) }
+        onDispose {
+            setWindowBrightness(activity, -1)
+            // 2.1.0 (audit N27): leave the display at the system
+            // default refresh rate, not the last video's.
+            clearFrameRateMatch(activity)
+        }
+    }
+    // 2.1.0 (audit N27): auto frame-rate matching — when the
+    // Settings switch is on and the file's rate is known, prefer
+    // the display mode that matches it (see
+    // M3Helpers.applyFrameRateMatch). Restored on exit above.
+    LaunchedEffect(videoFps) {
+        // Rate unknown (yet, or a new file whose probe hasn't
+        // landed): drop any previous file's match rather than
+        // leaving its display mode in force.
+        if (afrOn) {
+            if (videoFps > 0f) applyFrameRateMatch(activity, videoFps) else clearFrameRateMatch(activity)
+        }
     }
     var loopMode by remember { mutableStateOf(settings.getInt("loop_mode", 0)) }
     var shuffleOn by remember { mutableStateOf(settings.getBoolean("shuffle_on", false)) }
@@ -229,6 +274,19 @@ internal fun VlcPlayerScreen(
     LaunchedEffect(isPlaying) { view.keepScreenOn = isPlaying; onPlayingChange(isPlaying) }
     DisposableEffect(Unit) { onDispose { view.keepScreenOn = false } }
 
+    // 2.1.0 (audit N9): an orderly exit before the first Playing
+    // event — the user backed out of a slow VLC open — must clear
+    // the attempt marker. If it survives, the next cold start
+    // shows a false "stopped last time" gate and force-routes to
+    // Media3 for a crash that never happened. A REAL native death
+    // kills the process, so this dispose never runs and the
+    // marker correctly survives — only an orderly dispose clears.
+    DisposableEffect(Unit) {
+        onDispose {
+            if (!vlcReachedPlaying) clearVlcAttempt(context)
+        }
+    }
+
     // The engine. The event handler runs on the main thread already
     // (VlcEngine posts it there), so it may touch Compose state. The
     // handler is held in a rememberUpdatedState so the engine — which
@@ -240,8 +298,37 @@ internal fun VlcPlayerScreen(
     var pendingPlay by remember(item) { mutableStateOf(false) }
     val latestOnEvent = rememberUpdatedState<(Int) -> Unit> { eventType ->
         when (eventType) {
+            // 2.1.0 (crash breadcrumb): the VLC open path, stage by
+            // stage. libvlc exposes no separate events for the
+            // demuxer starting or the audio output opening — Opening
+            // is the input-open + demuxer-start stage, ESSelected is
+            // track selection, and Playing (below) is the last
+            // observable stage. If the process dies mid-open, the
+            // last step in the trail names the dying stage.
+            MediaPlayer.Event.Opening -> {
+                // 2.1.0 (motion batch, MOT-20): a (re)open starts
+                // a load — the indicator shows until Playing.
+                buffering = true
+                CrashLog.step(context, "vlc: input opened")
+            }
+            MediaPlayer.Event.Buffering -> {
+                // 2.1.0 (motion batch, MOT-20): libVLC is waiting
+                // on data mid-playback (a stalled seek, a slow
+                // share) — show the indicator until Playing.
+                buffering = true
+            }
+            MediaPlayer.Event.ESSelected -> {
+                if (!vlcTracksStepDone) {
+                    vlcTracksStepDone = true
+                    CrashLog.step(context, "vlc: tracks selected")
+                }
+            }
             MediaPlayer.Event.Playing -> {
                 isPlaying = true
+                // 2.1.0 (motion batch, MOT-20): playback is
+                // rendering — the loading indicator's job is done.
+                buffering = false
+                vlcReachedPlaying = true
                 // Patch 1.3.2 (crash guard): VLC is really playing —
                 // the attempt survived, so clear the marker.
                 clearVlcAttempt(context)
@@ -249,11 +336,21 @@ internal fun VlcPlayerScreen(
                 tracksVersion++
                 if (pendingSeekMs > 0L) {
                     runCatching { engineRef?.player?.setTime(pendingSeekMs) }
+                    // 2.1.0: the stall watch starts when the resume
+                    // jump is actually applied (see the poll).
+                    seekWatchTarget = pendingSeekMs
+                    seekWatchSinceMs = System.currentTimeMillis()
                     pendingSeekMs = 0L
                 }
             }
-            MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> isPlaying = false
+            MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> {
+                isPlaying = false
+                // 2.1.0 (motion batch, MOT-20): paused/stopped is
+                // a settled state, not a load — no spinner.
+                buffering = false
+            }
             MediaPlayer.Event.EndReached -> {
+                buffering = false
                 when (loopMode) {
                     1 -> {
                         runCatching { engineRef?.player?.setTime(0L); engineRef?.player?.play() }
@@ -267,8 +364,20 @@ internal fun VlcPlayerScreen(
                 }
             }
             MediaPlayer.Event.EncounteredError -> {
+                // 2.1.0 (motion batch, MOT-20): an error is not
+                // buffering — no spinner over the error path.
+                buffering = false
                 status = "LibVLC can't play this file"
                 showControls = true
+                // 2.1.0 (audit N3): mirror the Media3 player's error
+                // path — a VLC error used to be a dead end here,
+                // while a Media3 error retries the file on VLC.
+                // Hand the file to the other engine the same way:
+                // MainActivity's onEngineFailed is guarded to once
+                // per file, so a file neither engine can play stays
+                // on this screen with the message above instead of
+                // ping-ponging between the two players.
+                onEngineFailed()
             }
         }
     }
@@ -304,7 +413,17 @@ internal fun VlcPlayerScreen(
         // decoding mode go into the guard marker with the attempt.
         markVlcAttempt(context, item.path, hwDecMode)
         runCatching {
-            VlcEngine(context, libVlcOptions(context) + adjustOptions(brightness, contrast, saturation)) { eventType ->
+            // 2.1.0 (review C2, finished): hwDecMode goes INTO the
+            // engine — the LibVLC options are built from it and the
+            // engine stores it for play()'s ":codec=" choice. In
+            // 2.0.10 the mode only keyed this remember and the guard
+            // marker; the decoder itself still followed the global
+            // setting, so a pinned file opened on MediaCodec anyway.
+            VlcEngine(
+                context,
+                libVlcOptions(context, hwDecMode) + adjustOptions(brightness, contrast, saturation),
+                hwDecMode
+            ) { eventType ->
                 latestOnEvent.value(eventType)
             }
         }.getOrNull()
@@ -345,6 +464,10 @@ internal fun VlcPlayerScreen(
             onDispose { }
         } else {
             runCatching { engine.attach(sv) }
+            // 2.1.0 (crash breadcrumb): the video surface stage of
+            // the open — a death between play-called and here is a
+            // surface death, not a demuxer death.
+            CrashLog.step(context, "vlc: surface attached")
             onDispose { runCatching { engine.detach() } }
         }
     }
@@ -401,6 +524,7 @@ internal fun VlcPlayerScreen(
     // VLC instead of being forced to Media3 forever.
     LaunchedEffect(engine, item) {
         ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null; pendingSeekMs = 0L
+        vlcTracksStepDone = false
         val e = engine
         if (e == null) {
             // The engine could not start — fall back to Media3.
@@ -467,7 +591,11 @@ internal fun VlcPlayerScreen(
     // no getVideoSize API, so read the file's metadata once per item,
     // on IO (a network probe could hang). Local files and content
     // URIs only — streams stay "—".
+    // 2.1.0 (audit N27): the same probe round also reads the frame
+    // rate for the frame-rate match (same local/content restriction;
+    // streams report 0 and the match does not engage).
     LaunchedEffect(item) {
+        videoFps = withContext(Dispatchers.IO) { probeFrameRate(context, item) }
         vlcResolution = withContext(Dispatchers.IO) {
             runCatching {
                 val uri = when {
@@ -539,6 +667,24 @@ internal fun VlcPlayerScreen(
                 }
                 if (len > 0) durationMs = len
                 isPlaying = p.isPlaying
+                // 2.1.0 (audit N2, minimal): the seek-stall check.
+                // The target was reached — drop the watch. Playback
+                // is running and ~4s after the seek the player is
+                // still nowhere near it — the jump failed silently:
+                // say so once, and clear the pending/settle state
+                // so nothing keeps pretending the position moved.
+                val watch = seekWatchTarget
+                if (watch != null && t >= 0) {
+                    if (kotlin.math.abs(t - watch) < 2000L) {
+                        seekWatchTarget = null
+                    } else if (isPlaying && now - seekWatchSinceMs > 4000L) {
+                        status = "Couldn't jump there — this file may not support skipping"
+                        seekWatchTarget = null
+                        pendingSeekTarget = null
+                        seekSettleUntilMs = 0L
+                        if (pendingSeekMs == watch) { pendingSeekMs = 0L; pendingSeekTries = 0 }
+                    }
+                }
                 if (pendingSeekMs > 0L && isPlaying) {
                     // 2.0.9 (review A4): apply the pending resume
                     // seek once playing, REGARDLESS of len — setTime
@@ -552,6 +698,12 @@ internal fun VlcPlayerScreen(
                     } else if (pendingSeekTries < 3) {
                         runCatching { p.setTime(pendingSeekMs) }
                         pendingSeekTries++
+                        // 2.1.0: a resume jump applied here (not via
+                        // the Playing event) arms the stall watch too.
+                        if (seekWatchTarget != pendingSeekMs) {
+                            seekWatchTarget = pendingSeekMs
+                            seekWatchSinceMs = now
+                        }
                     } else {
                         pendingSeekMs = 0L; pendingSeekTries = 0
                     }
@@ -606,6 +758,9 @@ internal fun VlcPlayerScreen(
         pendingSeekJob = seekScope.launch {
             delay(400L)
             runCatching { engine?.player?.setTime(target) }
+            // 2.1.0: the seek is really issued now — watch it.
+            seekWatchTarget = target
+            seekWatchSinceMs = System.currentTimeMillis()
             pendingSeekTarget = null
             // 2.0.4 (seek fix): give the player a second to actually move
             // before the poll is allowed to overwrite the target again.
@@ -845,7 +1000,7 @@ internal fun VlcPlayerScreen(
                 ?: if (vlcResolution.isNotBlank()) "$vlcResolution  •  ${containerOf(item)}" else containerOf(item),
             resBadge = videoMeta?.resolution?.substringBefore(" ") ?: vlcResolution,
             codecBadge = videoMeta?.videoCodec ?: "",
-            showHwBadge = hwDecPref(context) != "off",
+            showHwBadge = hwDecMode != "off",
             visible = controlsVisible,
             modifier = Modifier.align(Alignment.TopCenter)
                 .padding(start = 24.dp, end = 24.dp, top = 20.dp),
@@ -900,7 +1055,16 @@ internal fun VlcPlayerScreen(
             onSeekTo = { ms ->
                 val t = SeekHelper.clampSeek(positionMs, ms - positionMs, durationMs)
                 runCatching { engine.player.setTime(t) }
-                positionMs = t; pokeControls()
+                positionMs = t
+                // 2.1.0 (audit N1): arm the settle window like
+                // seekBy does — a scrub seek that doesn't is
+                // overwritten by the 500ms poll with the
+                // not-yet-moved position ("bar moved, then backed").
+                seekSettleUntilMs = System.currentTimeMillis() + 1000L
+                // 2.1.0: watch the scrub seek for the stall check.
+                seekWatchTarget = t
+                seekWatchSinceMs = System.currentTimeMillis()
+                pokeControls()
             },
             onSeekBy = ::seekBy,
             onAudio = { sheet = "audio" },
@@ -937,11 +1101,25 @@ internal fun VlcPlayerScreen(
             modifier = Modifier.align(Alignment.Center)
         )
 
+        // 2.1.0 (motion batch, audit MOT-20): the loading
+        // indicator — centred, the app's existing ZephLoading,
+        // shown while libVLC opens or buffers and gone the
+        // moment Playing fires (see the event handler).
+        if (buffering && !ended) {
+            ZephLoading(modifier = Modifier.align(Alignment.Center))
+        }
+
         // The design's side sheets (Audio / Subs / Speed / Aspect /
         // Engine / Info), sliding in from the right.
-        if (sheet != null) {
+        // 2.1.0 (motion batch, audit MOT-16): same fix as
+        // PlayerScreen — the last sheet kind stays composed while
+        // the sheet plays its exit slide.
+        var lastSheet by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(sheet) { if (sheet != null) lastSheet = sheet }
+        val shownSheet = sheet ?: lastSheet
+        if (shownSheet != null) {
             M3PlayerSheet(
-                title = when (sheet) {
+                title = when (shownSheet) {
                     "audio" -> "Audio track"
                     "subs" -> "Subtitles"
                     "speed" -> "Playback speed"
@@ -950,9 +1128,10 @@ internal fun VlcPlayerScreen(
                     else -> "Media information"
                 },
                 onClose = { sheet = null },
-                focusRequester = panelFocus
+                focusRequester = panelFocus,
+                visible = sheet != null
             ) {
-                when (sheet) {
+                when (shownSheet) {
                     "audio" -> {
                         if (audioTracks.isEmpty()) {
                             Text("No audio tracks in this file.", fontSize = 20.sp, color = Muted)
@@ -1131,7 +1310,14 @@ internal fun VlcPlayerScreen(
                     onSeekTo = { ms ->
                         val t = SeekHelper.clampSeek(positionMs, ms - positionMs, durationMs)
                         runCatching { engine.player.setTime(t) }
-                        positionMs = t; pokeControls()
+                        positionMs = t
+                        // 2.1.0 (audit N1): settle window, as in the
+                        // dock's onSeekTo above.
+                        seekSettleUntilMs = System.currentTimeMillis() + 1000L
+                        // 2.1.0: watch the scrub seek for the stall check.
+                        seekWatchTarget = t
+                        seekWatchSinceMs = System.currentTimeMillis()
+                        pokeControls()
                     },
                     onStatus = { status = it },
                     audioTracks = audioTracks,

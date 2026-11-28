@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Log
+import android.util.LruCache
 import android.util.Size
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
@@ -219,18 +220,24 @@ object MediaLibrary {
     }
 
     // ---------- Video thumbnails (Batch 2) ----------
-    // Small in-memory cache (64 × 320×180 ≈ 14 MB max) so scrolling a
-    // grid does not re-decode every tile. Thumbnails load on IO from the
-    // tile composable; a failure just leaves the gradient tile.
+    // In-memory cache so scrolling a grid does not re-decode every
+    // tile. Thumbnails load on IO from the tile composable; a failure
+    // just leaves the gradient tile.
+    // 2.1.0 (audit N18): the cap is in BYTES now, not entries. The
+    // old 64-entry cap was sized for 320×180 thumbs (≈14 MB), but
+    // since 2.0.3 the Home hero caches 1280×720 posters (≈3.7 MB
+    // each) into the same cache — 64 of those would pin ~237 MB on
+    // the 2 GB boxes this app targets. 32 MB holds the hero rotation
+    // plus a full grid of small thumbs, and it is a hard bound
+    // whatever size of bitmap lands here.
 
     object ThumbnailCache {
-        private const val MAX_ENTRIES = 64
-        private val map = object : LinkedHashMap<String, Bitmap>(MAX_ENTRIES, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean =
-                size > MAX_ENTRIES
+        private const val MAX_BYTES = 32 * 1024 * 1024
+        private val cache = object : LruCache<String, Bitmap>(MAX_BYTES) {
+            override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
         }
-        @Synchronized fun get(key: String): Bitmap? = map[key]
-        @Synchronized fun put(key: String, bitmap: Bitmap) { map[key] = bitmap }
+        fun get(key: String): Bitmap? = cache.get(key)
+        fun put(key: String, bitmap: Bitmap) { cache.put(key, bitmap) }
     }
 
     fun loadVideoThumbnail(context: Context, item: VideoItem, width: Int = 320, height: Int = 180): Bitmap? {

@@ -322,6 +322,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     val seekScope = rememberCoroutineScope()
     var pendingSeekTarget by remember { mutableStateOf<Long?>(null) }
     var pendingSeekJob by remember { mutableStateOf<Job?>(null) }
+    // 2.1.0 (audit N2, minimal): the seek-stall watch — the target
+    // of the last seek this screen actually issued (seekBy fire,
+    // scrub, or a resume seek) and when it was issued. The poll
+    // checks it: playback running and ~4s later the player is
+    // still not within 2s of the target means the jump silently
+    // failed (the file cannot seek — e.g. an MKV with no seek
+    // index). The poll then says so once, in plain words, instead
+    // of leaving the UI pretending forever. Same as the VLC screen.
+    var seekWatchTarget by remember { mutableStateOf<Long?>(null) }
+    var seekWatchSinceMs by remember { mutableStateOf(0L) }
     // 2.0.4 (seek fix): after a seek, the player may take a moment
     // to actually move. The 500ms poll overwrote positionMs from the
     // not-yet-moved player, so the time jumped to the target then
@@ -346,12 +356,35 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // 1.9.1 (P3): the HUD's stream info — resolution + codec
     // names, probed from the file (the same probe Details uses).
     var videoMeta by remember(item) { mutableStateOf<VideoMeta?>(null) }
+    // 2.1.0 (audit N27): the playing video's frame rate (from the
+    // player's own format, read in the poll) and the Settings
+    // frame-rate switch — declared before the effects below that
+    // key off them.
+    var videoFps by remember { mutableStateOf(0f) }
+    val afrOn = remember { isAfrOn(context) }
     // 1.9.1 (Se7): the Settings brightness applies to the activity
     // window while a video plays, and restores on exit.
     val activity = context as? Activity
     DisposableEffect(activity) {
         setWindowBrightness(activity, brightnessPct(context))
-        onDispose { setWindowBrightness(activity, -1) }
+        onDispose {
+            setWindowBrightness(activity, -1)
+            // 2.1.0 (audit N27): leave the display at the system
+            // default refresh rate, not the last video's.
+            clearFrameRateMatch(activity)
+        }
+    }
+    // 2.1.0 (audit N27): auto frame-rate matching — when the
+    // Settings switch is on and the playing video's rate is
+    // known, prefer the display mode that matches it (see
+    // M3Helpers.applyFrameRateMatch). Restored on exit above.
+    LaunchedEffect(videoFps) {
+        // Rate unknown (yet, or a new file whose format hasn't
+        // reported): drop any previous file's match rather than
+        // leaving its display mode in force.
+        if (afrOn) {
+            if (videoFps > 0f) applyFrameRateMatch(activity, videoFps) else clearFrameRateMatch(activity)
+        }
     }
     LaunchedEffect(item.path) {
         if (rememberVolume(context)) {
@@ -391,6 +424,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     // LibVLC instead of showing an error. Fires once per item, so a
     // file neither engine can play does not ping-pong between them.
     var fallbackFired by remember(item) { mutableStateOf(false) }
+    // 2.1.0 (crash breadcrumb): the trail records this item's first
+    // buffering only — a stall-heavy session must not push the
+    // open's own steps out of the trail.
+    var bufferingStepDone by remember(item) { mutableStateOf(false) }
+    // 2.1.0 (motion batch, audit MOT-20): is the player still
+    // preparing or re-buffering? Drives the centred loading
+    // indicator in the layout below — neither player had one, so
+    // a slow open or a stalled seek sat on a black, frozen
+    // surface with nothing to say it was still working.
+    var buffering by remember(item) { mutableStateOf(true) }
     // Batch 2: bumped when the player's track list arrives, so the
     // subtitle picker recomposes with the real embedded tracks.
     var tracksVersion by remember { mutableStateOf(0) }
@@ -499,16 +542,41 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onPlaybackStateChanged(state: Int) {
+                // 2.1.0 (motion batch, MOT-20): the loading
+                // indicator follows the player's own state.
+                buffering = state == Player.STATE_BUFFERING || state == Player.STATE_IDLE
+                // 2.1.0 (crash breadcrumb): the Media3 open path's
+                // stages, in the same trail the VLC path writes —
+                // buffering (first time per item), ready, and the
+                // first frame below.
+                if (state == Player.STATE_BUFFERING && !bufferingStepDone) {
+                    bufferingStepDone = true
+                    CrashLog.step(context, "media3: buffering")
+                }
                 if (state == Player.STATE_READY) {
-                    durationMs = c.duration
+                    // 2.1.0 (audit N4): c.duration is C.TIME_UNSET
+                    // (-1) while the duration is unknown — never
+                    // store it; 0 is this screen's "unknown" value.
+                    if (c.duration > 0) durationMs = c.duration
                     CrashLog.step(context, "media3: ready")
                 }
                 if (state == Player.STATE_ENDED) ended = true
+            }
+            override fun onRenderedFirstFrame() {
+                // 2.1.0 (motion batch, MOT-20): frames are on
+                // screen — the loading indicator's job is done,
+                // whatever the state callbacks said.
+                buffering = false
+                CrashLog.step(context, "media3: first frame")
             }
             override fun onTracksChanged(tracks: Tracks) { tracksVersion++ }
             override fun onVideoSizeChanged(size: VideoSize) { videoSize = Size(size.width, size.height) }
             override fun onCues(cueList: List<Cue>) { cues = cueList }
             override fun onPlayerError(error: PlaybackException) {
+                // 2.1.0 (motion batch, MOT-20): an error is not
+                // buffering — the spinner must not spin over the
+                // error message forever.
+                buffering = false
                 status = "Can't play this file (${error.errorCodeName})"
                 showControls = true
                 // 1.4.5 Patch B: Media3 cannot decode this file (a
@@ -527,6 +595,11 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         isPlaying = c.isPlaying
         positionMs = c.currentPosition
         if (c.duration > 0) durationMs = c.duration
+        // 2.1.0 (motion batch, MOT-20): sync the indicator with the
+        // state the player is ALREADY in — an adopted cast session
+        // (audit N20) may be READY and rendering, with no state
+        // change or first-frame callback left to clear it.
+        buffering = c.playbackState == Player.STATE_BUFFERING || c.playbackState == Player.STATE_IDLE
         onDispose { c.removeListener(listener) }
     }
 
@@ -625,7 +698,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         if (!subtitleReady || c == null) {
             onDispose { }
         } else {
-            ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null; pendingResumeMs = 0L
+            ended = false; positionMs = 0L; durationMs = 0L; status = ""; panel = null; pendingResumeMs = 0L; buffering = true
             val sub = subtitle
             val subtitleConfigs = if (sub != null) {
                 listOf(
@@ -638,27 +711,56 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                         .setLanguage("en").setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
                 )
             } else emptyList()
-            // Batch 2: the title is what the media notification shows.
-            c.setMediaItem(
-                MediaItem.Builder().setUri(Uri.parse(item.path))
-                    .setSubtitleConfigurations(subtitleConfigs)
-                    .setMediaMetadata(MediaMetadata.Builder().setTitle(item.name).build())
-                    .build()
-            )
-            c.prepare()
-            if (fromStart) {
-                // B1: "Play from start" really starts over — and clears the
-                // saved position so the next open does not offer Resume.
-                clearResumePosition(context, item.path)
-            } else {
-                val saved = savedResumePosition(context, item.path)
-                if (item.durationMs > 0L) {
-                    val resumeAt = if (shouldResumeAt(saved, item.durationMs, isResumeOn(context))) saved else 0L
-                    if (resumeAt > 0) { c.seekTo(resumeAt); status = "Resumed at ${TimeFormatter.format(resumeAt)}" }
-                } else if (ResumeStore.hasSavedPosition(saved)) {
-                    // B2: duration unknown for folder/USB videos — hold the
-                    // position until the player reports its real duration.
-                    pendingResumeMs = saved
+            // 2.1.0 (audit N20): a cast video arrives already loaded —
+            // CastService set this very item on the shared player and
+            // prepared it before posting CastInbox, and this screen
+            // used to load it a second time, throwing the prepare
+            // (and the stream's buffering) away. When the player
+            // already holds this item live (same URI, buffering or
+            // ready — not idle, not ended), adopt that session: no
+            // second load, and no local resume seek either — the
+            // position belongs to the cast session. An explicit
+            // Play-from-start always takes the fresh-load path.
+            val adoptCast = !fromStart && runCatching {
+                (c.playbackState == Player.STATE_BUFFERING || c.playbackState == Player.STATE_READY) &&
+                    c.currentMediaItem?.localConfiguration?.uri?.toString() == item.path
+            }.getOrDefault(false)
+            if (!adoptCast) {
+                // Batch 2: the title is what the media notification shows.
+                c.setMediaItem(
+                    MediaItem.Builder().setUri(Uri.parse(item.path))
+                        .setSubtitleConfigurations(subtitleConfigs)
+                        .setMediaMetadata(MediaMetadata.Builder().setTitle(item.name).build())
+                        .build()
+                )
+                c.prepare()
+                // 2.1.0 (audit N21): a fresh LOCAL load takes the
+                // shared player back to neutral gain. A cast
+                // sender's volume lives in this player's own volume
+                // property, which no local control reads — left set,
+                // local playback inherited it while every on-screen
+                // indicator (which drives the device stream volume)
+                // said otherwise.
+                runCatching { c.volume = 1f }
+                if (fromStart) {
+                    // B1: "Play from start" really starts over — and clears the
+                    // saved position so the next open does not offer Resume.
+                    clearResumePosition(context, item.path)
+                } else {
+                    val saved = savedResumePosition(context, item.path)
+                    if (item.durationMs > 0L) {
+                        val resumeAt = if (shouldResumeAt(saved, item.durationMs, isResumeOn(context))) saved else 0L
+                        if (resumeAt > 0) {
+                            c.seekTo(resumeAt); status = "Resumed at ${TimeFormatter.format(resumeAt)}"
+                            // 2.1.0: watch the resume jump for the stall check.
+                            seekWatchTarget = resumeAt
+                            seekWatchSinceMs = System.currentTimeMillis()
+                        }
+                    } else if (ResumeStore.hasSavedPosition(saved)) {
+                        // B2: duration unknown for folder/USB videos — hold the
+                        // position until the player reports its real duration.
+                        pendingResumeMs = saved
+                    }
                 }
             }
             c.setPlaybackSpeed(speed)
@@ -675,7 +777,13 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                 c.play()
                 lastSetupKey.value = setupKey
             }
-            CrashLog.step(context, "media3: play called for ${item.name}")
+            // 2.1.0 (audit N20): an adopted cast session was already
+            // playing — the breadcrumb says so, not "play called".
+            if (adoptCast) {
+                CrashLog.step(context, "media3: adopted cast session for ${item.name}")
+            } else {
+                CrashLog.step(context, "media3: play called for ${item.name}")
+            }
             onDispose { }
         }
     }
@@ -690,6 +798,9 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                 c.seekTo(pr)
                 positionMs = pr
                 status = "Resumed at ${TimeFormatter.format(pr)}"
+                // 2.1.0: watch the resume jump for the stall check.
+                seekWatchTarget = pr
+                seekWatchSinceMs = System.currentTimeMillis()
             }
             pendingResumeMs = 0L
         }
@@ -737,7 +848,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             try {
                 if (c != null) {
                     val realPos = c.currentPosition
-                    durationMs = c.duration
+                    // 2.1.0 (audit N4): same TIME_UNSET guard as the
+                    // listener — a -1 here fed the seek maths and
+                    // the dock's fraction a negative duration.
+                    if (c.duration > 0) durationMs = c.duration
+                    // 2.1.0 (audit N27): the frame-rate match keys
+                    // off the player's reported video format.
+                    val fps = runCatching { c.videoFormat?.frameRate ?: 0f }.getOrDefault(0f)
+                    if (fps > 0f && fps != videoFps) videoFps = fps
                     // 2.0.4 (seek fix): during the settle window after
                     // a seek, keep the optimistic target on screen
                     // unless the player has caught up to it — the
@@ -748,6 +866,24 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                     if (now >= seekSettleUntilMs || kotlin.math.abs(realPos - positionMs) < 2000L) {
                         positionMs = realPos
                         if (now >= seekSettleUntilMs) seekSettleUntilMs = 0L
+                    }
+                    // 2.1.0 (audit N2, minimal): the seek-stall
+                    // check. Target reached — drop the watch.
+                    // Playback running and ~4s after the seek the
+                    // player is still nowhere near it — the jump
+                    // failed silently: say so once, and clear the
+                    // pending/settle state so nothing keeps
+                    // pretending the position moved.
+                    val watch = seekWatchTarget
+                    if (watch != null) {
+                        if (kotlin.math.abs(realPos - watch) < 2000L) {
+                            seekWatchTarget = null
+                        } else if (isPlaying && now - seekWatchSinceMs > 4000L) {
+                            status = "Couldn't jump there — this file may not support skipping"
+                            seekWatchTarget = null
+                            pendingSeekTarget = null
+                            seekSettleUntilMs = 0L
+                        }
                     }
                     // B9b: throttled save while playing — a process kill on a
                     // low-RAM TV loses at most ~10s of progress. Save the
@@ -829,6 +965,9 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
         pendingSeekJob = seekScope.launch {
             delay(400L)
             player.seekTo(target)
+            // 2.1.0: the seek is really issued now — watch it.
+            seekWatchTarget = target
+            seekWatchSinceMs = System.currentTimeMillis()
             pendingSeekTarget = null
             // 2.0.4 (seek fix): give the player a second to actually move
             // before the poll is allowed to overwrite the target again.
@@ -1131,7 +1270,7 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             resBadge = videoMeta?.resolution?.substringBefore(" ")
                 ?: if (videoSize.height > 0) "${videoSize.width}×${videoSize.height}" else "",
             codecBadge = videoMeta?.videoCodec ?: "",
-            showHwBadge = hwDecPref(context) != "off",
+            showHwBadge = (chosenHwDec(context, item.path) ?: hwDecPref(context)) != "off",
             visible = controlsVisible,
             modifier = Modifier.align(Alignment.TopCenter)
                 .padding(start = 24.dp, end = 24.dp, top = 20.dp),
@@ -1184,7 +1323,16 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             },
             onSeekTo = { ms ->
                 val t = SeekHelper.clampSeek(positionMs, ms - positionMs, durationMs)
-                player.seekTo(t); positionMs = t; pokeControls()
+                player.seekTo(t); positionMs = t
+                // 2.1.0 (audit N1): arm the settle window like
+                // seekBy does — a scrub seek that doesn't is
+                // overwritten by the 500ms poll with the
+                // not-yet-moved position ("bar moved, then backed").
+                seekSettleUntilMs = System.currentTimeMillis() + 1000L
+                // 2.1.0: watch the scrub seek for the stall check.
+                seekWatchTarget = t
+                seekWatchSinceMs = System.currentTimeMillis()
+                pokeControls()
             },
             onSeekBy = ::seekBy,
             onAudio = { sheet = "audio" },
@@ -1227,11 +1375,27 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
             modifier = Modifier.align(Alignment.Center)
         )
 
+        // 2.1.0 (motion batch, audit MOT-20): the loading
+        // indicator — centred, the app's existing ZephLoading,
+        // shown while the player prepares or buffers and gone
+        // the moment playback is rendering (see the listener).
+        if (buffering && !ended) {
+            ZephLoading(modifier = Modifier.align(Alignment.Center))
+        }
+
         // The design's side sheets (Audio / Subs / Speed / Aspect /
         // Engine / Info), sliding in from the right.
-        if (sheet != null) {
+        // 2.1.0 (motion batch, audit MOT-16): the last sheet kind
+        // is kept composed after `sheet` clears, so the sheet can
+        // play its exit slide instead of leaving composition the
+        // instant it closes (the old `if (sheet != null)` made the
+        // exit spec dead code).
+        var lastSheet by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(sheet) { if (sheet != null) lastSheet = sheet }
+        val shownSheet = sheet ?: lastSheet
+        if (shownSheet != null) {
             M3PlayerSheet(
-                title = when (sheet) {
+                title = when (shownSheet) {
                     "audio" -> "Audio track"
                     "subs" -> "Subtitles"
                     "speed" -> "Playback speed"
@@ -1240,9 +1404,10 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                     else -> "Media information"
                 },
                 onClose = { sheet = null },
-                focusRequester = panelFocus
+                focusRequester = panelFocus,
+                visible = sheet != null
             ) {
-                when (sheet) {
+                when (shownSheet) {
                     "audio" -> {
                         val audioOptions = remember(tracksVersion) { buildAudioOptions(player) }
                         val selectedAudio = remember(tracksVersion, audioOptions) { selectedAudioId(player, audioOptions) }
@@ -1404,7 +1569,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                     },
                     onSeekTo = { ms ->
                         val t = SeekHelper.clampSeek(positionMs, ms - positionMs, durationMs)
-                        player.seekTo(t); positionMs = t; pokeControls()
+                        player.seekTo(t); positionMs = t
+                        // 2.1.0 (audit N1): settle window, as in the
+                        // dock's onSeekTo above.
+                        seekSettleUntilMs = System.currentTimeMillis() + 1000L
+                        // 2.1.0: watch the scrub seek for the stall check.
+                        seekWatchTarget = t
+                        seekWatchSinceMs = System.currentTimeMillis()
+                        pokeControls()
                     },
                     onStatus = { status = it },
                     subOptions = subOptions,

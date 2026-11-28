@@ -161,17 +161,22 @@ internal fun M3VideoScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(end = 24.dp)
         ) {
+            // 2.1.0 (UI batch): the design photo shows this row as
+            // PLAIN TEXT (check when selected, no chip boxes) —
+            // ZephTextChip, not the boxed ZephFilterChip. The
+            // photo's extra "4K HDR" filter is NOT added: the scan
+            // has no per-file HDR flag (see the gap list).
             item {
-                ZephFilterChip(
+                ZephTextChip(
                     "All", selected = filter == "all", onClick = { filter = "all" },
                     modifier = Modifier.focusRequester(firstFocus)
                 )
             }
             item {
-                ZephFilterChip("In progress", selected = filter == "progress", onClick = { filter = "progress" })
+                ZephTextChip("In progress", selected = filter == "progress", onClick = { filter = "progress" })
             }
             item {
-                ZephFilterChip("Unwatched", selected = filter == "unwatched", onClick = { filter = "unwatched" })
+                ZephTextChip("Unwatched", selected = filter == "unwatched", onClick = { filter = "unwatched" })
             }
             item {
                 Box(
@@ -199,13 +204,13 @@ internal fun M3VideoScreen(
                 }
             }
             item {
-                ZephFilterChip("Newest", selected = sort == "recent", onClick = { sort = "recent" })
+                ZephTextChip("Newest", selected = sort == "recent", onClick = { sort = "recent" })
             }
             item {
-                ZephFilterChip("A–Z", selected = sort == "title", onClick = { sort = "title" })
+                ZephTextChip("A–Z", selected = sort == "title", onClick = { sort = "title" })
             }
             item {
-                ZephFilterChip("Longest", selected = sort == "length", onClick = { sort = "length" })
+                ZephTextChip("Longest", selected = sort == "length", onClick = { sort = "length" })
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
@@ -270,7 +275,7 @@ internal fun M3VideoScreen(
 }
 
 private fun resumeFractionOf(item: VideoItem, resume: Map<String, Long>): Float {
-    val ms = resume[item.path] ?: 0L
+    val ms = resume[storageKeyFor(item.path)] ?: 0L
     return if (item.durationMs > 0) ms.toFloat() / item.durationMs else 0f
 }
 

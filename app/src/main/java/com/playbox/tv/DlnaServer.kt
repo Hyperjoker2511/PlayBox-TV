@@ -74,6 +74,10 @@ object DlnaServer {
     private const val SSDP_PORT = 1900
     private const val HTTP_PORT_FIRST = 1400
     private const val CACHE_SECONDS = 1800
+    /** 2.1.0 (audit N19): largest request body handleHttp will buffer.
+     * DLNA control bodies are small SOAP envelopes — anything near
+     * this is not a real control request. */
+    private const val MAX_BODY_CHARS = 1_000_000
 
     private var running = false
     private var httpPort = HTTP_PORT_FIRST
@@ -292,6 +296,16 @@ object DlnaServer {
                     if (name == "CONTENT-LENGTH") contentLength = value.toIntOrNull() ?: 0
                 }
             }
+            val out: OutputStream = socket.getOutputStream()
+            // 2.1.0 (audit N19): the body buffer was sized straight
+            // from the sender's Content-Length header — any device on
+            // the Wi-Fi could claim a multi-GB body and force a huge
+            // allocation, OOM-killing the app with one request. Refuse
+            // oversized (or negative) declared lengths instead.
+            if (contentLength < 0 || contentLength > MAX_BODY_CHARS) {
+                respond(out, 413, "text/plain", "Request body too large")
+                return
+            }
             val bodyChars = CharArray(contentLength)
             var read = 0
             while (read < contentLength) {
@@ -300,7 +314,6 @@ object DlnaServer {
                 read += n
             }
             val body = String(bodyChars, 0, read)
-            val out: OutputStream = socket.getOutputStream()
             when {
                 method == "GET" && path == "/device.xml" -> respond(out, 200, "text/xml", deviceXml())
                 method == "GET" && path == "/avtransport.xml" -> respond(out, 200, "text/xml", AVT_SCPD)
