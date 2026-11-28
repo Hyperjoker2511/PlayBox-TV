@@ -416,6 +416,13 @@ private fun M3TransportCircle(
                 if (focused) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.secondaryContainer
             )
+            // 2.0.10: the transport circles had no zephFocus ring —
+            // only a background-colour change — so on the TV the user
+            // could not tell which control was focused ("don't know
+            // what I'm tapping"). The bright ring makes the focused
+            // control unmistakable. focusScale 1f: the circle already
+            // scales itself, so the ring adds no extra scale.
+            .zephFocus(interaction, focusScale = 1f, cornerRadius = (size / 2))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -463,6 +470,11 @@ private fun M3PlayerFab(
                 if (focused) 3.dp else 0.dp,
                 MaterialTheme.colorScheme.onPrimaryContainer, shape
             )
+            // 2.0.10: same as the transport circles — the Fab had
+            // only a 3dp border for focus, too subtle on the TV.
+            // The bright zephFocus ring makes it unmistakable.
+            // focusScale 1f: the Fab already scales itself.
+            .zephFocus(interaction, focusScale = 1f, cornerRadius = corner)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
