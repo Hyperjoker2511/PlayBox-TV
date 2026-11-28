@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,7 +89,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -311,6 +314,14 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
     var positionMs by remember { mutableStateOf(0L) }
     var durationMs by remember { mutableStateOf(0L) }
     var seekSettleUntilMs by remember { mutableStateOf(0L) }
+    // 2.0.9 (review A3): seek coalescing. Five quick FF presses
+    // used to fire five heavy seeks faster than the box could
+    // complete one (demuxer jump + re-read + re-sync on a 3-hour
+    // file) — the "stucks or crashes." seekBy now accumulates a
+    // pending target and fires ONE seek after ~400ms of quiet.
+    val seekScope = rememberCoroutineScope()
+    var pendingSeekTarget by remember { mutableStateOf<Long?>(null) }
+    var pendingSeekJob by remember { mutableStateOf<Job?>(null) }
     // 2.0.4 (seek fix): after a seek, the player may take a moment
     // to actually move. The 500ms poll overwrote positionMs from the
     // not-yet-moved player, so the time jumped to the target then
@@ -800,11 +811,29 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
 
     fun pokeControls() { showControls = true; interactionTick++ }
     fun seekBy(delta: Long) {
-        val target = SeekHelper.clampSeek(positionMs, delta, durationMs)
-        player.seekTo(target); positionMs = target
-        // 2.0.4 (seek fix): give the player a second to actually move
-        // before the poll is allowed to overwrite the target again.
-        seekSettleUntilMs = System.currentTimeMillis() + 1000L
+        // 2.0.9 (review A3): coalesce — accumulate a pending
+        // target (base = outstanding pending target, else current
+        // position), show it immediately, and fire ONE seek after
+        // ~400ms of quiet. Absolute seek-bar taps stay direct
+        // (their own handlers); A-B repeat, replay and the
+        // pending-resume seek are separate paths and do not go
+        // through here.
+        val base = pendingSeekTarget ?: positionMs
+        val target = SeekHelper.clampSeek(base, delta, durationMs)
+        pendingSeekTarget = target
+        positionMs = target
+        // Hold the poll off through the coalescing window + the 1s
+        // settle, so it cannot overwrite the optimistic target.
+        seekSettleUntilMs = System.currentTimeMillis() + 1400L
+        pendingSeekJob?.cancel()
+        pendingSeekJob = seekScope.launch {
+            delay(400L)
+            player.seekTo(target)
+            pendingSeekTarget = null
+            // 2.0.4 (seek fix): give the player a second to actually move
+            // before the poll is allowed to overwrite the target again.
+            seekSettleUntilMs = System.currentTimeMillis() + 1000L
+        }
         pokeControls()
         // Patch 7: a real skip (±10s / the skip setting) pops the
         // design's seek-flash circle; a 33ms step-frame does not.
