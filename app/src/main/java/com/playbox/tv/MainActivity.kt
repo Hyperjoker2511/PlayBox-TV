@@ -236,7 +236,7 @@ internal fun tabSlideDirection(from: Tab, to: Tab): Int {
 /** 2.1.0 (audit N32, bounded form): an open item survives process
  * death. VideoItem is five plain fields, so a list saver round-trips
  * it — the path above all, which is the item's identity everywhere. */
-private val VideoItemSaver: Saver<VideoItem?, List<String>> = listSaver(
+private val VideoItemSaver: Saver<VideoItem?, Any> = listSaver<VideoItem?, String>(
     save = { item ->
         item?.let {
             listOf(

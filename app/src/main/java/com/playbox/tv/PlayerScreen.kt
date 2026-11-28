@@ -853,8 +853,17 @@ internal fun PlayerScreen(item: VideoItem, queue: List<VideoItem>, fromStart: Bo
                     // the dock's fraction a negative duration.
                     if (c.duration > 0) durationMs = c.duration
                     // 2.1.0 (audit N27): the frame-rate match keys
-                    // off the player's reported video format.
-                    val fps = runCatching { c.videoFormat?.frameRate ?: 0f }.getOrDefault(0f)
+                    // off the player's reported video format — the
+                    // selected video track's Format.frameRate (there
+                    // is no videoFormat on MediaController; the track
+                    // list is the real API). 0f when unknown/absent.
+                    val fps = runCatching {
+                        c.currentTracks.groups
+                            .filter { it.type == C.TRACK_TYPE_VIDEO }
+                            .flatMap { group -> (0 until group.length).map { group.getTrackFormat(it) } }
+                            .firstOrNull { it.frameRate > 0f }
+                            ?.frameRate ?: 0f
+                    }.getOrDefault(0f)
                     if (fps > 0f && fps != videoFps) videoFps = fps
                     // 2.0.4 (seek fix): during the settle window after
                     // a seek, keep the optimistic target on screen
