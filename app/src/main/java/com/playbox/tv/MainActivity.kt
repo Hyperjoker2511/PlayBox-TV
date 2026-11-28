@@ -377,6 +377,10 @@ private fun PlayBoxApp() {
     // start; Continue clears the records and lets the app through.
     val crashNote = remember { CrashLog.note(context) }
     val staleVlcDeath = remember { hasStaleVlcAttempt(context) }
+    // 2.0.9 (review C1+D5): when the guard fired, name the suspect
+    // — the file and decoding mode from the last VLC attempt — so
+    // the crash note can tell the owner exactly what died.
+    val vlcDeath = remember { if (staleVlcDeath) lastVlcAttempt(context) else null }
     var crashGateDone by remember { mutableStateOf(false) }
     val showCrashGate = !crashGateDone && (crashNote != null || staleVlcDeath)
 
@@ -416,7 +420,9 @@ private fun PlayBoxApp() {
     LaunchedEffect(playingItem?.path, playingEngine) {
         if (playingItem != null) {
             CrashLog.step(context, "engine chosen: $playingEngine for ${playingItem.name}")
-            if (playingEngine == PlayerEngine.VLC) markVlcAttempt(context)
+            // 2.0.9 (review C1): name the suspect here too — this
+            // mark runs before the player screen composes.
+            if (playingEngine == PlayerEngine.VLC) markVlcAttempt(context, playingItem.path, hwDecPref(context))
         }
     }
     // Patch 4 (exit confirm): Back only asks on Home. Back from
@@ -462,6 +468,7 @@ private fun PlayBoxApp() {
                 CrashNoteScreen(
                     note = crashNote,
                     lastStep = CrashLog.lastStep(context),
+                    vlcDeath = vlcDeath,
                     onContinue = {
                         CrashLog.clear(context)
                         clearVlcAttempt(context)
