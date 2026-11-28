@@ -83,11 +83,16 @@ internal object CrashLog {
 
 /** The note screen: what crashed, or — when there is no Java note —
  * the fact that the app died natively, plus the last breadcrumb.
- * Shown once per crash; Continue clears the records. */
+ * Shown once per crash; Continue clears the records.
+ * 2.0.9 (review D5): when the VLC crash guard fired, say so in
+ * plain language and name the file + decoding mode (vlcDeath) —
+ * silent engine switching used to leave the owner wondering why
+ * the next video opened in Media3. */
 @Composable
 internal fun CrashNoteScreen(
     note: String?,
     lastStep: String,
+    vlcDeath: Pair<String?, String?>? = null,
     onContinue: () -> Unit
 ) {
     val continueFocus = remember { FocusRequester() }
@@ -108,6 +113,21 @@ internal fun CrashNoteScreen(
             },
             fontSize = 20.sp, color = Muted
         )
+        // 2.0.9 (review D5): the guard fired — VLC died on the last
+        // video, so this one opens in Media3. Name the file and the
+        // decoding mode so the crash becomes evidence, not a mystery.
+        if (vlcDeath != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                buildString {
+                    append("VLC crashed on the last video")
+                    if (vlcDeath.first != null) append(" (${vlcDeath.first})")
+                    if (vlcDeath.second != null) append(" in ${vlcDeath.second} mode")
+                    append(", so this one opened in Media3 instead — change it back anytime.")
+                },
+                fontSize = 20.sp, color = White
+            )
+        }
         Spacer(modifier = Modifier.height(20.dp))
         Column(
             modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
