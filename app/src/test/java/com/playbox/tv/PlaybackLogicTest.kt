@@ -61,7 +61,13 @@ class PlaybackLogicTest {
         assertTrue(ResumeStore.shouldResume(60_000L, 600_000L))
         assertFalse(ResumeStore.shouldResume(2_000L, 600_000L))
         assertFalse(ResumeStore.shouldResume(595_000L, 600_000L))
-        assertFalse(ResumeStore.shouldResume(60_000L, 0L))
+        // 2.0.10: with an unknown duration the "10s from the end"
+        // check cannot run — past 5s is enough. The old rule
+        // refused outright, so a position saved while the duration
+        // was unknown was never resumed and the video always
+        // started from the start.
+        assertTrue(ResumeStore.shouldResume(60_000L, 0L))
+        assertFalse(ResumeStore.shouldResume(2_000L, 0L))
     }
 
     @Test fun resumeKeyIsPathItself() {
