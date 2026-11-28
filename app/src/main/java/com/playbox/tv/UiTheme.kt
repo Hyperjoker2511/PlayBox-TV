@@ -71,6 +71,15 @@ internal fun saveResumePosition(context: Context, path: String, posMs: Long, dur
         // Batch 1.4 (polish): "Continue watching" is ordered by when the
         // video was last watched, not by DATE_ADDED.
         recordWatchTime(context, path)
+    } else if (durationMs <= 0L && posMs > 5_000L) {
+        // 2.0.9 (review A2): duration unknown (libvlc length is -1/0
+        // until the demuxer reports it, and may never arrive) — store
+        // the position RAW instead of deleting it. An early or sudden
+        // exit used to ERASE the previously saved position, so the
+        // video restarted from zero. Deletion stays only for
+        // known-duration cases (finished / barely started, below).
+        prefs.edit().putLong(ResumeStore.keyFor(path), posMs).apply()
+        recordWatchTime(context, path)
     } else {
         prefs.edit().remove(ResumeStore.keyFor(path)).apply()
         clearWatchTime(context, path)
