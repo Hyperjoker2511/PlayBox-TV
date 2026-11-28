@@ -293,7 +293,12 @@ internal fun VlcPlayerScreen(
     // it in Settings and return to a live player screen, and the
     // engine is rebuilt with the new mode instead of silently
     // keeping the old one.
-    val hwDecMode = hwDecPref(context)
+    // 2.0.10 (review C2): a file that died on VLC in a hardware
+    // mode uses Off (software) automatically — the per-file mode
+    // wins over the global setting, so the MediaCodec crash cannot
+    // repeat on that file. Files without a per-file mode use the
+    // global setting as before.
+    val hwDecMode = chosenHwDec(context, item.path) ?: hwDecPref(context)
     val engine = remember(restartNonce, hwDecMode) {
         // 2.0.9 (review C1): name the suspect — the file and the
         // decoding mode go into the guard marker with the attempt.
