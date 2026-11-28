@@ -471,6 +471,22 @@ private fun PlayBoxApp() {
                     vlcDeath = vlcDeath,
                     onContinue = {
                         CrashLog.clear(context)
+                        // 2.0.10: pin the dead file BEFORE clearing
+                        // the marker — clearing first re-enables VLC
+                        // and the note's promise ("opened in Media3")
+                        // becomes a lie, which is what the user saw.
+                        // The file stays on Media3 until the user
+                        // changes it back, and if they do switch it
+                        // to VLC it uses Off (software) so the
+                        // MediaCodec crash cannot repeat.
+                        val deadPath = lastVlcAttemptPath(context)
+                        val deadMode = vlcDeath?.second
+                        if (deadPath != null) {
+                            chooseEngine(context, deadPath, PlayerEngine.MEDIA3)
+                            if (deadMode == "decode" || deadMode == "full") {
+                                chooseHwDec(context, deadPath, "off")
+                            }
+                        }
                         clearVlcAttempt(context)
                         crashGateDone = true
                     }
