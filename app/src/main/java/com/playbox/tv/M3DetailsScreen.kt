@@ -170,31 +170,6 @@ internal fun M3DetailsScreen(
     LaunchedEffect(item.path) { fabFocus.requestFocus() }
     val fabInteraction = remember { MutableInteractionSource() }
 
-    // D6: the description is written from real facts only — no
-    // invented synopsis. Duration, format, size, folder, codecs.
-    val description = remember(item, videoMeta) {
-        val folder = when {
-            item.path.startsWith("content://") -> ""
-            else -> {
-                val parent = File(item.path).parent ?: ""
-                when (parent) {
-                    "/storage/emulated/0" -> "Internal storage"
-                    "" -> ""
-                    else -> File(parent).name
-                }
-            }
-        }
-        buildString {
-            append("A ${TimeFormatter.format(item.durationMs)} ${containerOf(item)} ${if (item.isVideo) "video" else "audio track"} (${formatSize(item.sizeBytes)})")
-            if (folder.isNotBlank()) append(" in $folder")
-            val meta = videoMeta
-            if (meta != null) {
-                append(". ${meta.resolution} · ${meta.videoCodec}")
-                if (meta.audioCodec.isNotBlank()) append(" · ${meta.audioCodec}")
-            }
-            append(".")
-        }
-    }
     // D8: Share — the file itself when MediaStore knows it (a
     // content:// URI, never a raw file://), else the name + path
     // as text. No FileProvider exists in the app.
@@ -225,19 +200,25 @@ internal fun M3DetailsScreen(
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
-            // Hero: a fixed 220dp band (D3/D15), the cover morphing
-            // in from the grid (S14), a centred 64dp play circle
-            // and a duration badge — plus a slim resume bar at the
+            // Hero: a 280dp band (D3/D15), the cover morphing in
+            // from the grid (S14), a centred 64dp play circle and
+            // a duration badge — plus a slim resume bar at the
             // bottom when there is a position to resume (D9).
+            // 2.0.10: the hero shows the title on its backdrop when
+            // there is no poster (showTitleWhenEmpty) — before, a
+            // file the retriever cannot read left a bare empty
+            // gradient band, which is why the page looked ugly and
+            // unfinished. The title heading below is removed, so
+            // the title appears once, on the hero.
             item {
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(220.dp)
+                    modifier = Modifier.fillMaxWidth().height(280.dp)
                         .then(sharedModifier("cover:${item.path}", animatedVisibilityScope))
                         .clip(MaterialTheme.shapes.extraLarge)
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 ) {
                     if (item.isVideo) {
-                        VideoThumb(item, Modifier.fillMaxSize())
+                        VideoThumb(item, Modifier.fillMaxSize(), showTitleWhenEmpty = true)
                     } else {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -292,7 +273,12 @@ internal fun M3DetailsScreen(
                 }
                 Spacer(modifier = Modifier.height(20.dp))
             }
-            // Title + description, with the Play FAB beside them.
+            // Metadata line + Play FAB. 2.0.10: the title now lives
+            // on the hero (showTitleWhenEmpty), so the heading below
+            // is gone — it duplicated the title. The description
+            // paragraph is gone too — it only repeated the metadata
+            // in sentence form. What is left is one clean metadata
+            // line and the Play FAB.
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -300,16 +286,6 @@ internal fun M3DetailsScreen(
                     horizontalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            item.name,
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = 33.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             listOfNotNull(
                                 if (item.durationMs > 0) TimeFormatter.format(item.durationMs) else null,
@@ -320,13 +296,6 @@ internal fun M3DetailsScreen(
                                 videoMeta?.audioCodec?.ifBlank { null }
                             ).joinToString("  ·  "),
                             fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            description,
-                            fontSize = 14.sp,
-                            lineHeight = 21.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         if (item.likelyUnsupported) {
