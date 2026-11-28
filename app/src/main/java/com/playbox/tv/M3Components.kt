@@ -326,8 +326,11 @@ internal fun Modifier.zephFocus(
             if (focused && enabled) {
                 // 2.0.2: state-layer fill so the focused item is
                 // visibly lighter even before the ring registers.
+                // 2.0.5: stronger (0.16) — the user found the
+                // highlight hard to follow, so the focused item
+                // must stand out unmistakably.
                 drawRoundRect(
-                    color = focusRing.copy(alpha = 0.12f),
+                    color = focusRing.copy(alpha = 0.16f),
                     size = size,
                     cornerRadius = CornerRadius(cornerRadius.toPx())
                 )
@@ -336,7 +339,8 @@ internal fun Modifier.zephFocus(
             if (focused && enabled) {
                 // 2.0.2: thick bright ring — 5dp, clearly separated
                 // from the item, so it reads from the couch.
-                val stroke = 5.dp.toPx()
+                // 2.0.5: 6dp — the highlight must be unmissable.
+                val stroke = 6.dp.toPx()
                 val offset = 4.dp.toPx()
                 drawRoundRect(
                     color = focusRing,
