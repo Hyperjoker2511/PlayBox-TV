@@ -199,9 +199,15 @@ object ResumeStore {
      * does not get two different keys. Batch 1.2 used path.hashCode(). */
     fun keyFor(path: String): String = path
 
-    /** A position is worth resuming only if it is past 5s and at least 10s from the end. */
+    /** A position is worth resuming only if it is past 5s and at least 10s from the end.
+     * 2.0.10: when the duration is unknown (<= 0) the "10s from the end" check cannot
+     * run — and the old `durationMs > 0L` made shouldResume refuse outright, so a
+     * position saved while the duration was unknown (A2 stores it raw) was never
+     * resumed and the video always started from the start. With an unknown duration,
+     * past 5s is enough. */
     fun shouldResume(savedMs: Long, durationMs: Long): Boolean =
-        savedMs > 5_000L && durationMs > 0L && savedMs < durationMs - 10_000L
+        if (durationMs <= 0L) savedMs > 5_000L
+        else savedMs > 5_000L && savedMs < durationMs - 10_000L
 
     /** True when a saved position is worth holding for a video whose
      * duration is not known yet (folder/USB videos): it is applied once
