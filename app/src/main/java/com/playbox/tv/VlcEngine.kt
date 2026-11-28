@@ -291,6 +291,17 @@ internal fun adjustOptions(brightness: Float, contrast: Float, saturation: Float
     )
 }
 
+/** LibVLC global options from the HW decoding setting. 2.0.6 —
+ * the hwDec pref ("full" by default) was stored and shown as a
+ * Home chip but NEVER passed to LibVLC, so VLC ran on whatever
+ * libvlc chose by default. "full"/"decode" force MediaCodec HW
+ * decoding (the same decoder the VLC app uses); "off" forces
+ * software decoding. Combined with the ":codec=" media option in
+ * play(), this is the VLC fix for the 10-bit crash. */
+internal fun libVlcOptions(context: Context): List<String> =
+    if (hwDecPref(context) == "off") listOf("--avcodec-hw=none")
+    else listOf("--avcodec-hw=mediacodec")
+
 /** Subtitle style as LibVLC media options, from the same
  * playbox_sub_style prefs the Settings screen and the Media3
  * player read — so the Subtitle Size / Colour / Background buttons
@@ -424,6 +435,22 @@ internal class VlcEngine(
             else -> Uri.fromFile(File(path))
         }
         val media = Media(libVlc, uri)
+        // 2.0.6 — VLC fix: tell libvlc WHICH decoder to use, the
+        // way the VLC app does (its Media.setHWDecoderEnabled adds
+        // a ":codec=" media option on every play). Zeph set no codec
+        // option, so libvlc tried its decoders in default order and
+        // hit a broken one on 10-bit HEVC on this Amlogic box — the
+        // native crash that killed the app when you switched to VLC.
+        // The VLC app plays the same file because it forces
+        // MediaCodec. "mediacodec" is the libvlc 3.x module name;
+        // the _ndk/_jni variants are listed too in case the build
+        // still uses them, and avcodec (software) is the last
+        // fallback so a file always has a decoder to try.
+        if (hwDecPref(context) == "off") {
+            media.addOption(":codec=avcodec")
+        } else {
+            media.addOption(":codec=mediacodec,mediacodec_ndk,mediacodec_jni,avcodec")
+        }
         if (deinterlace) {
             media.addOption(":deinterlace=1")
             media.addOption(":deinterlace-mode=$deinterlaceMode")
