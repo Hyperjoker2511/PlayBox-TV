@@ -237,6 +237,8 @@ internal fun chooseEngine(context: Context, path: String, engine: PlayerEngine?)
 
 private const val VLC_GUARD_PREFS = "playbox_vlc_guard"
 private const val VLC_ATTEMPT_KEY = "vlc_attempt"
+private const val VLC_ATTEMPT_PATH_KEY = "vlc_attempt_path"
+private const val VLC_ATTEMPT_MODE_KEY = "vlc_attempt_mode"
 
 /** The VLC player is starting — record the attempt.
  * 1.4.0: commit(), not apply(). The marker's whole job is to
@@ -246,10 +248,16 @@ private const val VLC_ATTEMPT_KEY = "vlc_attempt"
  * marker is written once per play, so the synchronous cost is
  * nothing. MainActivity also marks BEFORE the engine is created
  * (the 1.3.2 marker was only written in a later setup step, so a
- * death during creation left no marker at all). */
-internal fun markVlcAttempt(context: Context) {
+ * death during creation left no marker at all).
+ * 2.0.9 (review C1): also record WHAT was playing — the file
+ * name and the decoding mode — so a VLC death names its suspect
+ * instead of just "VLC crashed." The name (not the full path)
+ * keeps the crash note readable. */
+internal fun markVlcAttempt(context: Context, path: String? = null, mode: String? = null) {
     context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
-        .edit().putBoolean(VLC_ATTEMPT_KEY, true).commit()
+        .edit().putBoolean(VLC_ATTEMPT_KEY, true)
+        .putString(VLC_ATTEMPT_PATH_KEY, path?.substringAfterLast('/'))
+        .putString(VLC_ATTEMPT_MODE_KEY, mode).commit()
 }
 
 /** VLC reported Playing — the attempt survived, clear the marker. */
@@ -263,6 +271,15 @@ internal fun clearVlcAttempt(context: Context) {
 internal fun hasStaleVlcAttempt(context: Context): Boolean =
     context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
         .getBoolean(VLC_ATTEMPT_KEY, false)
+
+/** 2.0.9 (review C1): the file name + decoding mode recorded by
+ * the last VLC attempt — the suspect when the guard fires.
+ * Returns (fileName, mode), either of which may be null. */
+internal fun lastVlcAttempt(context: Context): Pair<String?, String?> {
+    val prefs = context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
+    return prefs.getString(VLC_ATTEMPT_PATH_KEY, null) to
+        prefs.getString(VLC_ATTEMPT_MODE_KEY, null)
+}
 
 /** Aspect modes map to VLC's scale types. Zoom is best-fit at 1.25x —
  * VLC has no crop-zoom of its own. Stretch fills (distorts);
@@ -317,7 +334,12 @@ internal fun adjustOptions(brightness: Float, contrast: Float, saturation: Float
  * going straight to the surface. */
 internal fun libVlcOptions(context: Context): List<String> =
     when (hwDecPref(context)) {
-        "full" -> listOf("--avcodec-hw=mediacodec")
+        // 2.0.9 (review A5): pass --mediacodec-dr EXPLICITLY in
+        // Full mode. Before this, Full relied on libvlc's
+        // mediacodec-dr defaulting to on — the mode's meaning
+        // changed with the libvlc build. Now all three modes are
+        // explicit and mean the same thing on any build.
+        "full" -> listOf("--avcodec-hw=mediacodec", "--mediacodec-dr")
         "off" -> listOf("--avcodec-hw=none")
         else -> listOf("--avcodec-hw=mediacodec", "--no-mediacodec-dr")
     }
