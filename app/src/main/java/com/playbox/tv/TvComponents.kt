@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -272,7 +273,7 @@ internal fun PosterBackdrop(modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier, width: Int = 320, height: Int = 180) {
+internal fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier, width: Int = 320, height: Int = 180, showTitleWhenEmpty: Boolean = false) {
     val context = LocalContext.current
     // 2.0.3: the cache key carries the size (see
     // loadVideoThumbnail) so a small card thumb is never served
@@ -294,7 +295,24 @@ internal fun VideoThumb(item: VideoItem, modifier: Modifier = Modifier, width: I
     } else {
         // 2.0.3: never a bare box — the gradient backdrop while
         // the thumbnail loads, and forever if it can't load.
-        PosterBackdrop(modifier.clip(RoundedCornerShape(24.dp)))
+        // 2.0.5: when the caller asks (card grid), show the title
+        // on the backdrop — a 10-bit file the retriever cannot
+        // read left the card a dark empty box with only a play
+        // icon, so the user could not tell which movie it was.
+        Box(modifier.clip(RoundedCornerShape(24.dp))) {
+            PosterBackdrop(Modifier.fillMaxSize())
+            if (showTitleWhenEmpty) {
+                Text(
+                    item.displayTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 16.dp)
+                )
+            }
+        }
     }
 }
 
