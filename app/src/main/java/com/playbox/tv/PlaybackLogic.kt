@@ -5,9 +5,13 @@ import java.io.File
 /** Pure logic for PlayBox TV Batch 1 — unit-tested, no Android framework needed. */
 
 object SeekHelper {
-    /** Clamp a seek target to [0, durationMs]. Returns 0 when duration is unknown. */
+    /** Clamp a seek target to [0, durationMs]. 2.0.9 (review A1):
+     * when the duration is unknown (<= 0 — late or never reported
+     * on large files), do NOT force 0: floor at zero with no upper
+     * clamp, so a +10s skip from 5s lands at 15s instead of
+     * slamming the player back to the start. */
     fun clampSeek(currentMs: Long, deltaMs: Long, durationMs: Long): Long {
-        if (durationMs <= 0L) return 0L
+        if (durationMs <= 0L) return (currentMs + deltaMs).coerceAtLeast(0L)
         return (currentMs + deltaMs).coerceIn(0L, durationMs)
     }
 
