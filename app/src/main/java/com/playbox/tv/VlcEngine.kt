@@ -239,6 +239,25 @@ private const val VLC_GUARD_PREFS = "playbox_vlc_guard"
 private const val VLC_ATTEMPT_KEY = "vlc_attempt"
 private const val VLC_ATTEMPT_PATH_KEY = "vlc_attempt_path"
 private const val VLC_ATTEMPT_MODE_KEY = "vlc_attempt_mode"
+private const val VLC_ATTEMPT_FULL_PATH_KEY = "vlc_attempt_full_path"
+
+// ---------- 2.0.10: per-file decoding mode (review C2) ----------
+// A file that died on VLC in a hardware mode (Decode/Full) is
+// remembered, so the next time it is opened on VLC it uses Off
+// (software) automatically — the mode that has no MediaCodec to
+// crash on. The user can change the global mode in Settings;
+// the per-file Off only wins for the file that proved it needs
+// it. Stored like the per-file engine choice.
+private const val HWDEC_PREFS = "playbox_hwdec_choice"
+
+internal fun chosenHwDec(context: Context, path: String): String? =
+    context.getSharedPreferences(HWDEC_PREFS, Context.MODE_PRIVATE).getString(path, null)
+
+internal fun chooseHwDec(context: Context, path: String, mode: String?) {
+    val edit = context.getSharedPreferences(HWDEC_PREFS, Context.MODE_PRIVATE).edit()
+    if (mode == null) edit.remove(path) else edit.putString(path, mode)
+    edit.apply()
+}
 
 /** The VLC player is starting — record the attempt.
  * 1.4.0: commit(), not apply(). The marker's whole job is to
@@ -252,12 +271,16 @@ private const val VLC_ATTEMPT_MODE_KEY = "vlc_attempt_mode"
  * 2.0.9 (review C1): also record WHAT was playing — the file
  * name and the decoding mode — so a VLC death names its suspect
  * instead of just "VLC crashed." The name (not the full path)
- * keeps the crash note readable. */
+ * keeps the crash note readable.
+ * 2.0.10: also store the FULL path, so the crash gate can pin
+ * the dead file to Media3 and to Off decoding — the name alone
+ * cannot identify the file to pin. */
 internal fun markVlcAttempt(context: Context, path: String? = null, mode: String? = null) {
     context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
         .edit().putBoolean(VLC_ATTEMPT_KEY, true)
         .putString(VLC_ATTEMPT_PATH_KEY, path?.substringAfterLast('/'))
-        .putString(VLC_ATTEMPT_MODE_KEY, mode).commit()
+        .putString(VLC_ATTEMPT_MODE_KEY, mode)
+        .putString(VLC_ATTEMPT_FULL_PATH_KEY, path).commit()
 }
 
 /** VLC reported Playing — the attempt survived, clear the marker. */
@@ -280,6 +303,13 @@ internal fun lastVlcAttempt(context: Context): Pair<String?, String?> {
     return prefs.getString(VLC_ATTEMPT_PATH_KEY, null) to
         prefs.getString(VLC_ATTEMPT_MODE_KEY, null)
 }
+
+/** 2.0.10: the FULL path of the last VLC attempt — the file the
+ * crash gate pins to Media3 and to Off decoding. Null when no
+ * attempt was recorded. */
+internal fun lastVlcAttemptPath(context: Context): String? =
+    context.getSharedPreferences(VLC_GUARD_PREFS, Context.MODE_PRIVATE)
+        .getString(VLC_ATTEMPT_FULL_PATH_KEY, null)
 
 /** Aspect modes map to VLC's scale types. Zoom is best-fit at 1.25x —
  * VLC has no crop-zoom of its own. Stretch fills (distorts);
@@ -483,15 +513,17 @@ internal class VlcEngine(
         // option, so libvlc tried its decoders in default order and
         // hit a broken one on 10-bit HEVC on this Amlogic box — the
         // native crash that killed the app when you switched to VLC.
-        // The VLC app plays the same file because it forces
-        // MediaCodec. "mediacodec" is the libvlc 3.x module name;
-        // the _ndk/_jni variants are listed too in case the build
-        // still uses them, and avcodec (software) is the last
-        // fallback so a file always has a decoder to try.
+        // 2.0.10 — the VLC app puts mediacodec_ndk FIRST (the NDK
+        // MediaCodec, the stable path on Android 26+); Zeph put the
+        // older JNI "mediacodec" first, and that is the module that
+        // dies on this box's 10-bit HEVC. Match the VLC app's
+        // order so the NDK decoder is tried before the JNI one.
+        // avcodec (software) stays last so a file always has a
+        // decoder to try.
         if (hwDecPref(context) == "off") {
             media.addOption(":codec=avcodec")
         } else {
-            media.addOption(":codec=mediacodec,mediacodec_ndk,mediacodec_jni,avcodec")
+            media.addOption(":codec=mediacodec_ndk,mediacodec_jni,mediacodec,avcodec")
         }
         if (deinterlace) {
             media.addOption(":deinterlace=1")
