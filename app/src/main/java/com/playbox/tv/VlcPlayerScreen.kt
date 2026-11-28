@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,7 +67,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.videolan.libvlc.MediaPlayer
 
@@ -114,6 +117,11 @@ internal fun VlcPlayerScreen(
     // overwriting positionMs from the not-yet-moved player is what
     // made the time snap back instantly.
     var seekSettleUntilMs by remember { mutableStateOf(0L) }
+    // 2.0.9 (review A3): seek coalescing — see PlayerScreen; the
+    // same five-press pile-up crashed VLC on 3-hour files.
+    val seekScope = rememberCoroutineScope()
+    var pendingSeekTarget by remember { mutableStateOf<Long?>(null) }
+    var pendingSeekJob by remember { mutableStateOf<Job?>(null) }
     var speed by remember { mutableStateOf(startSpeed ?: settings.getFloat("default_speed", 1f)) }
     var status by remember { mutableStateOf("") }
     var panel by remember { mutableStateOf<String?>(null) }
@@ -133,6 +141,11 @@ internal fun VlcPlayerScreen(
     var subsOn by remember { mutableStateOf(settings.getBoolean("subtitles_on", true)) }
     var interactionTick by remember { mutableStateOf(0) }
     var pendingSeekMs by remember(item) { mutableStateOf(0L) }
+    // 2.0.9 (review A4): retry count for the pending resume seek
+    // — a setTime issued before the input is ready must not be
+    // lost. The poll re-issues it (up to 3 times) until the player
+    // is actually near the target.
+    var pendingSeekTries by remember { mutableStateOf(0) }
     var lastSavedMs by remember { mutableStateOf(0L) }
     var tracksVersion by remember { mutableStateOf(0) }
     var aspectMode by remember { mutableStateOf(AspectMode.FIT) }
@@ -274,8 +287,17 @@ internal fun VlcPlayerScreen(
     // covers construction, attach and play, and engine recreations
     // (brightness / contrast / saturation). It is a plain boolean
     // write, idempotent, so marking on every recreation is safe.
-    val engine = remember(restartNonce) {
-        markVlcAttempt(context)
+    // 2.0.9 (review A6): the DR option is a LibVLC *construction*
+    // option, so a decoding-mode change only reaches a NEW engine.
+    // The mode is a remember key alongside restartNonce — change
+    // it in Settings and return to a live player screen, and the
+    // engine is rebuilt with the new mode instead of silently
+    // keeping the old one.
+    val hwDecMode = hwDecPref(context)
+    val engine = remember(restartNonce, hwDecMode) {
+        // 2.0.9 (review C1): name the suspect — the file and the
+        // decoding mode go into the guard marker with the attempt.
+        markVlcAttempt(context, item.path, hwDecMode)
         runCatching {
             VlcEngine(context, libVlcOptions(context) + adjustOptions(brightness, contrast, saturation)) { eventType ->
                 latestOnEvent.value(eventType)
@@ -397,10 +419,12 @@ internal fun VlcPlayerScreen(
                     val resumeAt = if (shouldResumeAt(saved, item.durationMs, isResumeOn(context))) saved else 0L
                     if (resumeAt > 0) {
                         pendingSeekMs = resumeAt
+                        pendingSeekTries = 0
                         status = "Resumed at ${TimeFormatter.format(resumeAt)}"
                     }
                 } else if (ResumeStore.hasSavedPosition(saved)) {
                     pendingSeekMs = saved
+                    pendingSeekTries = 0
                 }
             }
             CrashLog.step(context, "vlc: engine created, setup done")
@@ -510,9 +534,22 @@ internal fun VlcPlayerScreen(
                 }
                 if (len > 0) durationMs = len
                 isPlaying = p.isPlaying
-                if (pendingSeekMs > 0L && len > 0 && isPlaying) {
-                    runCatching { p.setTime(pendingSeekMs) }
-                    pendingSeekMs = 0L
+                if (pendingSeekMs > 0L && isPlaying) {
+                    // 2.0.9 (review A4): apply the pending resume
+                    // seek once playing, REGARDLESS of len — setTime
+                    // does not need the length, and libvlc's length
+                    // may never arrive for some large files. Retry
+                    // up to 3 times (a seek issued before the input
+                    // is ready must not be lost); stop early once
+                    // the player is actually near the target.
+                    if (kotlin.math.abs(t - pendingSeekMs) < 2000L) {
+                        pendingSeekMs = 0L; pendingSeekTries = 0
+                    } else if (pendingSeekTries < 3) {
+                        runCatching { p.setTime(pendingSeekMs) }
+                        pendingSeekTries++
+                    } else {
+                        pendingSeekMs = 0L; pendingSeekTries = 0
+                    }
                 }
                 if (isPlaying && t > 5_000L && t - lastSavedMs >= 10_000L) {
                     saveResumePosition(context, item.path, t, durationMs)
@@ -552,12 +589,23 @@ internal fun VlcPlayerScreen(
 
     fun pokeControls() { showControls = true; interactionTick++ }
     fun seekBy(delta: Long) {
-        val target = SeekHelper.clampSeek(positionMs, delta, durationMs)
-        runCatching { engine?.player?.setTime(target) }
+        // 2.0.9 (review A3): coalesce — same as PlayerScreen:
+        // accumulate a pending target, show it immediately, fire
+        // ONE setTime after ~400ms of quiet.
+        val base = pendingSeekTarget ?: positionMs
+        val target = SeekHelper.clampSeek(base, delta, durationMs)
+        pendingSeekTarget = target
         positionMs = target
-        // 2.0.4 (seek fix): give the player a second to actually move
-        // before the poll is allowed to overwrite the target again.
-        seekSettleUntilMs = System.currentTimeMillis() + 1000L
+        seekSettleUntilMs = System.currentTimeMillis() + 1400L
+        pendingSeekJob?.cancel()
+        pendingSeekJob = seekScope.launch {
+            delay(400L)
+            runCatching { engine?.player?.setTime(target) }
+            pendingSeekTarget = null
+            // 2.0.4 (seek fix): give the player a second to actually move
+            // before the poll is allowed to overwrite the target again.
+            seekSettleUntilMs = System.currentTimeMillis() + 1000L
+        }
         pokeControls()
         // Patch 7: a real skip pops the design's seek-flash circle.
         if (kotlin.math.abs(delta) >= 1000L) {
@@ -635,6 +683,7 @@ internal fun VlcPlayerScreen(
         // Deinterlace / rotation changed: re-play the same file at the
         // saved position. Speed, volume and delays survive on the player.
         pendingSeekMs = pos
+        pendingSeekTries = 0
         trackChoiceApplied = false
         runCatching { engine?.play(item.path, deinterlaceOn, deinterlaceMode, rotation) }
     }
@@ -642,6 +691,7 @@ internal fun VlcPlayerScreen(
         // Brightness / contrast / saturation changed: they live in the
         // LibVLC options, so the engine itself must be rebuilt.
         pendingSeekMs = positionMs
+        pendingSeekTries = 0
         restartNonce++
     }
 
