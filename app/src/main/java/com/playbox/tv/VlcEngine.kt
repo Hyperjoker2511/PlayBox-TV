@@ -296,11 +296,19 @@ internal fun adjustOptions(brightness: Float, contrast: Float, saturation: Float
  * Home chip but NEVER passed to LibVLC, so VLC ran on whatever
  * libvlc chose by default. "full"/"decode" force MediaCodec HW
  * decoding (the same decoder the VLC app uses); "off" forces
+ * decoding (the same decoder the VLC app uses); "off" forces
  * software decoding. Combined with the ":codec=" media option in
- * play(), this is the VLC fix for the 10-bit crash. */
+ * play(), this is the VLC fix for the 10-bit crash. 2.0.7 adds
+ * "--no-mediacodec-dr": direct rendering (frames straight to the
+ * surface) is the likeliest crash point — the Amlogic 10-bit
+ * decoder hands back formats the surface pipeline chokes on, and
+ * Media3 survives the same chip because ExoPlayer's MediaCodec
+ * path is more defensive. HW still decodes; frames just stop
+ * going straight to the surface. This is the middle mode the VLC
+ * app itself can fall back to. */
 internal fun libVlcOptions(context: Context): List<String> =
     if (hwDecPref(context) == "off") listOf("--avcodec-hw=none")
-    else listOf("--avcodec-hw=mediacodec")
+    else listOf("--avcodec-hw=mediacodec", "--no-mediacodec-dr")
 
 /** Subtitle style as LibVLC media options, from the same
  * playbox_sub_style prefs the Settings screen and the Media3
