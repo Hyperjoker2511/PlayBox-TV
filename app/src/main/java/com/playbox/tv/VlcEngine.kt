@@ -90,57 +90,19 @@ internal object HdrDetect {
     }
 }
 
-// ---------- 2.0.4 (seek fix) ----------
-// 10-bit HEVC (Main 10 profile) files route to VLC. Media3's seek
-// on these files does not take effect on the Jio box — the player
-// is sent seekTo, the time display jumps, then the position poll
-// snaps it back because the player never moved (the MKV seek index
-// is weak and Media3 will not scan for a keyframe). LibVLC's
-// demuxer seeks by scanning, so a 10-bit file that Media3 cannot
-// fast-forward will fast-forward on VLC. Detection: the video
-// track is HEVC Main 10 (profile 2) via MediaExtractor, or the
-// filename carries "10bit"/"10-bit" (the user's Avengers file
-// does). Cached per path, local files only, any failure is false
-// so playback never breaks because detection did.
-internal object TenBitDetect {
-    private val cache = mutableMapOf<String, Boolean>()
-
-    fun isTenBit(item: VideoItem): Boolean {
-        cache[item.path]?.let { return it }
-        val result = detectTenBit(item)
-        cache[item.path] = result
-        return result
-    }
-
-    private fun detectTenBit(item: VideoItem): Boolean {
-        // Filename heuristic first — cheap, and release names
-        // ("1080p.10Bit") carry it.
-        val lower = item.name.lowercase()
-        if (lower.contains("10bit") || lower.contains("10-bit")) return true
-        // Only local files — MediaExtractor cannot open URLs.
-        if (item.path.contains("://")) return false
-        return try {
-            val extractor = android.media.MediaExtractor()
-            extractor.setDataSource(item.path)
-            var tenBit = false
-            for (i in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(i)
-                val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
-                if (!mime.startsWith("video/")) continue
-                // HEVC Main 10 profile (2) is 10-bit. Main (1) is 8-bit.
-                if (mime == "video/hevc" && format.containsKey(android.media.MediaFormat.KEY_PROFILE)) {
-                    if (format.getInteger(android.media.MediaFormat.KEY_PROFILE) == 2) {
-                        tenBit = true; break
-                    }
-                }
-            }
-            extractor.release()
-            tenBit
-        } catch (_: Exception) {
-            false
-        }
-    }
-}
+// ---------- 2.0.5 (crash fix) ----------
+// 2.0.4 routed 10-bit HEVC (Main 10) files to VLC to fix the
+// Media3 seek snap-back. That routing ran BEFORE the user's
+// default-engine setting, so a file named "10Bit" went to VLC
+// even when the user set Media3 — and Zeph's LibVLC (3.7.8)
+// crashes on open for this file on the Jio box, so the movie
+// crashed on both engines. The standalone VLC app plays the
+// same file, so this is Zeph's LibVLC setup, not the file.
+// Removed: 10-bit files now follow the normal rules (default
+// engine, Media3 out of the box) and play on Media3 again, as
+// in 2.0.3. VLC stays one tap away for files that need it.
+// The Media3 seek snap-back on 10-bit is still open — it needs
+// a fix that does not force VLC.
 
 /** Which engine plays this item.
  *  1. An explicit override (the gear's "Switch engine", or the
@@ -190,10 +152,6 @@ internal fun engineFor(
     if (item.likelyUnsupported) return PlayerEngine.VLC
     // 1.4.6 Patch D: HDR goes to VLC for tone mapping.
     if (hdr) return PlayerEngine.VLC
-    // 2.0.4: 10-bit HEVC (Main 10) goes to VLC — Media3's seek does
-    // not take effect on these files on the Jio box (the time jumps
-    // then snaps back), while VLC's demuxer seeks by scanning.
-    if (TenBitDetect.isTenBit(item)) return PlayerEngine.VLC
     // Auto resolves to Media3 here — the rules above already sent
     // everything VLC-only to VLC.
     return if (defaultEngine == PlayerEngine.AUTO) PlayerEngine.MEDIA3 else defaultEngine
