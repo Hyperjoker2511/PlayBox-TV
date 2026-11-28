@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -440,6 +441,10 @@ internal fun M3HomeScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            // 2.0.5: end padding — the last card was
+                            // cut off at the right edge when focused
+                            // or scrolled to (no breathing room).
+                            contentPadding = PaddingValues(end = 24.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(continueWatching, key = { it.path }) { item ->
@@ -466,6 +471,9 @@ internal fun M3HomeScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            // 2.0.5: end padding (see Continue
+                            // watching above).
+                            contentPadding = PaddingValues(end = 24.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(newVideos, key = { it.path }) { item ->
@@ -494,6 +502,9 @@ internal fun M3HomeScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            // 2.0.5: end padding (see Continue
+                            // watching above).
+                            contentPadding = PaddingValues(end = 24.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             items(albums, key = { it.first }) { (name, tracks) ->
@@ -524,12 +535,15 @@ internal fun M3HomeScreen(
     }
 }
 
-/** The hero: 212dp, poster full-bleed with scrims, CONTINUE WATCHING
+/** The hero: 272dp, poster full-bleed with scrims, CONTINUE WATCHING
  * overline, title, meta, progress + "X left", Resume (autofocus) +
  * Details, dots bottom-right. Rotates through `featured` every 9s;
  * the poster + text swap with a 480ms container fade, and if the
  * user was on the Resume button when the hero rotates, focus follows
- * to the new Resume button instead of being stolen or lost. */
+ * to the new Resume button instead of being stolen or lost.
+ * 2.0.5: was 212dp — too short for a 2-line title, so the Resume /
+ * Details button row was clipped off the bottom and the user saw
+ * no Play / Continue button at all. 272dp fits the full content. */
 @Composable
 private fun M3HomeHero(
     item: VideoItem,
@@ -555,7 +569,7 @@ private fun M3HomeHero(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(212.dp)
+            .height(272.dp)
             .clip(RoundedCornerShape(28.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer)
     ) {
@@ -860,7 +874,10 @@ internal fun M3VideoCard(
                         scaleY = thumbScale
                     }
                 ) {
-                    VideoThumb(item, Modifier.fillMaxSize())
+                    // 2.0.5: show the title on the poster when there
+                    // is no thumbnail — a 10-bit file the retriever
+                    // cannot read left the card a dark empty box.
+                    VideoThumb(item, Modifier.fillMaxSize(), showTitleWhenEmpty = true)
                 }
                 Box(
                     modifier = Modifier.fillMaxSize().background(
