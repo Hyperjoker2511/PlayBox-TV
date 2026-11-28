@@ -277,7 +277,7 @@ internal fun VlcPlayerScreen(
     val engine = remember(restartNonce) {
         markVlcAttempt(context)
         runCatching {
-            VlcEngine(context, adjustOptions(brightness, contrast, saturation)) { eventType ->
+            VlcEngine(context, libVlcOptions(context) + adjustOptions(brightness, contrast, saturation)) { eventType ->
                 latestOnEvent.value(eventType)
             }
         }.getOrNull()
